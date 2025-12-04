@@ -1,0 +1,19 @@
+.DS_Store
+
+# local env files
+.env.local
+.env.*.local
+
+# Editor directories and files
+.idea
+.vscode
+
+data/
+node_modules/
+**/.DS_Store
+
+.env
+.venv/
+dist/
+
+.yarn/
