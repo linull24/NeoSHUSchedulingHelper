@@ -8,13 +8,20 @@ and export the complete list of available教学班信息 for the current学期/�
 Usage
 -----
 
-1.  Create a Python environment (3.10+) and install dependencies:
+All crawler assets now live in `crawler/`, managed by `uv` via
+`crawler/pyproject.toml`.
 
-        pip install -r requirements.txt
+1.  Prepare the environment (Python 3.10+):
 
-2.  Run the crawler:
+        cd crawler
+        uv venv .venv
+        uv pip install -r pyproject.toml
 
-        python jwxt_crawler.py -u <学号> -p <密码>
+2.  Run the crawler (either via the script entrypoint or directly):
+
+        uv run jwxt-crawler -u <学号> -p <密码>
+        # 或者
+        uv run python jwxt_crawler.py -u <学号> -p <密码>
 
     Optional arguments:
 
@@ -23,7 +30,7 @@ Usage
 
 3.  Output structure after a successful run:
 
-        data/
+        crawler/data/
         ├── current.json          # 所有已导出的学期编号列表
         └── terms/
             └── 2025-16.json      # 某个学期的课程列表

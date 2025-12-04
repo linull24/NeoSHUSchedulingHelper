@@ -1,0 +1,13 @@
+[project]
+name = "neo-shu-scheduling-helper"
+version = "0.1.0"
+description = "SHU JWXT course crawler"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4==4.12.3",
+    "requests==2.32.3",
+    "rsa==4.9",
+]
+
+[project.scripts]
+jwxt-crawler = "jwxt_crawler:main"
