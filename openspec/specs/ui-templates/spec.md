@@ -35,6 +35,10 @@ A shared token pack (SCSS/CSS variables) MUST provide spacing (`--ui-space-2/3/4
 - **WHEN** rendering filter chips or hover/diagnostics panels
 - **THEN** padding/radius/font/color derive from the token pack (including chip states), keeping solver/course panels visually aligned without per-component SCSS constants.
 
+#### Scenario: Shared component implementation
+- **WHEN** implementing solver list UIs
+- **THEN** use the shared Svelte components (`ListSurface.svelte` for list scaffolds, `FilterBar.svelte` for filter bars) so ConstraintList / DiagnosticsList / Course filters inherit the same meta-template, density toggles, and tokenized styles without bespoke CSS.
+
 ### Requirement: Shared filter/hover template with settings slot
 Filter bars MUST use a shared template: search input, chip row (type/priority/direction/status/source or list-specific), and an optional “settings/presets” slot. Hover/diagnostics panels MUST reuse the same panel style (padding, border, elevation) and obey hover-disable rules (time-conflict off; only non-impossible in “不可调冲突”). All parts inherit tokenized spacing/radius/color roles.
 

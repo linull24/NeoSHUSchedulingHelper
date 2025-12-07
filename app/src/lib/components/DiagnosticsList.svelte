@@ -9,6 +9,7 @@
 </script>
 
 <script lang="ts">
+	import ListSurface from '$lib/components/ListSurface.svelte';
 
 	export let title = '无解';
 	export let subtitle: string | null = null;
@@ -17,31 +18,25 @@
 	export let hoverDisabled = false;
 </script>
 
-<section class="diagnostics" aria-live="polite">
-	<header>
-		<div>
-			<h5>{title}</h5>
-			{#if subtitle}<small>{subtitle}</small>{/if}
-		</div>
-		<small>{items.length} 条</small>
-	</header>
-
-	{#if !items.length}
-		<p class="muted">{emptyLabel}</p>
-	{:else}
-		<ul>
-			{#each items as item (item.id)}
-				<li class:hover-disabled={hoverDisabled}>
-					<div class="label-block">
-						<span class="label">{item.label}</span>
-						{#if item.type}<span class="pill secondary">{item.type}</span>{/if}
-						{#if item.meta}<span class="pill secondary">{item.meta}</span>{/if}
-					</div>
-					<span class="reason">{item.reason}</span>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</section>
+<div aria-live="polite">
+	<ListSurface title={title} subtitle={subtitle} count={items.length} density="compact">
+		{#if !items.length}
+			<p class="muted diagnostics-empty">{emptyLabel}</p>
+		{:else}
+			<ul class="diagnostics-items">
+				{#each items as item (item.id)}
+					<li class:hover-disabled={hoverDisabled}>
+						<div class="label-block">
+							<span class="label">{item.label}</span>
+							{#if item.type}<span class="pill secondary">{item.type}</span>{/if}
+							{#if item.meta}<span class="pill secondary">{item.meta}</span>{/if}
+						</div>
+						<span class="reason">{item.reason}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</ListSurface>
+</div>
 
 <style src="$lib/styles/diagnostics-list.scss" lang="scss"></style>

@@ -32,6 +32,8 @@ All filter bars MUST be rendered through the shared template: search input, chip
 #### Scenario: Hover disable + muted display
 - **WHEN** hover panels render inside time-conflict mode or for impossible/weak-impossible courses
 - **THEN** hover is disabled and diagnostics show muted styles (chip text switches to `--ui-muted`, panel border uses `--ui-border`), matching solver rules; chip states always use the shared `--ui-chip-*` tokens.
+- **WHEN**实现课程过滤工具
+- **THEN**复用 `FilterBar.svelte` + tokenized样式，保证搜索/芯片/设置槽布局一致，可直接在不同视图间复用而无多余 SCSS。
 
 ### Requirement: Dual-mode filtering (simple vs advanced) with mutual exclusivity
 The filter UI MUST provide a simple bar and an advanced panel that are mutually exclusive: opening advanced hides/disables the simple bar, and closing advanced re-enables the simple bar.

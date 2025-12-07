@@ -15,6 +15,7 @@
 </script>
 
 <script lang="ts">
+	import ListSurface from '$lib/components/ListSurface.svelte';
 
 	export let title: string;
 	export let items: ConstraintItem[] = [];
@@ -126,15 +127,10 @@
 	})();
 </script>
 
-<section class="constraint-section">
-	<header>
-		<div>
-			<h5>{title}</h5>
-			<small>{items.length} 条</small>
-		</div>
-		<input type="search" placeholder={searchPlaceholder} bind:value={query} aria-label="搜索约束" />
+<ListSurface title={title} count={items.length}>
+	<svelte:fragment slot="header-actions">
 		{#if primaryActionLabel || secondaryActionLabel}
-			<div class="header-actions">
+			<div class="constraint-actions">
 				{#if secondaryActionLabel}
 					<button type="button" class="ghost" on:click={onSecondaryAction}>
 						{secondaryActionLabel}
@@ -147,9 +143,13 @@
 				{/if}
 			</div>
 		{/if}
-	</header>
+	</svelte:fragment>
 
-	<div class="filter-row">
+	<div slot="search" class="constraint-search">
+		<input type="search" placeholder={searchPlaceholder} bind:value={query} aria-label="搜索约束" />
+	</div>
+
+	<div slot="filters" class="constraint-filters">
 		{#each filterGroups as group (group.key)}
 			<div class="chip-group">
 				<span class="chip-label">{group.label}</span>
@@ -168,10 +168,10 @@
 		{/each}
 	</div>
 
-{#if !filtered.length}
-		<p class="muted">暂无约束</p>
+	{#if !filtered.length}
+		<p class="muted constraint-empty">暂无约束</p>
 	{:else}
-		<ul>
+		<ul class="constraint-items">
 			{#each filtered as item (item.id)}
 				<li>
 					<div class="meta">
@@ -217,6 +217,6 @@
 			{/each}
 		</ul>
 	{/if}
-</section>
+</ListSurface>
 
 <style src="$lib/styles/constraint-list.scss" lang="scss"></style>

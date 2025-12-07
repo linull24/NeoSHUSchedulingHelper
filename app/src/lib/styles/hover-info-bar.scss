@@ -2,15 +2,15 @@
 
 .hover-info-bar {
 	margin-top: var(--ui-space-4);
-	background: rgba(17, 21, 31, 0.85);
-	color: #f5f7ff;
+	background: var(--ui-surface);
+	color: inherit;
 	border-radius: var(--ui-radius-lg);
 	padding: var(--ui-space-4) var(--ui-space-5);
 	display: flex;
 	flex-direction: column;
 	gap: var(--ui-space-2);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-	font-size: var(--ui-font-md);
+	box-shadow: var(--ui-elev-1);
+	border: 1px solid var(--ui-border);
 }
 
 .primary {
@@ -27,7 +27,7 @@
 
 .primary span {
 	font-size: var(--ui-font-md);
-	color: rgba(245, 247, 255, 0.75);
+	color: var(--ui-muted);
 }
 
 .secondary {
@@ -35,12 +35,12 @@
 	flex-wrap: wrap;
 	gap: var(--ui-space-3);
 	font-size: var(--ui-font-sm);
-	color: rgba(245, 247, 255, 0.85);
+	color: var(--ui-muted);
 }
 
 .placeholder {
 	display: flex;
 	flex-direction: column;
 	gap: var(--ui-space-1);
-	color: rgba(245, 247, 255, 0.8);
+	color: var(--ui-muted);
 }

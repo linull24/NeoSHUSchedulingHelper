@@ -1,22 +1,6 @@
 @use '$lib/styles/ui-tokens.scss' as *;
 
-.diagnostics {
-	display: flex;
-	flex-direction: column;
-	gap: var(--ui-space-3);
-}
-
-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-}
-
-header h5 {
-	margin: 0;
-}
-
-ul {
+.diagnostics-items {
 	list-style: none;
 	margin: 0;
 	padding: 0;
@@ -25,7 +9,7 @@ ul {
 	gap: var(--ui-space-2);
 }
 
-li {
+.diagnostics-items li {
 	display: flex;
 	gap: var(--ui-space-3);
 	align-items: baseline;
@@ -34,7 +18,7 @@ li {
 	background: var(--ui-surface-muted);
 }
 
-li:hover:not(.hover-disabled) {
+.diagnostics-items li:hover:not(.hover-disabled) {
 	background: var(--ui-accent-soft);
 }
 
@@ -66,7 +50,8 @@ li:hover:not(.hover-disabled) {
 	background: var(--ui-surface-muted);
 }
 
-.muted {
+.diagnostics-empty {
 	color: var(--ui-muted);
 	font-size: var(--ui-font-md);
+	margin: 0;
 }

@@ -1,48 +1,38 @@
 @use '$lib/styles/ui-tokens.scss' as *;
 
-.constraint-section {
-	display: flex;
-	flex-direction: column;
-	gap: var(--ui-space-4);
-}
-
-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--ui-space-3);
-	flex-wrap: wrap;
-}
-
-header input {
-	min-width: 10rem;
+.constraint-search input {
+	width: 100%;
+	min-width: clamp(200px, 30vw, 420px);
 	border: 1px solid var(--ui-border);
 	border-radius: var(--ui-radius-md);
 	padding: var(--ui-space-2) var(--ui-space-3);
 	background: var(--ui-surface);
 	color: inherit;
+	font-size: var(--ui-font-md);
 }
 
-.header-actions {
+.constraint-actions {
 	display: flex;
 	gap: var(--ui-space-2);
+	flex-wrap: wrap;
 }
 
-.header-actions button {
+.constraint-actions button {
 	border-radius: var(--ui-radius-md);
 	padding: var(--ui-space-2) var(--ui-space-3);
 	border: 1px solid var(--ui-border);
 	background: var(--ui-surface);
 	cursor: pointer;
+	font-size: var(--ui-font-sm);
 }
 
-.header-actions .primary {
+.constraint-actions .primary {
 	background: var(--ui-accent);
 	color: #fff;
 	border-color: var(--ui-border-strong);
 }
 
-.filter-row {
+.constraint-filters {
 	display: grid;
 	gap: var(--ui-space-2);
 	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -81,7 +71,7 @@ header input {
 	color: var(--ui-accent);
 }
 
-ul {
+.constraint-items {
 	list-style: none;
 	margin: 0;
 	padding: 0;
@@ -90,7 +80,7 @@ ul {
 	gap: var(--ui-space-3);
 }
 
-li {
+.constraint-items li {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -101,21 +91,21 @@ li {
 	background: var(--ui-surface);
 }
 
-.meta {
+.constraint-items .meta {
 	display: flex;
 	flex-direction: column;
 	gap: var(--ui-space-2);
 }
 
-.label strong {
+.constraint-items .label strong {
 	display: block;
 }
 
-.label small {
+.constraint-items .label small {
 	color: var(--ui-muted);
 }
 
-.tags {
+.constraint-items .tags {
 	display: flex;
 	gap: var(--ui-space-2);
 	flex-wrap: wrap;
@@ -167,7 +157,8 @@ li {
 	border-color: var(--ui-border-strong);
 }
 
-.muted {
+.constraint-empty {
 	color: var(--ui-muted);
 	font-size: var(--ui-font-md);
+	margin: 0;
 }
