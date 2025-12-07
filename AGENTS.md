@@ -19,8 +19,10 @@
 
 ## 3. OpenSpec 角色
 
-- 监督与变更记录：proposal → apply → archive 工作流。
-- 发现实现与 spec 冲突时暂停并提问，必要时更新 change/task。
+- 所有需求与行为以 `openspec/specs/**` 为真相；`openspec/project.md` + `openspec/specs/doc-index/spec.md` 提供导航。
+- 变更流程（无例外）：`proposal` → `design` → `plan`/`tasks` → `apply`/归档；对照 `openspec/changes/<change-id>/`.
+- 新工作前先查 `openspec/specs/doc-index/spec.md`，确认对应模块以及是否已有活跃 change。
+- 发现实现与 spec 冲突时暂停，更新 `openspec/changes/<change-id>/tasks.md` 或开新 change，请在人类确认后继续。
 
 ## 4. Spec Kit 角色
 
