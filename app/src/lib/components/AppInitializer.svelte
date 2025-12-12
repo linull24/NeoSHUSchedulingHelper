@@ -20,4 +20,4 @@
 	}
 </script>
 
-<SelectionModePrompt open={showPrompt} on:close={handleClose} />
+<SelectionModePrompt open={showPrompt} onClose={handleClose} />

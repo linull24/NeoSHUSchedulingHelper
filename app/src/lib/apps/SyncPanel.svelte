@@ -1,4 +1,5 @@
 <script lang="ts">
+import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 import ListSurface from '$lib/components/ListSurface.svelte';
 import { datasetMeta } from '$lib/data/catalog/courseCatalog';
 import { encodeSelectionSnapshotBase64, importSelectionSnapshotBase64 } from '$lib/utils/selectionPersistence';
@@ -8,6 +9,7 @@ import { githubToken, clearGithubToken } from '$lib/stores/githubAuth';
 import { get } from 'svelte/store';
 import { onMount } from 'svelte';
 import { translator } from '$lib/i18n';
+import type { TranslateFn } from '$lib/i18n';
 import { storageState, type StoragePreferencesSnapshot } from '$lib/stores/storageState';
 import '$lib/styles/panels/sync-panel.scss';
 
@@ -23,7 +25,7 @@ import '$lib/styles/panels/sync-panel.scss';
 let gistBusy = false;
 let storageSnapshot: StoragePreferencesSnapshot | null = null;
 
-	let t = (key: string) => key;
+let t: TranslateFn = (key) => key;
 	$: t = $translator;
 	$: storageSnapshot = $storageState;
 
@@ -151,11 +153,13 @@ let storageSnapshot: StoragePreferencesSnapshot | null = null;
 	}
 </script>
 
+<DockPanelShell>
 <ListSurface
-	title={t('panels.sync.title')}
-	subtitle={format('panels.sync.currentTerm', { term: datasetMeta.semester ?? '' })}
-	density="comfortable"
->
+		title={t('panels.sync.title')}
+		subtitle={format('panels.sync.currentTerm', { term: datasetMeta.semester ?? '' })}
+		density="comfortable"
+		enableStickyToggle={true}
+	>
 		<div class="sync-grid">
 			{#if storageSnapshot}
 				<div class="card">
@@ -283,3 +287,4 @@ let storageSnapshot: StoragePreferencesSnapshot | null = null;
 			</div>
 		</div>
 </ListSurface>
+</DockPanelShell>

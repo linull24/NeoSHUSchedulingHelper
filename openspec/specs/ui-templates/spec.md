@@ -1,95 +1,98 @@
-# ui-templates Specification
+# UI Templates Spec (Virtual Theme Layer)
 
 ## Purpose
-Unify list-like UI surfaces (constraints/diagnostics/course lists) with a shared meta-template, tokenized styling, and responsive density guardrails so solver/course UIs stay consistent across headers/filters/body/footer and hover/diagnostics panels.
+Provide the canonical template for list-like panels (All/Selected/Candidate/Solver/Diagnostics/Settings/Sync) so every Dock panel shares the same header/search/filter/body/footer scaffolding, density behavior, and token attachments. Templates consume UnoCSS utilities plus semantic `--app-*` tokens only.
+
+## Components Covered
+- `<ListSurface>` (Svelte component + styles)
+- `<FilterBar>`
+- `<PaginationFooter>`
+- Hover/diagnostics panels rendered by list rows
+
 ## Requirements
-### Requirement: Meta-template scaffold with responsive density
-List surfaces MUST share a meta-template exposing slots for `header` (title/actions), `search`, `filters` (chips + optional settings slot), `body` (row renderer), and optional `footer` (pagination/summary). The template MUST accept density modes (`comfortable` / `compact`) and use CSS clamps (e.g., `clamp(min, vw, max)`) instead of fixed widths; when width/height is too small, it SHOULD stack rather than shrink fonts below readable size.
 
-#### Slot contract
-| Slot | Required | Layout rules | Notes |
-|------|----------|--------------|-------|
-| `header` | Yes | `clamp(320px, 60vw, 960px)` width, align items center, actions right-aligned | stacks when width < 360px |
-| `search` | Optional | Shares row with chips >=520px width; stacks otherwise | uses shared search input with `--ui-space-3` padding |
-| `filters` | Optional | Chip row gap `--ui-space-2`, wraps across rows, includes preset/settings slot | hides entirely when no filters |
-| `body` | Yes | Flex/grid container, min-height 240px, scrolls on overflow | row height tied to density |
-| `footer` | Optional | 48px tall, houses pagination hook, collapses when not provided | obeys pagination mode config |
+### Requirement: Slot scaffold with sticky support
+`<ListSurface>` MUST expose slots:
+| Slot | Description | Layout |
+| --- | --- | --- |
+| `header-meta` | Title, summary text | Flex row, `gap-2`, `min-h-8` |
+| `header-actions` | Buttons/toggles | Right-aligned flex row |
+| `search` | Search input slot | Shares row with filters when width ≥ 520px |
+| `filters` | Chip rows / filter controls | Wraps, `gap-var(--app-space-2)` |
+| `filters-settings` | Optional advanced section | Collapsible; uses sticky within filter area |
+| `body` | Required list/grid content | `flex-1`, `min-h-0`, `overflow-auto` |
+| `footer` | Pagination/summary | 48px height when rendered |
 
-#### Scenario: Apply meta-template to solver/diagnostics lists
-- **WHEN** rendering constraint/diagnostics/results lists
-- **THEN** they consume the meta-template slots, pass density mode, and render footer only when pagination is enabled.
+Slots `header-meta`, `header-actions`, `search`, `filters`, `filters-settings` MAY receive `data-sticky="true"`; ListSurface must wire them to DockPanelShell sticky behavior (top offsets + background tokens).
 
-#### Scenario: Responsive guardrails
-- **WHEN** viewport size changes
-- **THEN** headers/filters/body respect clamp-based widths and stacked fallback instead of fixed pixels; compact mode tightens gaps while keeping readability.
+### Requirement: Responsive sizing without hard clamps
+ListSurface container inherits width from DockPanelShell and MUST use `w-full min-w-0 flex flex-col`. Reflow rules:
+- ≥520px: header meta/actions share a row; search field may sit inline with chips.
+- 360–520px: header/search/filter stack into two rows, maintaining `--app-text-sm` typography.
+- <360px: sections stack vertically with `gap=var(--app-space-2)`; buttons wrap under titles.
+Body min-height remains 240px. Pagination footer hides page-size + total summary when width < 256px (only prev/next remain). Panels rely on ResponsiveSwitch (see DockWorkspace spec) for large vs compact variants instead of shrinking fonts below `--app-text-sm`.
 
-#### Scenario: Stack fallback under guardrails
-- **WHEN** width drops below 320px
-- **THEN** header/search/filter stack vertically and pagination hides everything except prev/next under 256px so fonts never shrink below `--ui-font-sm`.
+### Requirement: Density is internal-only
+ListSurface accepts `density: 'comfortable' | 'compact'`, toggling spacing + text tokens:
+- Comfortable: `gap = var(--app-space-3)`, `font = var(--app-text-md)`
+- Compact: `gap = var(--app-space-2)`, `font = var(--app-text-sm)`
+There is NO user-facing “紧凑模式” switch; density is a panel-level prop (e.g., SelectedCourses defaults to compact).
 
-### Requirement: Token pack for spacing/typography/radius/colors/chips
-A shared token pack (SCSS/CSS variables) MUST provide spacing (`--ui-space-2/3/4`), radius (`--ui-radius-sm/md/lg`), font scale (`--ui-font-sm/md/lg`), color roles (`--ui-surface`, `--ui-border`, `--ui-accent`, `--ui-warn`, `--ui-muted`), and chip state tokens. Tokens MUST alias current theme values via shims to avoid visual drift. Density toggles MUST only swap between these tokens (comfortable uses `--ui-font-md`, compact uses `--ui-font-sm` + reduced spacing) instead of reintroducing hard-coded font sizes.
+### Requirement: FilterBar template reuse
+`<FilterBar>` provides:
+- Optional `mode` slot for density/status text.
+- `simple` slot for search + inline inputs (flex, wraps, `gap-3`).
+- `view-controls` slot for toggles/dropdowns.
+- `chips` slot rendered as a flex-wrapping row (chips use `--app-color-chip-*` tokens).
+- `settings` slot for secondary actions (right-aligned).
+- `advanced` slot inside a dashed container with its own scroll area capped at 40% of panel height.
 
-#### Scenario: Tokenized chips and panels
-- **WHEN** rendering filter chips or hover/diagnostics panels
-- **THEN** padding/radius/font/color derive from the token pack (including chip states), keeping solver/course panels visually aligned without per-component SCSS constants.
+All sections use UnoCSS `flex`/`flex-wrap` classes; grid utilities are not used outside encapsulated components. Horizontal scroll is forbidden; chips wrap or fall into ResponsiveSwitch-provided compact controls.
 
-#### Scenario: Shared component implementation
-- **WHEN** implementing solver list UIs
-- **THEN** use the shared Svelte components (`ListSurface.svelte` for list scaffolds, `FilterBar.svelte` for filter bars) so ConstraintList / DiagnosticsList / Course filters inherit the same meta-template, density toggles, and tokenized styles without bespoke CSS.
+### Requirement: Hover panel contract
+Hover/diagnostics surfaces share:
+- Padding `var(--app-space-3)`
+- Border `1px solid color-mix(in srgb, var(--app-color-border-subtle) 75%, transparent)`
+- Background `var(--app-color-bg-elevated)`
+- Elevation `box-shadow: var(--app-shadow-soft)`
+- Motion uses `animate-[app-elevation-in_150ms_ease-out]`
 
-### Requirement: Shared filter/hover template with settings slot
-Filter bars MUST use a shared template: search input, chip row (type/priority/direction/status/source or list-specific), and an optional “settings/presets” slot. Hover/diagnostics panels MUST reuse the same panel style (padding, border, elevation) and obey hover-disable rules (time-conflict off; only non-impossible in “不可调冲突”). All parts inherit tokenized spacing/radius/color roles.
+Hover is disabled when solver marks “time-conflict off” or `diagnostic.actionable=false`.
 
-#### Scenario: Filter bar reuse
-- **WHEN** rendering filters above solver/course/diagnostics lists
-- **THEN** the shared template provides search + chips + settings slot with tokenized spacing; no hard-coded per-list gaps.
+### Requirement: Pagination footer
+`<PaginationFooter>` displays:
+- Prev/Next buttons (always)
+- Neighbor/jump controls (>=384px width)
+- Page-size select + total summary (>=512px width)
+In continuous mode, footer collapses to `display: none` with no leftover padding. When sticky header is active, footer remains non-sticky to avoid double pinning.
 
-#### Scenario: Hover panel gating
-- **WHEN** showing hover/diagnostics tooltips
-- **THEN** the panel uses the shared style and disables hover in time-conflict mode; in “不可调冲突” only non-impossible items show hover, matching existing rules.
+### Requirement: i18n-first
+ListSurface consumes translator keys for panel titles, descriptions, pagination labels. Hard-coded strings are forbidden. Props: `titleKey`, `descriptionKey`, `emptyStateKey`.
 
-### Requirement: Pagination/footer hook in meta-template
-The meta-template MUST offer an optional footer hook for pagination: prev/next, neighbor/jump (as per global pagination settings), page-size display/selection, and total summary. It MUST collapse entirely in continuous mode and follow the token pack for spacing/color/radius/typography.
+### Requirement: UnoCSS + tokens only
+All layout classes use UnoCSS (`flex`, `grid`, `gap-*`, `p-*`). Colors/spacing/typography come from `--app-*` tokens. No SCSS variables or runtime tokens allowed.
 
-#### Scenario: Footer in paged mode
-- **WHEN** pagination is enabled
-- **THEN** the footer shows prev/next + neighbor/jump controls, page-size (from global settings), and total summary with tokenized styling; omitted cleanly in continuous mode without extra padding.
+### Requirement: Integration with Dock Workspace
+- ListSurface root sets `data-panel` attributes so DockPanelShell can toggle sticky classes.
+- Panel-specific wrappers (All/Selected/...) must not override min-width; they pass `class="flex flex-col min-h-0"` and rely on DockPanelShell for clamping.
 
-### Requirement: Meta-template for list surfaces with slots and pagination footer
-List-like UIs (constraints, diagnostics, course lists) MUST share a meta-template scaffold that exposes slots for header (title/actions), search, filter chips, list body, and an optional footer for pagination/summary. The template MUST accept density modes (comfortable/compact) and responsive sizing via CSS clamps (no hard-coded widths/heights). Pagination footer MUST host prev/next, page-size select, and total count, styled by shared tokens and removable when unused.
+## Scenarios
 
-#### Slot contract
-| Slot | Required | Layout rules | Notes |
-|------|----------|--------------|-------|
-| `header` | Yes | `clamp(320px, 60vw, 960px)` width, align items center, actions right-aligned | Houses title + action buttons; collapses into stacked rows below 360px |
-| `search` | Optional | Shares row with chips when width >= 520px; stacks otherwise | Uses shared search component with `--ui-space-3` padding |
-| `filters` | Optional | Chip row uses `--ui-space-2` gap, wraps rows; includes preset/settings slot | Pulls shared chip tokens; hide entire section when not provided |
-| `body` | Yes | Flex/grid container with min-height 240px; scrolls when overflow | Row height follows density mode |
-| `footer` | Optional | 48px height, inherits pagination controls, collapses entirely if not present | Accepts pagination mode config (paged/continuous) |
+### Scenario: Solver panel with many controls
+- Use `header-meta` for title + status, `header-actions` for run buttons.
+- `filters` include direction/priority chips; `filters-settings` hosts advanced toggles.
+- `density='comfortable'` for readability.
+- Body renders `<ConstraintList>` rows; footer shows pagination when solver results > page size.
 
-#### Scenario: Apply meta-template to solver lists
-- **WHEN** rendering constraint/diagnostics/results lists
-- **THEN** the meta-template provides header/search/filter/body/footer slots; pagination footer renders prev/next/page-size/total when pagination is enabled, and is omitted otherwise.
+### Scenario: All Courses with compact table
+- `density='compact'` to fit more rows.
+- `filters-settings` adds scroll area for language/week filters.
+- When width < 360px, header/search/filter stack; actions wrap under title.
 
-#### Scenario: Responsive sizing
-- **WHEN** the viewport changes
-- **THEN** the list uses clamp-based widths and density modes (comfortable/compact) instead of fixed pixel widths, keeping chip/header/body layout readable on mobile and desktop.
+### Scenario: Minimal workspace fallback
+- When DockIDE renders the fallback, MinimalWorkspace reuses ListSurface slots but collapses sticky behavior; tokens remain identical. ResponsiveSwitch swaps between a tab strip and select dropdown automatically.
 
-#### Scenario: Stack fallback under guardrails
-- **WHEN** width drops below 320px
-- **THEN** header, search, and filters stack vertically and footer hides everything except prev/next below 256px so typography never shrinks below `--ui-font-sm`.
-
-### Requirement: Shared UI token pack for list/hover/filter styles
-The design system MUST expose a token pack (SCSS/CSS variables) for spacing (`--ui-space-*`), radius (`--ui-radius-*`), font scale (`--ui-font-*`), color roles (`--ui-surface`, `--ui-border`, `--ui-accent`, `--ui-warn`, `--ui-muted`), and chip states, reused across list headers, filter rows, hover/diagnostics panels, and pagination footers. Tokens MUST ship with shims mapping to current theme values to avoid regressions. Density toggles MUST only swap between `--ui-font-md` / `--ui-font-sm` and spacing pairs to avoid ad-hoc values.
-
-#### Scenario: Tokenized chips and panels
-- **WHEN** rendering filter chips or hover/diagnostics panels
-- **THEN** they pull padding/radius/colors from the shared token pack, ensuring consistent look across solver/course panels without duplicating SCSS constants.
-
-### Requirement: Template copy resolves via shared i18n keys
-Meta-templates, Dock headers, and shared panels MUST render titles/descriptions from the translator in `app/src/lib/i18n/`. Hard-coded strings are forbidden; panels either accept a `titleKey` or call `t('panels.X.title')` directly so locale switches update immediately.
-
-#### Scenario: Dock panel header translation
-- **WHEN** a Dock or list template renders its header
-- **THEN** the component consumes `t('panels.*')`/`t('calendar.*')` keys, wiring `layout.tabs` entries as the GoldenLayout tab labels so toggling locales updates the layout without reloading.
+## Validation
+- Manual MCP screenshot review for sticky/pagination behavior.
+- Automated tests (TODO) verifying slot stacking at breakpoints 320px/480px/768px.
+- `npm run check` + `scripts/check_i18n.py all` on changes.

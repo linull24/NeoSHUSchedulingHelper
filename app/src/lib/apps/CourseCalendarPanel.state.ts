@@ -1,5 +1,6 @@
 import { derived, writable, get } from 'svelte/store';
-import { t } from '../i18n';
+import { t, dictionary } from '../i18n';
+import type { Dictionary } from '../i18n';
 import type { CourseCatalogEntry } from '../data/catalog/courseCatalog';
 import { courseCatalog, courseCatalogMap, datasetMeta } from '../data/catalog/courseCatalog';
 import { selectedCourseIds } from '../stores/courseSelection';
@@ -7,13 +8,17 @@ import { activateHover, clearHover, hoveredCourse } from '../stores/courseHover'
 import { adjustHslColor, colorFromHash } from '../utils/color';
 import { measureText } from '../utils/canvas';
 import { showWeekends } from '../stores/paginationSettings';
-import { dictionary } from '../i18n';
 
 export interface CalendarEntry {
 	key: string;
 	id: string;
 	title: string;
 	location: string;
+	teacher?: string;
+	campus?: string;
+	credit?: number;
+	capacity?: number;
+	vacancy?: number;
 	day: number;
 	startPeriod: number;
 	duration: number;
@@ -24,24 +29,50 @@ export interface CalendarEntry {
 
 const calendar = datasetMeta.calendarConfig;
 export const periods = [...(calendar.periods ?? [])];
+const BASE_DAY_MIN = 168;
+const COMPACT_DAY_MIN = 132;
+const TIME_COLUMN_MIN = 88;
 
 const hoveredCellKey = writable<string | null>(null);
 export const activeId = derived(hoveredCourse, ($hovered) => $hovered?.id ?? null);
 
 const hasWeekendEntry = courseCatalog.some((entry) => entry.timeChunks.some((chunk) => chunk.day >= 5));
+const DEFAULT_WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const;
+
+function buildFallbackWeekdays(dictValue: Dictionary | null) {
+	const names = dictValue?.courseCatalog?.weekdays;
+	if (!names) return [...DEFAULT_WEEKDAY_LABELS];
+	return [
+		names.monday,
+		names.tuesday,
+		names.wednesday,
+		names.thursday,
+		names.friday,
+		names.saturday,
+		names.sunday
+	];
+}
+
+function padWeekdays(base: string[], fallback: string[], target: number) {
+	if (base.length >= target) return base.slice(0, target);
+	const result = base.slice();
+	for (let index = base.length; index < target; index += 1) {
+		result.push(fallback[index] ?? fallback[fallback.length - 1] ?? `第${index + 1}天`);
+	}
+	return result;
+}
 
 export const weekdays = derived([showWeekends, dictionary], ([$show, $dict]) => {
-	const base = calendar.weekdays ?? [
-		$dict.courseCatalog.weekdays.monday,
-		$dict.courseCatalog.weekdays.tuesday,
-		$dict.courseCatalog.weekdays.wednesday,
-		$dict.courseCatalog.weekdays.thursday,
-		$dict.courseCatalog.weekdays.friday,
-		$dict.courseCatalog.weekdays.saturday,
-		$dict.courseCatalog.weekdays.sunday
-	];
-	return $show || hasWeekendEntry ? base : base.slice(0, 5);
+	const fallback = buildFallbackWeekdays($dict as Dictionary | null);
+	const datasetWeekdays = calendar.weekdays ? Array.from(calendar.weekdays) : fallback;
+	const includeWeekends = $show || (!hasWeekendEntry && $show);
+	const targetLength = includeWeekends ? Math.max(7, datasetWeekdays.length) : 5;
+	return padWeekdays(datasetWeekdays, fallback, targetLength);
 });
+
+function getDayMinWidth(columnCount: number) {
+	return columnCount > 5 ? COMPACT_DAY_MIN : BASE_DAY_MIN;
+}
 
 export const visibleEntries = derived(
 	[selectedCourseIds, hoveredCourse, weekdays],
@@ -84,7 +115,25 @@ function buildHoverPayload(entry: CalendarEntry) {
 		slot: formatSlot(entry),
 		weekSpan: entry.weekSpan,
 		weekParity: entry.weekParity,
-		source: 'calendar' as const
+		source: 'calendar' as const,
+		extra: [
+			...(entry.teacher ? [{ labelKey: 'hover.extra.teacher', value: entry.teacher }] : []),
+			...(entry.campus ? [{ labelKey: 'hover.extra.campus', value: entry.campus }] : []),
+			...(entry.credit !== undefined
+				? [{ labelKey: 'hover.extra.credit', value: entry.credit }]
+				: []),
+			...(entry.capacity !== undefined
+				? [
+						{
+							labelKey: 'hover.extra.capacity',
+							value:
+								entry.vacancy !== undefined
+									? `${Math.max(entry.vacancy, 0)} / ${entry.capacity}`
+									: entry.capacity
+						}
+				  ]
+				: [])
+		]
 	};
 }
 
@@ -99,9 +148,15 @@ function formatSlot(entry: CalendarEntry) {
 	return `${dayLabel} ${startText} - ${endText}`;
 }
 
-export const tableStyle = derived(weekdays, ($weekdays) =>
-	`grid-template-columns: 60px repeat(${$weekdays.length}, 1fr); grid-template-rows: auto repeat(${periods.length}, var(--period-height));`
-);
+export const tableStyle = derived(weekdays, ($weekdays) => {
+	const minWidth = getDayMinWidth($weekdays.length);
+	return [
+		`--calendar-day-min:${minWidth}px`,
+		`--calendar-day-count:${$weekdays.length}`,
+		`grid-template-columns:minmax(${TIME_COLUMN_MIN}px, auto) repeat(${$weekdays.length}, minmax(var(--calendar-day-min), 1fr))`,
+		`grid-template-rows:auto repeat(${periods.length}, var(--period-height))`
+	].join(';');
+});
 
 function getBaseColor(entry: CalendarEntry) {
 	return colorFromHash(entry.id, { saturation: 60, lightness: 55 });
@@ -151,13 +206,16 @@ export function getClipPath(entry: CalendarEntry): string {
 export function buildBlockStyle(entry: CalendarEntry) {
 	const base = getBaseColor(entry);
 	const clipPath = getClipPath(entry);
+	const indicator = clipPath === 'none' ? null : getIndicatorPosition(entry);
 	return [
 		`--base-color:${base}`,
 		`--span-color:${getSpanTint(base, entry)}`,
 		`--parity-color:${getParityTint(base, entry)}`,
 		`grid-column:${entry.day + 2}`,
 		`grid-row:${entry.startPeriod + 2} / span ${entry.duration}`,
-		clipPath !== 'none' ? `clip-path:${clipPath}` : ''
+		clipPath !== 'none' ? `clip-path:${clipPath}` : '',
+		indicator ? `--indicator-x:${indicator.x}` : '',
+		indicator ? `--indicator-y:${indicator.y}` : ''
 	]
 		.filter(Boolean)
 		.join(';');
@@ -167,8 +225,8 @@ export function shouldShowLabel(entry: CalendarEntry) {
 	const hasSpan = entry.weekSpan !== t('config.weekSpan.full');
 	const hasParity = entry.weekParity !== t('config.weekParity.all');
 	if (hasSpan && hasParity) return false;
-
-	const cellWidth = 120;
+	const columnCount = get(weekdays).length;
+	const cellWidth = getDayMinWidth(columnCount);
 	const cellHeight = 64 * entry.duration;
 	const padding = 32;
 	const availWidth = cellWidth - padding;
@@ -183,6 +241,25 @@ export function shouldShowLabel(entry: CalendarEntry) {
 	return maxTextWidth <= availWidth * factor && textHeight <= availHeight * factor;
 }
 
+function getIndicatorPosition(entry: CalendarEntry) {
+	const spanUpper = entry.weekSpan === t('config.weekSpan.upper');
+	const spanLower = entry.weekSpan === t('config.weekSpan.lower');
+	const parityOdd = entry.weekParity === t('config.weekParity.odd');
+	const parityEven = entry.weekParity === t('config.weekParity.even');
+
+	if (spanUpper && parityOdd) return { x: '34%', y: '44%' };
+	if (spanUpper && parityEven) return { x: '64%', y: '32%' };
+	if (spanLower && parityOdd) return { x: '36%', y: '66%' };
+	if (spanLower && parityEven) return { x: '64%', y: '66%' };
+
+	if (spanUpper) return { x: '40%', y: '36%' };
+	if (spanLower) return { x: '60%', y: '64%' };
+	if (parityOdd) return { x: '38%', y: '52%' };
+	if (parityEven) return { x: '62%', y: '48%' };
+
+	return { x: '50%', y: '50%' };
+}
+
 function buildEntries(courses: CourseCatalogEntry[], weekdayCount: number): CalendarEntry[] {
 	const entries: CalendarEntry[] = [];
 	for (const course of courses) {
@@ -193,6 +270,11 @@ function buildEntries(courses: CourseCatalogEntry[], weekdayCount: number): Cale
 				id: course.id,
 				title: course.title,
 				location: course.location ?? '',
+				teacher: course.teacher,
+				campus: course.campus,
+				credit: course.credit,
+				capacity: course.capacity,
+				vacancy: course.vacancy,
 				day: chunk.day,
 				startPeriod: chunk.startPeriod,
 				duration: chunk.endPeriod - chunk.startPeriod + 1,
@@ -214,6 +296,11 @@ function buildGhostEntry(course: CourseCatalogEntry | null, weekdayCount: number
 			id: course.id,
 			title: course.title,
 			location: course.location ?? '',
+			teacher: course.teacher,
+			campus: course.campus,
+			credit: course.credit,
+			capacity: course.capacity,
+			vacancy: course.vacancy,
 			day: chunk.day,
 			startPeriod: chunk.startPeriod,
 			duration: chunk.endPeriod - chunk.startPeriod + 1,

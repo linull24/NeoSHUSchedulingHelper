@@ -1,7 +1,9 @@
 <script lang="ts">
-import HoverInfoBar from '$lib/components/HoverInfoBar.svelte';
-import { translator } from '$lib/i18n';
-import '$lib/styles/panels/course-calendar-panel.scss';
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
+	import ListSurface from '$lib/components/ListSurface.svelte';
+	import HoverInfoBar from '$lib/components/HoverInfoBar.svelte';
+	import { translator } from '$lib/i18n';
+	import '$lib/styles/panels/course-calendar-panel.scss';
 	import {
 		weekdays,
 		periods,
@@ -23,15 +25,15 @@ import '$lib/styles/panels/course-calendar-panel.scss';
 	$: t = $translator;
 </script>
 
-<section class="calendar-panel">
-	<header>
-		<div>
-			<h3>{t('calendar.title')}</h3>
-			<p>{t('calendar.description')}</p>
-		</div>
-	</header>
-
-	<div class="calendar-table" style={$tableStyle} aria-label={t('calendar.title')}>
+<DockPanelShell>
+	<ListSurface
+		title={t('calendar.title')}
+		subtitle={t('calendar.description')}
+		enableStickyToggle={false}
+		density="comfortable"
+	>
+		<div class="calendar-surface">
+			<div class="calendar-table" style={$tableStyle} aria-label={t('calendar.title')}>
 		<div class="corner"></div>
 		{#each $weekdays as dayLabel, dayIndex}
 			<div class="table-header" style={`grid-column:${dayIndex + 2};`}>{dayLabel}</div>
@@ -94,4 +96,6 @@ import '$lib/styles/panels/course-calendar-panel.scss';
 	</div>
 
 	<HoverInfoBar />
-</section>
+		</div>
+	</ListSurface>
+</DockPanelShell>

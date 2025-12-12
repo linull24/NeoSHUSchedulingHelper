@@ -2,6 +2,7 @@ import type {
 	CalendarConfig,
 	CourseRecord,
 	InsaneCourseData,
+	LocationSlot,
 	ScheduleChunk,
 	SectionEntry,
 	WeekParity,
@@ -264,17 +265,25 @@ function formatSlot(chunks: ScheduleChunk[], calendar: CalendarConfig): string {
 
 function formatLocations(section: SectionEntry): string {
 	const tokens = new Set<string>();
-	section.locations?.forEach((loc) => {
-		const parts = [loc.campus, loc.building, loc.room].filter(Boolean).join(' ');
-		if (parts) tokens.add(parts);
-	});
+	const collect = (loc?: LocationSlot | null) => {
+		const label = buildLocationLabel(loc);
+		if (label) tokens.add(label);
+	};
+	section.locations?.forEach((loc) => collect(loc));
 	section.scheduleChunks?.forEach((chunk) => {
-		chunk.locations?.forEach((loc) => {
-			const parts = [loc.campus, loc.building, loc.room].filter(Boolean).join(' ');
-			if (parts) tokens.add(parts);
-		});
+		chunk.locations?.forEach((loc) => collect(loc));
 	});
-	return tokens.size ? Array.from(tokens).join(' / ') : '待排教室';
+	return tokens.size ? Array.from(tokens).join(' / ') : t('courseCard.locationPending');
+}
+
+function buildLocationLabel(loc?: LocationSlot | null) {
+	if (!loc) return null;
+	const raw = [loc.campus, loc.building, loc.room]
+		.map((value) => value?.trim())
+		.filter(Boolean) as string[];
+	if (!raw.length) return null;
+	const deduped = raw.filter((value, index) => value && value !== raw[index - 1]);
+	return deduped.join(' ');
 }
 
 function formatTeachers(section: SectionEntry, course: CourseRecord): string {

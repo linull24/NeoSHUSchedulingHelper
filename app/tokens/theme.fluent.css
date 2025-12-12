@@ -1,0 +1,23 @@
+:root[data-theme='fluent'] {
+  --app-color-bg: var(--neutral-layer-1, #fafafa);
+  --app-color-bg-elevated: var(--neutral-layer-2, #f3f3f3);
+  --app-color-bg-muted: var(--neutral-layer-3, #ececec);
+  --app-color-panel: var(--neutral-layer-4, #e4e4e4);
+
+  --app-color-fg: var(--neutral-foreground-1, #1b1a19);
+  --app-color-fg-muted: var(--neutral-foreground-2, #605e5c);
+  --app-color-border-subtle: var(--neutral-stroke-1, rgba(27, 26, 25, 0.18));
+  --app-color-border-strong: var(--neutral-stroke-2, rgba(27, 26, 25, 0.3));
+
+  --app-color-primary: var(--accent-fill-rest, #0078d4);
+  --app-color-primary-hover: var(--accent-fill-hover, #106ebe);
+  --app-color-primary-active: var(--accent-fill-active, #005a9e);
+  --app-color-on-primary: var(--neutral-foreground-2-rest, #ffffff);
+
+  --app-color-success: var(--status-success-background1, #107c10);
+  --app-color-warning: var(--status-warning-background1, #f7630c);
+  --app-color-danger: var(--status-danger-background1, #c50f1f);
+
+  --app-shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.16);
+  --app-shadow-hard: 0 16px 30px rgba(0, 0, 0, 0.2);
+}

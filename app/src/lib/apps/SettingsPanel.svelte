@@ -20,6 +20,7 @@
 	} from './SettingsPanel.state';
 	import { translator } from '$lib/i18n';
 	import { locale, type LocaleId } from '$lib/stores/localePreference';
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 	import ListSurface from '$lib/components/ListSurface.svelte';
 	import '$lib/styles/panels/settings-panel.scss';
 
@@ -33,11 +34,14 @@
 	}
 </script>
 
+<DockPanelShell>
 <ListSurface
 	title={t('settings.title')}
 	subtitle={t('settings.subtitle')}
 	density="comfortable"
+	enableStickyToggle={true}
 >
+	<div class="settings-panel">
 	<label>
 		{t('settings.theme')}
 		<select bind:value={$selectedTheme} on:change={handleThemeChange}>
@@ -127,4 +131,6 @@
 			{$showWeekends ? t('settings.weekendOn') : t('settings.weekendOff')}
 		</button>
 	</div>
+</div>
 </ListSurface>
+</DockPanelShell>

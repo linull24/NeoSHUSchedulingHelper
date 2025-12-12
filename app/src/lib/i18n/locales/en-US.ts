@@ -39,10 +39,12 @@ export const enUS = {
     selectPlaceholder: 'Select an option'
   },
   lists: {
-    countLabel: '{count} items'
+    countLabel: '{count} items',
+    pinFilters: 'Pin filters',
+    unpinFilters: 'Unpin filters'
   },
   layout: {
-    dockDescription: 'GoldenLayout prototype hosting every app panel.',
+    dockDescription: 'Dockview workspace hosting every panel with responsive fallback.',
     tabs: {
       allCourses: 'All Courses',
       wishlist: 'Wishlist',
@@ -55,14 +57,28 @@ export const enUS = {
     workspace: {
       loadErrorTitle: 'Unable to load dock layout',
       loadErrorHint: 'Refresh the page or inspect the console for details.',
-      fallbackMessage: 'Dock layout failed to load. Please refresh.'
+      fallbackMessage: 'Dock layout failed to load. Please refresh.',
+      modeDock: 'Dock layout',
+      modeFallback: 'Tabbed layout',
+      toggleToDock: 'Switch to dock layout',
+      toggleToFallback: 'Switch to tabbed layout',
+      toggleReset: 'Reset preference',
+      narrowMessage: 'Viewport is narrow, so the workspace switched to the tabbed layout for reliability.',
+      manualFallbackHint: 'Tabbed layout is active. Use the button above to return to the dock layout at any time.',
+      fallbackTabsAria: 'Fallback workspace panels',
+      compactSelectLabel: 'Choose panel',
+      reason: {
+        auto: 'Auto (narrow width)',
+        error: 'Dock unavailable',
+        user: 'Manual override'
+      }
     }
   },
   calendar: {
     title: 'Course Calendar',
     description: 'Classic timetable layout; time on the left, Monday through Sunday across.',
     slotPrefix: 'Period ',
-    slotSuffix: '',
+    slotSuffix: ' ',
     emptyTitle: 'No course selected',
     emptyHint: 'Hover items in the lists or solver panel to view course details.',
     weekdaysShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -113,6 +129,7 @@ export const enUS = {
     solver: {
       title: 'Solver',
       description: 'Configure hard/soft constraints and run the solver.',
+      intro: 'Add hard/soft constraints, then run the solver to review suggested actions below.',
       run: 'Run solver',
       solving: 'Solving…',
       direction: 'Direction',
@@ -232,6 +249,45 @@ export const enUS = {
       selectionRestored: 'Selection restored: {selected} selected, {wishlist} wishlist',
       errors: {
         rollback: 'Rollback failed'
+      },
+      targets: {
+        selected: 'selected list',
+        wishlist: 'wishlist',
+        unknown: 'lists'
+      },
+      scope: {
+        hard: 'hard constraints',
+        soft: 'soft constraints'
+      },
+      change: {
+        add: 'added',
+        remove: 'removed'
+      },
+      solverStatus: {
+        sat: 'SAT',
+        unsat: 'UNSAT',
+        unknown: 'Unknown'
+      },
+      override: {
+        merge: 'Merge',
+        'replace-all': 'Replace all'
+      },
+      describe: {
+        solverRun: 'Solver run ({status}) · {plan} diffs',
+        solverPreview: 'Previewed solver plan ({plan}) targeting {target}',
+        solverApply: 'Applied solver plan ({plan}) to {target}',
+        solverOverride: 'Override solver plan ({plan}) targeting {target} via {mode}',
+        solverUndo: 'Undo solver result and restore {target}',
+        rollback: 'Rollback {scope}'
+      },
+      selection: {
+        select: 'Selected {course}',
+        deselect: 'Dropped {course}',
+        moveToWishlist: 'Moved {course} to wishlist',
+        wishlistAdd: 'Added {course} to wishlist',
+        wishlistRemove: 'Removed {course} from wishlist',
+        wishlistClear: 'Cleared wishlist ({count} items)',
+        unknownCourse: 'course'
       }
     },
     sync: {
@@ -311,10 +367,10 @@ export const enUS = {
     },
     conflictOptions: {
       any: 'No filter',
-      noConflict: 'No conflicts',
+      noAnyConflict: 'No conflicts',
       noTimeConflict: 'No time conflicts',
-      noHardConflict: 'No hard constraint violations',
-      noImpossible: 'No impossible selections'
+      noHardConstraintConflict: 'No hard constraint violations',
+      noUnavoidableConflict: 'No unavoidable conflicts'
     },
     campus: 'Campus',
     college: 'College',
@@ -372,12 +428,15 @@ export const enUS = {
     includeShort: 'Inc',
     excludeShort: 'Exc',
     noneShort: '□',
+    conflict: 'Conflict',
+    conflictNone: 'No conflict data',
     statusLimited: 'Limited seats',
     statusFull: 'Full',
     teacherPending: 'Teacher TBD',
     timeLabel: 'Time',
     infoLabel: 'Info',
-    noTime: 'No schedule'
+    noTime: 'No schedule',
+    locationPending: 'Room pending'
   },
   searchBar: {
     placeholder: 'Search course or instructor',
@@ -424,12 +483,8 @@ export const enUS = {
       capacityFullDesc: 'Control whether to show full courses',
       selectionForbidden: 'Selection forbidden',
       selectionForbiddenDesc: 'Exclude or only show courses with selection restrictions',
-      dropForbidden: 'Drop forbidden',
-      dropForbiddenDesc: 'Handle courses that cannot be dropped',
-      locationClosed: 'Location closed',
-      locationClosedDesc: 'Filter courses with unavailable locations',
-      classClosed: 'Class closed',
-      classClosedDesc: 'Hide courses marked as closed by default'
+      vacancyLimited: 'Limited seats',
+      vacancyLimitedDesc: 'Highlight courses where remaining capacity is tight'
     },
     displayOptions: {
       all: 'All',
@@ -458,6 +513,11 @@ export const enUS = {
       odd: 'Odd weeks',
       even: 'Even weeks',
       all: 'All weeks'
+    },
+    conflictOptions: {
+      noAnyConflict: 'No conflicts',
+      noHardConstraintConflict: 'No hard conflicts',
+      noUnavoidableConflict: 'Exclude unavoidable conflicts'
     }
   },
   errors: {

@@ -1,6 +1,8 @@
 import { derived, get } from 'svelte/store';
 import { locale } from '../i18n/localeStore';
-import { currentTheme, setTheme } from './uiTheme';
+import type { LocaleId } from '../i18n/localeStore';
+import { currentTheme, setTheme, availableThemes } from './uiTheme';
+import type { ThemeId } from '../../config/ui';
 import { collapseCoursesByName } from './courseDisplaySettings';
 import { crossCampusAllowed, selectionMode, setCrossCampusAllowed, setSelectionMode } from './coursePreferences';
 import type { SelectionMode } from './coursePreferences';
@@ -69,11 +71,11 @@ export function getStorageStateSnapshot(): StoragePreferencesSnapshot {
 export function applyStoragePreferences(preferences?: StoragePreferencesSnapshot): boolean {
 	if (!preferences) return false;
 	try {
-		if (preferences.locale) {
-			locale.set(preferences.locale as typeof preferences.locale);
+		if (preferences.locale && isLocaleIdValue(preferences.locale)) {
+			locale.set(preferences.locale);
 		}
-		if (preferences.themeId) {
-			setTheme(preferences.themeId as typeof preferences.themeId);
+		if (preferences.themeId && isThemeIdValue(preferences.themeId)) {
+			setTheme(preferences.themeId);
 		}
 		collapseCoursesByName.set(Boolean(preferences.collapseCoursesByName));
 		setCrossCampusAllowed(Boolean(preferences.crossCampusAllowed));
@@ -95,4 +97,15 @@ export function applyStoragePreferences(preferences?: StoragePreferencesSnapshot
 		console.warn('[StorageState] Failed to apply preferences snapshot', error);
 		return false;
 	}
+}
+
+const SUPPORTED_LOCALES: LocaleId[] = ['zh-CN', 'en-US'];
+const SUPPORTED_THEME_IDS = new Set<ThemeId>(availableThemes.map((theme) => theme.id));
+
+function isLocaleIdValue(value: string): value is LocaleId {
+	return SUPPORTED_LOCALES.includes(value as LocaleId);
+}
+
+function isThemeIdValue(value: string): value is ThemeId {
+	return SUPPORTED_THEME_IDS.has(value as ThemeId);
 }

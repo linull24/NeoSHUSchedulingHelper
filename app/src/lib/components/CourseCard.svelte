@@ -6,6 +6,7 @@
 	import { colorFromHash, adjustHslColor } from '$lib/utils/color';
 	import { translator } from '$lib/i18n';
 	import { hoveredCourse } from '$lib/stores/courseHover';
+	import { browser } from '$app/environment';
 	import '$lib/styles/components/course-card.scss';
 
 	export let id: string;
@@ -29,6 +30,8 @@
 	export let selectable = false;
 	export let selectState: 'include' | 'exclude' | null = null;
 	export let onToggleSelect: (() => void) | undefined = undefined;
+	export let showConflictBadge: boolean | undefined = undefined;
+	export let conflictDetails: Array<{ label: string; value?: string }> | null = null;
 
 	// Bidirectional hover highlighting - P2-8b
 	$: isHighlighted = $hoveredCourse?.id === id && $hoveredCourse?.source !== 'list';
@@ -92,6 +95,24 @@
 	$: includeLabel = t('courseCard.includeShort');
 	$: excludeLabel = t('courseCard.excludeShort');
 	$: noneLabel = t('courseCard.noneShort');
+	$: conflictLabel = t('courseCard.conflict');
+
+let titleElement: HTMLDivElement | null = null;
+let truncatedTitleTooltip: string | null = null;
+$: locationLabel =
+	typeof specialInfo === 'string' && specialInfo.trim().length > 0
+		? specialInfo.trim()
+		: t('courseCard.locationPending');
+
+	$: {
+		if (browser && titleElement) {
+			const overflowX = titleElement.scrollWidth - titleElement.clientWidth > 1;
+			const overflowY = titleElement.scrollHeight - titleElement.clientHeight > 1;
+			truncatedTitleTooltip = overflowX || overflowY ? title : null;
+		} else if (!titleElement) {
+			truncatedTitleTooltip = null;
+		}
+	}
 </script>
 
 <article
@@ -101,8 +122,7 @@
 	on:focus={onHover}
 	on:blur={onLeave}
 	data-id={id}
-	tabindex={hoverable ? 0 : -1}
-	role="button"
+	data-status={status ?? undefined}
 	aria-label={`${title} - ${teacher} - ${time}`}
 >
 	<div class="color-marker" style={`background:${markerColor};`}></div>
@@ -143,7 +163,30 @@
 	<div class="card-body">
 		<div class="column title-col">
 			<div class="title-row">
-				<div class="title">{title}</div>
+				<div
+					class="title"
+					bind:this={titleElement}
+					title={truncatedTitleTooltip ?? undefined}
+					aria-label={truncatedTitleTooltip ?? undefined}
+				>
+					{title}
+				</div>
+				{#if showConflictBadge}
+					<div class="conflict-badge" title={conflictLabel}>
+						{conflictLabel}
+						{#if conflictDetails && conflictDetails.length}
+							<div class="conflict-popover">
+								<ul>
+									{#each conflictDetails as detail, idx (idx)}
+										<li>{detail.label}{detail.value ? `：${detail.value}` : ''}</li>
+									{/each}
+								</ul>
+							</div>
+						{:else}
+							<div class="conflict-popover empty">{t('courseCard.conflictNone') ?? '暂无冲突数据'}</div>
+						{/if}
+					</div>
+				{/if}
 				{#if specialTags.length}
 					<div class="tags">
 						{#each specialTags as tag}
@@ -151,11 +194,12 @@
 						{/each}
 					</div>
 				{/if}
-				{#if status}
+				<!-- UI-RECKON-1: Removed status badge per Rule6 - capacity ring is primary indicator -->
+				<!-- {#if status}
 					<span class={`status ${status}`}>
 						{status === 'limited' ? t('courseCard.statusLimited') : t('courseCard.statusFull')}
 					</span>
-				{/if}
+				{/if} -->
 			</div>
 			{#if !collapsed}
 				<div class="subtext">
@@ -175,9 +219,10 @@
 			<div class="label">{t('courseCard.infoLabel')}</div>
 			<div class="value">
 				{#if !collapsed}
-					{specialInfo ?? ''}
-					{#if crossCampusEnabled}
-						{#if specialInfo} · {/if}{campus}
+					<span class="info-primary">{locationLabel}</span>
+					{#if crossCampusEnabled && campus}
+						<span class="divider" aria-hidden="true">·</span>
+						<span class="info-campus">{campus}</span>
 					{/if}
 				{:else}
 					—

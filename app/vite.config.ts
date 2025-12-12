@@ -1,4 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import UnoCSS from 'unocss/vite';
 import { swc } from 'rollup-plugin-swc3';
 import { defineConfig } from 'vite';
 import path from 'node:path';
@@ -8,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
 	plugins: [
+		UnoCSS(),
 		sveltekit(),
 		swc({
 			include: ['src/**/*.{js,ts}'],

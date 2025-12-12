@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 import ListSurface from '$lib/components/ListSurface.svelte';
 import type { ActionLogEntry, SelectionTarget, SolverOverrideMode } from '$lib/data/actionLog';
 import { actionLogEntriesStore, ensureActionLogLoaded, appendActionLog } from '$lib/stores/actionLogStore';
@@ -7,13 +8,14 @@ import type { DesiredLock, SoftConstraint } from '$lib/data/desired/types';
 import type { SolverRunMetrics } from '$lib/data/solver/resultTypes';
 import { addDesiredLock, removeDesiredLock, addSoftConstraint, removeSoftConstraint, ensureDesiredStateLoaded } from '$lib/stores/desiredStateStore';
 import { translator } from '$lib/i18n';
+import type { TranslateFn } from '$lib/i18n';
 import { importSelectionSnapshotBase64 } from '$lib/utils/selectionPersistence';
 import '$lib/styles/panels/action-log-panel.scss';
 
 let rollbacking = false;
 let message = '';
 
-let t = (key: string) => key;
+let t: TranslateFn = (key) => key;
 $: t = $translator;
 
 	onMount(async () => {
@@ -152,10 +154,10 @@ const resolveConstraintTypeLabel = (constraint: SoftConstraint | undefined) => {
 	return t(`panels.solver.constraintTypeLabels.${constraint.type}`);
 };
 
-const resolveTargetLabel = (target?: SelectionTarget) => {
-	if (!target) return t('panels.actionLog.targets.unknown');
-	return t(`panels.actionLog.targets.${target}`);
-};
+	const resolveTargetLabel = (target?: SelectionTarget) => {
+		if (!target) return t('panels.actionLog.targets.unknown');
+		return t(`panels.actionLog.targets.${target}`);
+	};
 
 const resolveOverrideModeLabel = (mode?: SolverOverrideMode) => {
 	if (!mode) return '';
@@ -211,6 +213,9 @@ const resolveOverrideModeLabel = (mode?: SolverOverrideMode) => {
 			target
 		});
 	}
+	if (payload.kind === 'selection') {
+		return describeSelectionEntry(payload);
+	}
 		if (payload.kind === 'rollback') {
 			const scope = t(`panels.actionLog.scope.${payload.scope}`);
 			return replacePlaceholders(t('panels.actionLog.describe.rollback'), { scope });
@@ -223,6 +228,27 @@ const resolveOverrideModeLabel = (mode?: SolverOverrideMode) => {
 		| { type: 'add-lock'; lock?: DesiredLock }
 		| { type: 'remove-soft'; id?: string }
 		| { type: 'add-soft'; constraint?: SoftConstraint };
+
+	type SelectionPayload = {
+		kind: 'selection';
+		change: SelectionChange;
+		target: SelectionTarget;
+		courseId?: string;
+		courseTitle?: string;
+		courseCode?: string;
+		teacher?: string;
+		fromWishlist?: boolean;
+		movedFromSelected?: boolean;
+		count?: number;
+	};
+
+	type SelectionChange =
+		| 'select'
+		| 'deselect'
+		| 'move-to-wishlist'
+		| 'wishlist-add'
+		| 'wishlist-remove'
+		| 'wishlist-clear';
 
 	type ConstraintPayload =
 		| {
@@ -255,9 +281,36 @@ const resolveOverrideModeLabel = (mode?: SolverOverrideMode) => {
 			kind: 'rollback';
 			scope: 'hard' | 'soft';
 			target?: string;
-			};
+		}
+	| SelectionPayload;
+
+	function describeSelectionEntry(payload: SelectionPayload) {
+		const courseLabel = payload.courseTitle ?? payload.courseId ?? t('panels.actionLog.selection.unknownCourse');
+		if (payload.change === 'select') {
+			return replacePlaceholders(t('panels.actionLog.selection.select'), { course: courseLabel });
+		}
+		if (payload.change === 'deselect') {
+			return replacePlaceholders(t('panels.actionLog.selection.deselect'), { course: courseLabel });
+		}
+		if (payload.change === 'move-to-wishlist') {
+			return replacePlaceholders(t('panels.actionLog.selection.moveToWishlist'), { course: courseLabel });
+		}
+		if (payload.change === 'wishlist-add') {
+			return replacePlaceholders(t('panels.actionLog.selection.wishlistAdd'), { course: courseLabel });
+		}
+		if (payload.change === 'wishlist-remove') {
+			return replacePlaceholders(t('panels.actionLog.selection.wishlistRemove'), { course: courseLabel });
+		}
+		if (payload.change === 'wishlist-clear') {
+			return replacePlaceholders(t('panels.actionLog.selection.wishlistClear'), {
+				count: payload.count ?? 0
+			});
+		}
+		return courseLabel;
+	}
 </script>
 
+<DockPanelShell>
 <ListSurface
 	title={t('panels.actionLog.title')}
 	subtitle={t('panels.actionLog.description')}
@@ -290,3 +343,4 @@ const resolveOverrideModeLabel = (mode?: SolverOverrideMode) => {
 		{/if}
 	</div>
 </ListSurface>
+</DockPanelShell>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 	import ListSurface from '$lib/components/ListSurface.svelte';
 	import type { DesiredLock, SoftConstraint } from '$lib/data/desired/types';
 	import {
@@ -36,7 +37,7 @@ import {
 	type TimeTemplate
 } from '$lib/data/solver/timeTemplates';
 import { dictionary as dictionaryStore, translator } from '$lib/i18n';
-import type { Dictionary } from '$lib/i18n';
+import type { Dictionary, TranslateFn } from '$lib/i18n';
 import '$lib/styles/panels/solver-panel.scss';
 
 	let intentDirection: 'include' | 'exclude' = 'include';
@@ -97,7 +98,7 @@ const softTypeOrder: SoftConstraint['type'][] = [
 	'custom'
 ];
 
-let t = (key: string) => key;
+let t: TranslateFn = (key) => key;
 let dict: Dictionary | null = null;
 let presetOptions = defaultPresetOptions;
 let timeTemplates: TimeTemplate[] = [];
@@ -111,6 +112,7 @@ let softTypeLabels = defaultSoftTypeLabels;
 let softDescriptions = defaultSoftDescriptions;
 let lockTypeOptions = defaultLockTypeOptions;
 let timePresetLabel = '';
+let solverIntro = '';
 
 $: t = $translator;
 $: dict = $dictionaryStore as Dictionary;
@@ -125,6 +127,7 @@ $: if (!lockCourseHash && courseOptions.length > 0) {
 $: timePresetLabel = replacePlaceholders(t('panels.solver.timePreset'), {
 	label: selectedTimePreset ? ` · ${selectedTimePreset}` : ''
 });
+$: solverIntro = resolveSolverIntro();
 const campusOptions = filterOptions.campuses;
 const softWeightMemory = new Map<string, number>();
 
@@ -141,6 +144,11 @@ const replacePlaceholders = (template: string, values: Record<string, string | n
 		(result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
 		template
 	);
+
+function resolveSolverIntro() {
+	const intro = t('panels.solver.intro');
+	return intro === 'panels.solver.intro' ? t('panels.solver.description') : intro;
+}
 
 function ensureWeightMemory(key: string, fallback = 10) {
 		if (!softWeightMemory.has(key)) {
@@ -605,93 +613,105 @@ function buildCourseOptions(entries: CourseCatalogEntry[], teacherPendingLabel: 
 	}
 </script>
 
+<DockPanelShell>
 <ListSurface
 	title={t('panels.solver.title')}
 	subtitle={t('panels.solver.description')}
 	density="comfortable"
+	enableStickyToggle={true}
 >
+	<svelte:fragment slot="header-meta">
+		<p class="solver-intro">{solverIntro}</p>
+	</svelte:fragment>
 	<svelte:fragment slot="header-actions">
 		<button type="button" on:click={runSolver} disabled={solving}>
 			{solving ? t('panels.solver.solving') : t('panels.solver.run')}
 		</button>
 	</svelte:fragment>
 
-	<div class="intent-controls">
-		<div class="intent-toggles">
-			<label>
-				<span>{t('panels.solver.direction')}</span>
-				<div class="pill-group">
-					<button type="button" class:active={intentDirection === 'include'} on:click={() => (intentDirection = 'include')}>
-						{t('dropdowns.include')}
-					</button>
-					<button type="button" class:active={intentDirection === 'exclude'} on:click={() => (intentDirection = 'exclude')}>
-						{t('dropdowns.exclude')}
-					</button>
-				</div>
-			</label>
-			<label>
-				<span>{t('panels.solver.priority')}</span>
-				<div class="pill-group">
-					<button type="button" class:active={intentPriority === 'hard'} on:click={() => (intentPriority = 'hard')}>
-						{t('dropdowns.hard')}
-					</button>
-					<button type="button" class:active={intentPriority === 'soft'} on:click={() => (intentPriority = 'soft')}>
-						{t('dropdowns.soft')}
-					</button>
-				</div>
-			</label>
+	<svelte:fragment slot="filters">
+		<div class="intent-controls">
+			<div class="intent-toggles">
+				<label>
+					<span>{t('panels.solver.direction')}</span>
+					<div class="pill-group">
+						<button type="button" class:active={intentDirection === 'include'} on:click={() => (intentDirection = 'include')}>
+							{t('dropdowns.include')}
+						</button>
+						<button type="button" class:active={intentDirection === 'exclude'} on:click={() => (intentDirection = 'exclude')}>
+							{t('dropdowns.exclude')}
+						</button>
+					</div>
+				</label>
+				<label>
+					<span>{t('panels.solver.priority')}</span>
+					<div class="pill-group">
+						<button type="button" class:active={intentPriority === 'hard'} on:click={() => (intentPriority = 'hard')}>
+							{t('dropdowns.hard')}
+						</button>
+						<button type="button" class:active={intentPriority === 'soft'} on:click={() => (intentPriority = 'soft')}>
+							{t('dropdowns.soft')}
+						</button>
+					</div>
+				</label>
+			</div>
+			<div class="intent-actions">
+				<span class="count">
+					{replacePlaceholders(t('panels.solver.selectedCount'), { count: $intentSelection.size })}
+				</span>
+				<button type="button" class="ghost" on:click={clearSelectedIntents}>{t('panels.solver.cancel')}</button>
+				<button type="button" class="primary" on:click={applySelectedIntents} disabled={$intentSelection.size === 0}>
+					{t('panels.solver.apply')}
+				</button>
+			</div>
 		</div>
-		<div class="intent-actions">
-			<span class="count">
-				{replacePlaceholders(t('panels.solver.selectedCount'), { count: $intentSelection.size })}
-			</span>
-			<button type="button" class="ghost" on:click={clearSelectedIntents}>{t('panels.solver.cancel')}</button>
-			<button type="button" class="primary" on:click={applySelectedIntents} disabled={$intentSelection.size === 0}>
-				{t('panels.solver.apply')}
-			</button>
-		</div>
-		<div class="time-preset">
-			<button type="button" class="ghost" on:click={togglePresetMenu}>
-				{timePresetLabel}
-			</button>
-			{#if showPresetMenu}
-				<div class="preset-menu">
-					{#each presetOptions as preset}
-						<button type="button" on:click={() => choosePreset(preset)}>{preset}</button>
+	</svelte:fragment>
+
+	<svelte:fragment slot="filters-settings">
+		<div class="solver-filter-settings">
+			<div class="time-preset">
+				<button type="button" class="ghost" on:click={togglePresetMenu}>
+					{timePresetLabel}
+				</button>
+				{#if showPresetMenu}
+					<div class="preset-menu">
+						{#each presetOptions as preset}
+							<button type="button" on:click={() => choosePreset(preset)}>{preset}</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div class="template-bar">
+				<input
+					type="text"
+					placeholder={t('panels.solver.templateNamePlaceholder')}
+					bind:value={newTemplateName}
+					aria-label={t('panels.solver.templateNameAria')}
+				/>
+				<input
+					type="text"
+					placeholder={t('panels.solver.templateValuePlaceholder')}
+					bind:value={newTemplateValue}
+					aria-label={t('panels.solver.templateValueAria')}
+				/>
+				<button type="button" class="ghost" on:click={saveTemplate}>{t('panels.solver.saveTemplate')}</button>
+			</div>
+			{#if timeTemplates.length}
+				<div class="template-list">
+					{#each timeTemplates as tmpl (tmpl.id)}
+						<div class="template-pill">
+							<button type="button" on:click={() => applyTemplate(tmpl)}>
+								{tmpl.name} · {tmpl.value}
+							</button>
+							<button type="button" class="ghost" on:click={() => deleteTemplate(tmpl.id)}>
+								{t('panels.solver.deleteTemplate')}
+							</button>
+						</div>
 					{/each}
 				</div>
 			{/if}
 		</div>
-		<div class="template-bar">
-			<input
-				type="text"
-				placeholder={t('panels.solver.templateNamePlaceholder')}
-				bind:value={newTemplateName}
-				aria-label={t('panels.solver.templateNameAria')}
-			/>
-			<input
-				type="text"
-				placeholder={t('panels.solver.templateValuePlaceholder')}
-				bind:value={newTemplateValue}
-				aria-label={t('panels.solver.templateValueAria')}
-			/>
-			<button type="button" class="ghost" on:click={saveTemplate}>{t('panels.solver.saveTemplate')}</button>
-		</div>
-		{#if timeTemplates.length}
-			<div class="template-list">
-				{#each timeTemplates as tmpl (tmpl.id)}
-					<div class="template-pill">
-						<button type="button" on:click={() => applyTemplate(tmpl)}>
-							{tmpl.name} · {tmpl.value}
-						</button>
-						<button type="button" class="ghost" on:click={() => deleteTemplate(tmpl.id)}>
-							{t('panels.solver.deleteTemplate')}
-						</button>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</div>
+	</svelte:fragment>
 
 	{#if solverError}
 		<div class="error-banner">{solverError}</div>
@@ -881,3 +901,4 @@ function buildCourseOptions(entries: CourseCatalogEntry[], teacherPendingLabel: 
 		</section>
 	</div>
 </ListSurface>
+</DockPanelShell>

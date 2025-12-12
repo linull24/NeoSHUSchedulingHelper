@@ -1,186 +1,403 @@
 #!/usr/bin/env python3
-"""
-检查 i18n 字典中的缺失键
-"""
+"""CLI helpers for keeping i18n dictionaries consistent and free of bare literals."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
-def parse_ts_object(text):
-    """简单解析TS对象字面量为Python字典"""
-    # 移除注释
-    text = re.sub(r'//.*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
-    
-    # 提取导出的对象字面量部分
-    match = re.search(r'export\s+const\s+[a-zA-Z0-9_]+\s*=\s*({.*?})\s*;', text, flags=re.DOTALL)
+DEFAULT_LOCALES = [
+    Path("app/src/lib/i18n/locales/zh-CN.ts"),
+    Path("app/src/lib/i18n/locales/en-US.ts")
+]
+DEFAULT_SCAN_ROOT = Path("app/src")
+DEFAULT_EXTS = {".ts", ".tsx", ".js", ".jsx", ".svelte"}
+DEFAULT_IGNORE_DIRS = {
+    ".git",
+    "node_modules",
+    ".svelte-kit",
+    "dist",
+    "build",
+    "openspec",
+    "agentTemps",
+    "crawler",
+    "docs",
+    "tests",
+    "scripts/__pycache__",
+    "app/src/lib/i18n/locales"
+}
+DEFAULT_IGNORE_FILES = {"check_i18n.py", "README.md", "PLAN.md", "AGENTS.md"}
+DEFAULT_KEY_OUTPUT = Path("app/src/lib/i18n/keys.json")
+CN_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+LINE_COMMENT_RE = re.compile(r"//.*?(?=$|\n)")
+BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+EXPORT_DECL_RE = re.compile(r"export\s+const\s+[A-Za-z0-9_]+\s*=")
+
+
+class LocaleParseError(RuntimeError):
+    """Raised when a locale file cannot be parsed."""
+
+
+@dataclass
+class CompareIssue:
+    file: str
+    missing: List[str]
+    extras: List[str]
+    blanks: List[str]
+
+
+@dataclass
+class ScanFinding:
+    file: str
+    lines: List[Tuple[int, str]]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="i18n consistency checker")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("compare", "scan", "dump", "all"),
+        default="all",
+        help="Which check to run (default: all)"
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON report instead of text output")
+    parser.add_argument(
+        "--locales",
+        nargs="+",
+        type=Path,
+        default=DEFAULT_LOCALES,
+        help="Locale files to compare/dump (default: zh-CN + en-US)"
+    )
+    parser.add_argument("--root", type=Path, default=DEFAULT_SCAN_ROOT, help="Root directory for literal scan")
+    parser.add_argument("--ext", nargs="+", default=sorted(DEFAULT_EXTS), help="File extensions to scan")
+    parser.add_argument(
+        "--ignore-dir",
+        nargs="*",
+        default=sorted(DEFAULT_IGNORE_DIRS),
+        help="Directory fragments to ignore while scanning"
+    )
+    parser.add_argument(
+        "--ignore-file",
+        nargs="*",
+        default=sorted(DEFAULT_IGNORE_FILES),
+        help="Exact file names to ignore while scanning"
+    )
+    parser.add_argument(
+        "--allow-pattern",
+        nargs="*",
+        default=[],
+        help="Regex patterns considered allowed literals"
+    )
+    parser.add_argument(
+        "--key-output",
+        type=Path,
+        default=DEFAULT_KEY_OUTPUT,
+        help="Where to store flattened key list for dump/all"
+    )
+    return parser
+
+
+def extract_ts_object(raw: str) -> str:
+    match = EXPORT_DECL_RE.search(raw)
     if not match:
-        print("无法找到导出的对象")
-        return {}
-    
-    obj_str = match.group(1)
-    
-    # 将单引号替换为双引号
-    obj_str = obj_str.replace("'", '"')
-    
-    # 替换末尾逗号
-    obj_str = re.sub(r',(\s*[}\]])', r'\1', obj_str)
-    
-    # 将未加引号的键加上引号
-    obj_str = re.sub(r'([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)', r'\1"\2"\3', obj_str)
-    
+        raise LocaleParseError("无法找到 export const 声明")
+    start = raw.find("{", match.end())
+    if start == -1:
+        raise LocaleParseError("无法找到对象起始花括号")
+    depth = 0
+    in_string: str | None = None
+    escape = False
+    for idx in range(start, len(raw)):
+        ch = raw[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == in_string:
+                in_string = None
+            continue
+        if ch in ('"', "'", "`"):
+            in_string = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start: idx + 1]
+    raise LocaleParseError("未能找到匹配的结束花括号")
+
+
+def sanitize_ts_object(text: str) -> str:
+    text = BLOCK_COMMENT_RE.sub("", text)
+    text = LINE_COMMENT_RE.sub("", text)
+    text = text.replace("`", '"')
+    text = text.replace("'", '"')
+    text = re.sub(r",\s*(?=[}\]])", "", text)
+    text = re.sub(r"([{,]\s*)([A-Za-z0-9_]+)(\s*:)", r'\1"\2"\3', text)
+    return text
+
+
+def parse_locale(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        raise LocaleParseError(f"找不到文件: {path}")
+    raw = path.read_text(encoding="utf-8")
+    obj = extract_ts_object(raw)
+    json_text = sanitize_ts_object(obj)
     try:
-        return json.loads(obj_str)
-    except json.JSONDecodeError as e:
-        print(f"JSON解析错误: {e}")
-        print("解析的文本:")
-        print(obj_str[:500] + ("..." if len(obj_str) > 500 else ""))
-        return {}
+        return json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise LocaleParseError(f"JSON 解析失败 ({path}): {exc}") from exc
 
-def flatten_dict(d, parent_key='', sep='.'):
-    """将嵌套字典扁平化"""
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
+
+def flatten_dict(data: Any, prefix: str = "") -> Dict[str, Any]:
+    items: Dict[str, Any] = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            next_prefix = f"{prefix}.{key}" if prefix else key
+            items.update(flatten_dict(value, next_prefix))
+    elif isinstance(data, list):
+        for idx, value in enumerate(data):
+            next_prefix = f"{prefix}[{idx}]" if prefix else f"[{idx}]"
+            items.update(flatten_dict(value, next_prefix))
+    else:
+        items[prefix] = data
+    return items
+
+
+def find_blank_keys(flat: Dict[str, Any]) -> List[str]:
+    blanks: List[str] = []
+    for key, value in flat.items():
+        if isinstance(value, str):
+            # Only treat truly empty strings or echo values as blank.
+            if value == "" or value == key:
+                blanks.append(key)
+    return blanks
+
+
+def compare_locales(paths: Sequence[Path]) -> Tuple[bool, Dict[str, Any]]:
+    if len(paths) < 2:
+        raise LocaleParseError("compare 模式至少需要两个 locale 文件")
+    parsed = {path: flatten_dict(parse_locale(path)) for path in paths}
+    canonical_path = paths[0]
+    canonical = parsed[canonical_path]
+    issues: List[CompareIssue] = []
+    ok = True
+    for path in paths:
+        current = parsed[path]
+        missing = sorted(set(canonical.keys()) - set(current.keys())) if path != canonical_path else []
+        extras = sorted(set(current.keys()) - set(canonical.keys())) if path != canonical_path else []
+        blanks = sorted(find_blank_keys(current))
+        if missing or extras or blanks:
+            ok = False
+        issues.append(CompareIssue(str(path), missing, extras, blanks))
+    report = {
+        "type": "compare",
+        "ok": ok,
+        "locales": [str(p) for p in paths],
+        "issues": [issue.__dict__ for issue in issues]
+    }
+    return ok, report
+
+
+def path_contains_fragment(path: Path, fragment: str) -> bool:
+    frag_parts = tuple(part for part in Path(fragment).parts if part and part != ".")
+    if not frag_parts:
+        return False
+    parts = path.parts
+    if len(frag_parts) == 1:
+        return frag_parts[0] in parts
+    for idx in range(len(parts) - len(frag_parts) + 1):
+        if list(parts[idx: idx + len(frag_parts)]) == list(frag_parts):
+            return True
+    return False
+
+
+def should_scan(path: Path, ignore_dirs: Iterable[str], ignore_files: Iterable[str], extensions: Iterable[str]) -> bool:
+    if path.name in ignore_files:
+        return False
+    if path.suffix not in extensions:
+        return False
+    for fragment in ignore_dirs:
+        if path_contains_fragment(path, fragment):
+            return False
+    return True
+
+
+def scan_literals(
+    root: Path,
+    extensions: Iterable[str],
+    ignore_dirs: Iterable[str],
+    ignore_files: Iterable[str],
+    allow_patterns: Iterable[str]
+) -> Tuple[bool, Dict[str, Any]]:
+    allow_regexes = [re.compile(pattern) for pattern in allow_patterns]
+    findings: List[ScanFinding] = []
+    total_files = 0
+    for path in root.rglob("*"):
+        if not path.is_file() or not should_scan(path, ignore_dirs, ignore_files, extensions):
+            continue
+        total_files += 1
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        hits: List[Tuple[int, str]] = []
+        for idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(("//", "/*", "*", "<!--", "-->")):
+                continue
+            if stripped.startswith("import "):
+                continue
+            if any(regex.search(line) for regex in allow_regexes):
+                continue
+            if CN_PATTERN.search(line):
+                snippet = stripped if len(stripped) <= 100 else stripped[:97] + "..."
+                hits.append((idx, snippet))
+        if hits:
+            findings.append(ScanFinding(str(path), hits))
+    ok = not findings
+    report = {
+        "type": "scan",
+        "ok": ok,
+        "root": str(root),
+        "totalFiles": total_files,
+        "findings": [
+            {
+                "file": finding.file,
+                "lines": [{"line": line_no, "text": text} for line_no, text in finding.lines]
+            }
+            for finding in findings
+        ]
+    }
+    return ok, report
+
+
+def dump_keys(paths: Sequence[Path], output: Path) -> Tuple[bool, Dict[str, Any]]:
+    key_set = set()
+    for path in paths:
+        flat = flatten_dict(parse_locale(path))
+        key_set.update(flat.keys())
+    keys = sorted(key_set)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generatedFrom": [str(p) for p in paths],
+        "count": len(keys),
+        "keys": keys
+    }
+    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report = {
+        "type": "dump",
+        "ok": True,
+        "output": str(output),
+        "count": len(keys)
+    }
+    return True, report
+
+
+def print_compare(report: Dict[str, Any]) -> None:
+    if report["ok"]:
+        print("✅ Locale keys match across:", ", ".join(report["locales"]))
+        return
+    print("❌ Locale mismatch detected")
+    for issue in report["issues"]:
+        file = issue["file"]
+        missing = issue["missing"]
+        extras = issue["extras"]
+        blanks = issue["blanks"]
+        if not (missing or extras or blanks):
+            continue
+        print(f"\n{file}:")
+        if missing:
+            print("  Missing keys:")
+            for key in missing:
+                print(f"    - {key}")
+        if extras:
+            print("  Extra keys:")
+            for key in extras:
+                print(f"    - {key}")
+        if blanks:
+            print("  Blank/echo values:")
+            for key in blanks:
+                print(f"    - {key}")
+
+
+def print_scan(report: Dict[str, Any]) -> None:
+    if report["ok"]:
+        print(f"✅ No bare Chinese literals under {report['root']} (checked {report['totalFiles']} files)")
+        return
+    print(f"❌ Found hard-coded literals under {report['root']}: {len(report['findings'])} files")
+    for finding in report["findings"]:
+        print(f"\n{finding['file']}")
+        for entry in finding["lines"]:
+            print(f"  L{entry['line']}: {entry['text']}")
+
+
+def print_dump(report: Dict[str, Any]) -> None:
+    print(f"✅ Wrote {report['count']} keys to {report['output']}")
+
+
+def run_command(args: argparse.Namespace) -> Tuple[bool, Dict[str, Any]]:
+    extensions = {ext if ext.startswith(".") else f".{ext}" for ext in args.ext}
+    ignore_dirs = args.ignore_dir or []
+    ignore_files = args.ignore_file or []
+    allow_patterns = args.allow_pattern or []
+    if args.command == "compare":
+        return compare_locales(args.locales)
+    if args.command == "scan":
+        return scan_literals(args.root, extensions, ignore_dirs, ignore_files, allow_patterns)
+    if args.command == "dump":
+        return dump_keys(args.locales, args.key_output)
+    combined: Dict[str, Any] = {}
+    ok_compare, rep_compare = compare_locales(args.locales)
+    combined["compare"] = rep_compare
+    if not ok_compare:
+        return False, combined
+    ok_scan, rep_scan = scan_literals(args.root, extensions, ignore_dirs, ignore_files, allow_patterns)
+    combined["scan"] = rep_scan
+    if not ok_scan:
+        return False, combined
+    ok_dump, rep_dump = dump_keys(args.locales, args.key_output)
+    combined["dump"] = rep_dump
+    return ok_dump, combined
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        ok, report = run_command(args)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
         else:
-            items.append((new_key, v))
-    return dict(items)
+            if args.command == "compare":
+                print_compare(report)
+            elif args.command == "scan":
+                print_scan(report)
+            elif args.command == "dump":
+                print_dump(report)
+            else:
+                print_compare(report["compare"])
+                print()
+                print_scan(report["scan"])
+                print()
+                print_dump(report["dump"])
+        sys.exit(0 if ok else 1)
+    except LocaleParseError as exc:
+        print(f"[i18n-check] {exc}", file=sys.stderr)
+        sys.exit(2)
+    except FileNotFoundError as exc:
+        print(f"[i18n-check] Missing file: {exc}", file=sys.stderr)
+        sys.exit(2)
 
-def compare_dicts(dict1, dict2, name1, name2):
-    """比较两个字典，找出缺失的键"""
-    flat_dict1 = set(flatten_dict(dict1).keys())
-    flat_dict2 = set(flatten_dict(dict2).keys())
-    
-    missing_in_dict2 = flat_dict1 - flat_dict2
-    missing_in_dict1 = flat_dict2 - flat_dict1
-    
-    if missing_in_dict2:
-        print(f"\n{name2} 中缺失的键 ({len(missing_in_dict2)} 个):")
-        for key in sorted(missing_in_dict2):
-            print(f"  - {key}")
-            
-    if missing_in_dict1:
-        print(f"\n{name1} 中缺失的键 ({len(missing_in_dict1)} 个):")
-        for key in sorted(missing_in_dict1):
-            print(f"  - {key}")
-            
-    if not missing_in_dict1 and not missing_in_dict2:
-        print(f"\n{name1} 和 {name2} 之间的键是匹配的。")
-        
-    # 检查值是否为空或者只是键名本身
-    flat_dict1_items = flatten_dict(dict1)
-    flat_dict2_items = flatten_dict(dict2)
-    
-    empty_or_key_values_1 = {k: v for k, v in flat_dict1_items.items() if not v or v == k}
-    empty_or_key_values_2 = {k: v for k, v in flat_dict2_items.items() if not v or v == k}
-    
-    if empty_or_key_values_1:
-        print(f"\n{name1} 中为空或等于键名的值:")
-        for k, v in empty_or_key_values_1.items():
-            print(f"  - {k}: {repr(v)}")
-            
-    if empty_or_key_values_2:
-        print(f"\n{name2} 中为空或等于键名的值:")
-        for k, v in empty_or_key_values_2.items():
-            print(f"  - {k}: {repr(v)}")
-
-def main():
-    # 读取中文词典
-    zh_cn_path = Path("app/src/lib/i18n/locales/zh-CN.ts")
-    en_us_path = Path("app/src/lib/i18n/locales/en-US.ts")
-    
-    if not zh_cn_path.exists():
-        print(f"找不到文件: {zh_cn_path}")
-        return
-        
-    if not en_us_path.exists():
-        print(f"找不到文件: {en_us_path}")
-        return
-    
-    zh_cn_content = zh_cn_path.read_text(encoding='utf-8')
-    en_us_content = en_us_path.read_text(encoding='utf-8')
-    
-    zh_cn_dict = parse_ts_object(zh_cn_content)
-    en_us_dict = parse_ts_object(en_us_content)
-    
-    if not zh_cn_dict:
-        print("无法解析中文词典")
-        return
-        
-    if not en_us_dict:
-        print("无法解析英文词典")
-        return
-    
-    print("检查中英文词典之间的键一致性...")
-    compare_dicts(zh_cn_dict, en_us_dict, "中文词典", "英文词典")
 
 if __name__ == "__main__":
     main()
-#!/usr/bin/env python3
-import re
-import sys
-from pathlib import Path
-
-# Chinese character pattern
-CN_PATTERN = re.compile(r'[\u4e00-\u9fff]+')
-
-# Exclude patterns
-EXCLUDE_DIRS = {'.git', 'node_modules', 'dist', 'build', '.svelte-kit', 'data', 'crawler', 'openspec', '.specify'}
-EXCLUDE_FILES = {'check_i18n.py', 'zh-CN.ts', 'README.md', 'AGENTS.md', 'PLAN.md'}
-INCLUDE_EXTS = {'.ts', '.svelte', '.js', '.tsx', '.jsx'}
-
-def should_check(path: Path) -> bool:
-    if any(ex in path.parts for ex in EXCLUDE_DIRS):
-        return False
-    if path.name in EXCLUDE_FILES:
-        return False
-    return path.suffix in INCLUDE_EXTS
-
-def check_file(path: Path):
-    try:
-        content = path.read_text(encoding='utf-8')
-        lines = content.split('\n')
-        findings = []
-        
-        for i, line in enumerate(lines, 1):
-            # Skip comments
-            if '//' in line or '/*' in line or '*/' in line:
-                continue
-            # Skip import statements
-            if 'import' in line and 'from' in line:
-                continue
-            
-            matches = CN_PATTERN.findall(line)
-            if matches:
-                findings.append((i, line.strip(), matches))
-        
-        return findings
-    except Exception:
-        return []
-
-def main():
-    root = Path('app/src')
-    if not root.exists():
-        print("app/src not found")
-        sys.exit(1)
-    
-    total = 0
-    for path in root.rglob('*'):
-        if not path.is_file() or not should_check(path):
-            continue
-        
-        findings = check_file(path)
-        if findings:
-            print(f"\n{path}:")
-            for line_num, line, matches in findings:
-                print(f"  L{line_num}: {line[:80]}")
-                total += 1
-    
-    print(f"\n总计: {total} 处硬编码中文")
-    return 0 if total == 0 else 1
-
-if __name__ == '__main__':
-    sys.exit(main())

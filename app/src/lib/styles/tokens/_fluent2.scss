@@ -2,12 +2,12 @@
  * Fluent 2 Theme Mapping
  *
  * Maps Fluent2-specific design tokens to abstract token layer.
- * Activated when data-theme="fluent2" is set on root element.
+ * Activated when data-theme="fluent" is set on root element.
  *
  * Reference: https://fluent2.microsoft.design/
  */
 
-:root[data-theme="fluent2"] {
+:root[data-theme="fluent"] {
   /* ============================================
    * COLOR TOKENS - Fluent2 Mapping
    * ============================================ */

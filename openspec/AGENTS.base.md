@@ -1,18 +1,20 @@
 <!-- OPENSPEC:START -->
-# OpenSpec Instructions
+# Core OpenSpec Instructions (UI Reboot)
 
-These instructions are for AI assistants working in this project.
+These are the base directives for all AI assistants. Always read this file **and** `@/openspec/AGENTS.md` (mirrors repo-root AGENTS) before planning or coding.
 
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
+## When to open AGENTS
+- Requests mention plan/spec/proposal/change.
+- Work touches UI architecture, runtime theme switching, Dockview layout, UnoCSS, or tokens.
+- Task sounds ambiguous and needs the authoritative layered contract.
 
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
+## What AGENTS covers
+- Layered architecture: Runtime tokens → Virtual Theme Layer → UnoCSS → Dockview → App primitives → Panels.
+- Change workflow: bind to `openspec/changes/<id>` (UI reboot defaults to `UI-REBOOT-2025`), copy plan template, update tasks.
+- Memory discipline: fetch Core/Cluster/Change chunks via MCP before coding; cite URIs.
+- Validation: `npm run check`, `scripts/check_i18n.py all`, MCP UI review when UI changes occur.
 
-Keep this managed block so 'openspec update' can refresh the instructions.
-
+## Keeper notes
+- Keep this block managed so `openspec update` can refresh it.
+- Do not restore legacy GoldenLayout/Speckit text; the Virtual Theme Layer contract is the new baseline.
 <!-- OPENSPEC:END -->

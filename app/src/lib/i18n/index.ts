@@ -16,7 +16,9 @@ function getNested(obj: any, path: string) {
 
 export const dictionary = derived(locale, ($locale) => dictionaries[$locale as LocaleId] ?? zhCN);
 
-export const translator = derived(locale, ($locale) => {
+export type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
+
+export const translator = derived(locale, ($locale): TranslateFn => {
   const dict = dictionaries[$locale as LocaleId] ?? zhCN;
   return (key: string, params?: Record<string, string | number>): string => {
     const value = getNested(dict, key);
@@ -33,10 +35,10 @@ export const translator = derived(locale, ($locale) => {
   };
 });
 
-export function t(key: string) {
+export function t(key: string, params?: Record<string, string | number>) {
   let value = key;
   translator.subscribe((fn) => {
-    value = fn(key);
+    value = fn(key, params);
   })();
   return value;
 }

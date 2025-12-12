@@ -1,0 +1,64 @@
+.dockview-theme-app {
+  --dv-tabs-and-actions-container-height: 40px;
+  --dv-tabs-and-actions-container-font-size: var(--app-text-sm);
+  --dv-tab-font-size: var(--app-text-sm);
+  --dv-tab-margin: 0;
+  --dv-border-radius: var(--app-radius-md);
+  --dv-tabs-and-actions-container-background-color: var(--app-color-bg-elevated);
+  --dv-group-view-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--app-color-bg);
+  --dv-activegroup-hiddenpanel-tab-background-color: color-mix(in srgb, var(--app-color-bg) 90%, transparent);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--app-color-bg);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--app-color-bg-elevated);
+  --dv-activegroup-visiblepanel-tab-color: var(--app-color-fg);
+  --dv-activegroup-hiddenpanel-tab-color: var(--app-color-fg-muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--app-color-fg-muted);
+  --dv-inactivegroup-hiddenpanel-tab-color: color-mix(in srgb, var(--app-color-fg-muted) 60%, transparent);
+  --dv-tab-divider-color: transparent;
+  --dv-paneview-active-outline-color: color-mix(in srgb, var(--app-color-primary) 70%, transparent);
+  --dv-icon-hover-background-color: color-mix(in srgb, var(--app-color-primary) 10%, transparent);
+  --dv-scrollbar-background-color: color-mix(in srgb, var(--app-color-fg) 20%, transparent);
+  --dv-tabs-container-scrollbar-color: color-mix(in srgb, var(--app-color-fg) 35%, transparent);
+  --dv-separator-border: color-mix(in srgb, var(--app-color-border-subtle) 70%, transparent);
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: color-mix(in srgb, var(--app-color-primary) 40%, transparent);
+}
+
+.dockview-theme-app .dv-groupview {
+  border-radius: var(--app-radius-lg);
+  padding: 0.25rem;
+}
+
+.dockview-theme-app .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--app-color-border-subtle);
+  gap: 0.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.dockview-theme-app .dv-tabs-and-actions-container .dv-tab {
+  font-family: var(--app-font-family-sans);
+  font-weight: 600;
+  letter-spacing: var(--app-letter-spacing-normal);
+}
+
+.dockview-theme-app .dv-content-container {
+  padding: 0.5rem;
+  background: transparent;
+}
+
+.dockview-theme-app .dv-content-container > .dv-content {
+  border-radius: var(--app-radius-lg);
+  background: var(--app-color-bg);
+  border: 1px solid color-mix(in srgb, var(--app-color-border-subtle) 80%, transparent);
+  padding: 0.5rem;
+  min-height: 0;
+  display: flex;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--app-color-fg) 5%, transparent);
+}
+
+.dockview-theme-app .dv-content-container > .dv-content > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}

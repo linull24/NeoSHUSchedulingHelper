@@ -1,12 +1,10 @@
 <script lang="ts">
-import type { Writable } from 'svelte/store';
-import type { CourseFilterState, CourseFilterOptions, ConflictFilterMode } from '$lib/stores/courseFilters';
-import type { LimitRuleKey, LimitMode } from '../../config/selectionFilters';
-import FilterBar from '$lib/components/FilterBar.svelte';
-import Chip from '$lib/components/Chip.svelte';
-import ChipGroup from '$lib/components/ChipGroup.svelte';
-import { translator } from '$lib/i18n';
-import '$lib/styles/course-filters-toolbar.scss';
+	import type { Writable } from 'svelte/store';
+	import type { CourseFilterState, CourseFilterOptions, ConflictFilterMode } from '$lib/stores/courseFilters';
+	import FilterBar from '$lib/components/FilterBar.svelte';
+	import Chip from '$lib/components/Chip.svelte';
+	import ChipGroup from '$lib/components/ChipGroup.svelte';
+	import { translator } from '$lib/i18n';
 
 	export let filters: Writable<CourseFilterState>;
 	export let options: CourseFilterOptions;
@@ -31,11 +29,16 @@ import '$lib/styles/course-filters-toolbar.scss';
 	];
 	const conflictLabelKey: Record<ConflictFilterMode, string> = {
 		any: 'filters.conflictOptions.any',
-		'no-conflict': 'filters.conflictOptions.noConflict',
+		'no-conflict': 'filters.conflictOptions.noAnyConflict',
 		'no-time-conflict': 'filters.conflictOptions.noTimeConflict',
-		'no-hard-conflict': 'filters.conflictOptions.noHardConflict',
-		'no-impossible': 'filters.conflictOptions.noImpossible'
+		'no-hard-conflict': 'filters.conflictOptions.noHardConstraintConflict',
+		'no-impossible': 'filters.conflictOptions.noUnavoidableConflict'
 	};
+
+	const fieldLabelClass =
+		'flex flex-col gap-1 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)] min-w-[160px]';
+	const controlClass =
+		'h-9 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 text-[var(--app-color-fg)] outline-none transition-shadow focus:ring-2 focus:ring-[color:var(--app-color-primary)] focus:ring-offset-0';
 
 	$: viewModeLabel =
 		mode === 'wishlist'
@@ -85,54 +88,33 @@ import '$lib/styles/course-filters-toolbar.scss';
 	function updateFilter<K extends keyof CourseFilterState>(key: K, value: CourseFilterState[K]) {
 		filters.update((current) => ({ ...current, [key]: value }));
 	}
-
-function updateLimit(key: LimitRuleKey, value: LimitMode) {
-		filters.update((current) => ({
-			...current,
-			limitModes: {
-				...current.limitModes,
-				[key]: value
-			}
-		}));
-	}
-
-	function toggleRegexTarget(target: CourseFilterState['regexTargets'][number], checked: boolean) {
-		filters.update((current) => {
-			const set = new Set(current.regexTargets);
-			if (checked) set.add(target);
-			else set.delete(target);
-			return { ...current, regexTargets: Array.from(set) };
-		});
-	}
 </script>
 
 <FilterBar>
 	<svelte:fragment slot="mode">
 		{#if mode}
-			<div class="mode-indicator">
-				{t('filters.view')}: {viewModeLabel}
+			<div class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+				{t('filters.view')}: <span class="font-medium text-[var(--app-color-fg)]">{viewModeLabel}</span>
 			</div>
 		{/if}
 	</svelte:fragment>
 
 	<svelte:fragment slot="simple">
-		<div class="simple-row">
-			<label class="field">
-				<span>{t('filters.search')}</span>
-				<input
-					class="simple-input"
-					type="search"
-					placeholder={t('filters.searchPlaceholder')}
-					value={$filters.keyword}
-					disabled={showAdvanced}
-					on:input={(e) => updateFilter('keyword', (e.currentTarget as HTMLInputElement).value)}
-				/>
-			</label>
-		</div>
+		<label class={`${fieldLabelClass} w-full`}>
+			<span>{t('filters.search')}</span>
+			<input
+				class={`${controlClass} w-full`}
+				type="search"
+				placeholder={t('filters.searchPlaceholder')}
+				value={$filters.keyword}
+				disabled={showAdvanced}
+				on:input={(e) => updateFilter('keyword', (e.currentTarget as HTMLInputElement).value)}
+			/>
+		</label>
 	</svelte:fragment>
 
 	<svelte:fragment slot="chips">
-		<div class="chip-row">
+		<div class="flex flex-wrap gap-2">
 			<Chip selectable selected={$filters.regexEnabled} disabled={showAdvanced} on:click={() => updateFilter('regexEnabled', !$filters.regexEnabled)}>
 				{t('filters.regex')}
 			</Chip>
@@ -146,10 +128,14 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 	</svelte:fragment>
 
 	<svelte:fragment slot="settings">
-		<div class="settings-row">
-			<label class="field">
+		<div class="flex flex-wrap gap-3">
+			<label class={`${fieldLabelClass} flex-1 min-w-[200px]`}>
 				<span>{t('filters.sort')}</span>
-				<select value={$filters.sortOptionId} on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}>
+				<select
+					class={`${controlClass} w-full`}
+					value={$filters.sortOptionId}
+					on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}
+				>
 					{#each options.sortOptions as opt}
 						<option value={opt.id}>{opt.label}</option>
 					{/each}
@@ -159,18 +145,26 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 	</svelte:fragment>
 
 	<svelte:fragment slot="view-controls">
-		<div class="view-controls">
-			<label class="field">
+		<div class="flex w-full flex-wrap gap-3">
+			<label class={fieldLabelClass}>
 				<span>{t('filters.status')}</span>
-				<select value={$filters.displayOption} on:change={(e) => updateFilter('displayOption', (e.currentTarget as HTMLSelectElement).value as any)}>
+				<select
+					class={controlClass}
+					value={$filters.displayOption}
+					on:change={(e) => updateFilter('displayOption', (e.currentTarget as HTMLSelectElement).value as any)}
+				>
 					{#each displayOptionChoices as opt (opt.value)}
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
 				</select>
 			</label>
-			<label class="field">
+			<label class={fieldLabelClass}>
 				<span>{t('filters.conflict')}</span>
-				<select value={$filters.conflictMode} on:change={(e) => updateFilter('conflictMode', (e.currentTarget as HTMLSelectElement).value as ConflictFilterMode)}>
+				<select
+					class={controlClass}
+					value={$filters.conflictMode}
+					on:change={(e) => updateFilter('conflictMode', (e.currentTarget as HTMLSelectElement).value as ConflictFilterMode)}
+				>
 					{#each conflictOptions as opt (opt.value)}
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
@@ -181,71 +175,125 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 
 	<svelte:fragment slot="advanced">
 		{#if showAdvanced}
-			<div class="advanced-grid">
-				<label class="field">
-					<span>{t('filters.campus')}</span>
-					<select value={$filters.campus} on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">{t('filters.displayOptions.all')}</option>
-						{#each options.campuses as campus}
-							<option value={campus}>{campus}</option>
-						{/each}
-					</select>
-				</label>
-				<label class="field">
-					<span>{t('filters.college')}</span>
-					<select value={$filters.college} on:change={(e) => updateFilter('college', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">{t('filters.displayOptions.all')}</option>
-						{#each options.colleges as college}
-							<option value={college}>{college}</option>
-						{/each}
-					</select>
-				</label>
-				<label class="field">
-					<span>{t('filters.major')}</span>
-					<select value={$filters.major} on:change={(e) => updateFilter('major', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">{t('filters.displayOptions.all')}</option>
-						{#each options.majors as major}
-							<option value={major}>{major}</option>
-						{/each}
-					</select>
-				</label>
-				<label class="field">
-					<span>{t('filters.specialFilter')}</span>
-					<select value={$filters.specialFilter} on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}>
-						<option value="all">{t('filters.specialFilterOptions.all')}</option>
-						<option value="sports-only">{t('filters.specialFilterOptions.sportsOnly')}</option>
-						<option value="exclude-sports">{t('filters.specialFilterOptions.excludeSports')}</option>
-					</select>
-				</label>
-				<label class="field">
-					<span>{t('filters.creditRange')}</span>
-					<div class="inline-inputs">
-						<input type="number" min="0" placeholder={t('filters.minPlaceholder')} value={$filters.minCredit ?? ''} on:input={(e) => updateFilter('minCredit', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)} />
-						<span>—</span>
-						<input type="number" min="0" placeholder={t('filters.maxPlaceholder')} value={$filters.maxCredit ?? ''} on:input={(e) => updateFilter('maxCredit', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)} />
-					</div>
-				</label>
-				<label class="field">
-					<span>{t('filters.capacityMin')}</span>
-					<input
-						type="number"
-						min="0"
-						value={$filters.capacityMin ?? ''}
-						on:input={(e) => updateFilter('capacityMin', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)}
-					/>
-				</label>
-			</div>
-			<div class="advanced-folds">
-				<div class="fold">
-					<button type="button" class="fold-toggle" on:click={() => (showLangMode = !showLangMode)}>
-						{t('filters.languageMode')}
-						<span class="hint">
+			<div class="flex flex-col gap-4">
+				<div class="grid gap-3 sm:grid-cols-2">
+					<label class={fieldLabelClass}>
+						<span>{t('filters.campus')}</span>
+						<select
+							class={controlClass}
+							value={$filters.campus}
+							on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">{t('filters.displayOptions.all')}</option>
+							{#each options.campuses as campus}
+								<option value={campus}>{campus}</option>
+							{/each}
+						</select>
+					</label>
+					<label class={fieldLabelClass}>
+						<span>{t('filters.college')}</span>
+						<select
+							class={controlClass}
+							value={$filters.college}
+							on:change={(e) => updateFilter('college', (e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">{t('filters.displayOptions.all')}</option>
+							{#each options.colleges as college}
+								<option value={college}>{college}</option>
+							{/each}
+						</select>
+					</label>
+					<label class={fieldLabelClass}>
+						<span>{t('filters.major')}</span>
+						<select
+							class={controlClass}
+							value={$filters.major}
+							on:change={(e) => updateFilter('major', (e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">{t('filters.displayOptions.all')}</option>
+							{#each options.majors as major}
+								<option value={major}>{major}</option>
+							{/each}
+						</select>
+					</label>
+					<label class={fieldLabelClass}>
+						<span>{t('filters.specialFilter')}</span>
+						<select
+							class={controlClass}
+							value={$filters.specialFilter}
+							on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}
+						>
+							<option value="all">{t('filters.specialFilterOptions.all')}</option>
+							<option value="sports-only">{t('filters.specialFilterOptions.sportsOnly')}</option>
+							<option value="exclude-sports">{t('filters.specialFilterOptions.excludeSports')}</option>
+						</select>
+					</label>
+					<label class={fieldLabelClass}>
+						<span>{t('filters.creditRange')}</span>
+						<div class="flex items-center gap-2">
+							<input
+								class={`${controlClass} flex-1`}
+								type="number"
+								min="0"
+								placeholder={t('filters.minPlaceholder')}
+								value={$filters.minCredit ?? ''}
+								on:input={(e) =>
+									updateFilter(
+										'minCredit',
+										(e.currentTarget as HTMLInputElement).value
+											? Number((e.currentTarget as HTMLInputElement).value)
+											: null
+									)}
+							/>
+							<span class="text-[var(--app-color-fg-muted)]">—</span>
+							<input
+								class={`${controlClass} flex-1`}
+								type="number"
+								min="0"
+								placeholder={t('filters.maxPlaceholder')}
+								value={$filters.maxCredit ?? ''}
+								on:input={(e) =>
+									updateFilter(
+										'maxCredit',
+										(e.currentTarget as HTMLInputElement).value
+											? Number((e.currentTarget as HTMLInputElement).value)
+											: null
+									)}
+							/>
+						</div>
+					</label>
+					<label class={fieldLabelClass}>
+						<span>{t('filters.capacityMin')}</span>
+						<input
+							class={controlClass}
+							type="number"
+							min="0"
+							value={$filters.capacityMin ?? ''}
+							on:input={(e) =>
+								updateFilter(
+									'capacityMin',
+									(e.currentTarget as HTMLInputElement).value
+										? Number((e.currentTarget as HTMLInputElement).value)
+										: null
+								)}
+						/>
+					</label>
+				</div>
+
+				<div class="flex flex-col gap-3">
+					<button
+						type="button"
+						class="flex w-full items-center justify-between rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] font-medium text-[var(--app-color-fg)]"
+						on:click={() => (showLangMode = !showLangMode)}
+					>
+						<span>{t('filters.languageMode')}</span>
+						<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 							{languageSummary}
 						</span>
 					</button>
 					{#if showLangMode}
-						<div class="fold-body two-cols">
-							<ChipGroup label={t('filters.teachingLanguageLabel')}>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<ChipGroup label={t('filters.teachingLanguageLabel')} class="flex flex-col gap-2">
 								{#each options.teachingLanguages as lang}
 									<Chip
 										selectable
@@ -253,9 +301,9 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 										on:click={() => {
 											const set = new Set($filters.teachingLanguage);
 											if (set.has(lang)) {
-											set.delete(lang);
+												set.delete(lang);
 											} else {
-											set.add(lang);
+												set.add(lang);
 											}
 											updateFilter('teachingLanguage', Array.from(set));
 										}}
@@ -264,7 +312,7 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 									</Chip>
 								{/each}
 							</ChipGroup>
-							<ChipGroup label={t('filters.teachingModeLabel')}>
+							<ChipGroup label={t('filters.teachingModeLabel')} class="flex flex-col gap-2">
 								{#each options.teachingModes as modeOpt}
 									<Chip
 										selectable
@@ -272,9 +320,9 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 										on:click={() => {
 											const set = new Set($filters.teachingMode);
 											if (set.has(modeOpt)) {
-											set.delete(modeOpt);
+												set.delete(modeOpt);
 											} else {
-											set.add(modeOpt);
+												set.add(modeOpt);
 											}
 											updateFilter('teachingMode', Array.from(set));
 										}}
@@ -283,6 +331,7 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 									</Chip>
 								{/each}
 								<input
+									class={controlClass}
 									type="text"
 									placeholder={t('filters.modeOtherPlaceholder')}
 									value={$filters.teachingModeOther}
@@ -291,24 +340,27 @@ function updateLimit(key: LimitRuleKey, value: LimitMode) {
 							</ChipGroup>
 						</div>
 					{/if}
-				</div>
-				<div class="fold">
-					<button type="button" class="fold-toggle" on:click={() => (showWeekFold = !showWeekFold)}>
-						{t('filters.weekFilters')}
-						<span class="hint">
+
+					<button
+						type="button"
+						class="flex w-full items-center justify-between rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] font-medium text-[var(--app-color-fg)]"
+						on:click={() => (showWeekFold = !showWeekFold)}
+					>
+						<span>{t('filters.weekFilters')}</span>
+						<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 							{paritySummary} / {spanSummary}
 						</span>
 					</button>
 					{#if showWeekFold}
-						<div class="fold-body two-cols">
-							<ChipGroup label={t('filters.weekParityLabel')}>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<ChipGroup label={t('filters.weekParityLabel')} class="flex flex-col gap-2">
 								{#each parityOptionLabels as option}
 									<Chip selectable selected={$filters.weekParityFilter === option.value} on:click={() => updateFilter('weekParityFilter', option.value as any)}>
 										{option.label}
 									</Chip>
 								{/each}
 							</ChipGroup>
-							<ChipGroup label={t('filters.weekSpanLabel')}>
+							<ChipGroup label={t('filters.weekSpanLabel')} class="flex flex-col gap-2">
 								{#each spanOptionLabels as option}
 									<Chip selectable selected={$filters.weekSpanFilter === option.value} on:click={() => updateFilter('weekSpanFilter', option.value as any)}>
 										{option.label}

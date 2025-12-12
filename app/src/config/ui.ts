@@ -5,9 +5,7 @@ export type ThemeId = 'material' | 'fluent';
 export interface ThemeDefinition {
 	id: ThemeId;
 	label: string;
-	className: string;
 	description?: string;
-	styleImports: string[];
 }
 
 export interface UIConfig {
@@ -21,16 +19,12 @@ const DEFAULT_UI_CONFIG: UIConfig = {
 		{
 			id: 'material',
 			label: 'Material Design 3',
-			className: 'theme-material',
-			description: t('config.themes.materialDesc'),
-			styleImports: ['@material/web/default/theme.js']
+			description: t('config.themes.materialDesc')
 		},
 		{
 			id: 'fluent',
 			label: 'Fluent 2',
-			className: 'theme-fluent',
-			description: t('config.themes.fluentDesc'),
-			styleImports: ['@fluentui/web-components']
+			description: t('config.themes.fluentDesc')
 		}
 	]
 };

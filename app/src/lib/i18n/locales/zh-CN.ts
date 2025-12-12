@@ -39,10 +39,12 @@ export const zhCN = {
     selectPlaceholder: '请选择'
   },
   lists: {
-    countLabel: '共 {count} 项'
+    countLabel: '共 {count} 项',
+    pinFilters: '锁定筛选区',
+    unpinFilters: '取消锁定'
   },
   layout: {
-    dockDescription: 'GoldenLayout 原型，承载所有应用面板。',
+    dockDescription: 'Dockview 工作区承载所有面板，并在窄屏时自动切换备用布局。',
     tabs: {
       allCourses: '全部课程',
       wishlist: '待选课程',
@@ -55,7 +57,21 @@ export const zhCN = {
     workspace: {
       loadErrorTitle: '无法加载 Dock 布局',
       loadErrorHint: '刷新页面或查看控制台详细信息。',
-      fallbackMessage: 'Dock 布局加载失败，请刷新页面。'
+      fallbackMessage: 'Dock 布局加载失败，请刷新页面。',
+      modeDock: 'Dock 布局',
+      modeFallback: '标签布局',
+      toggleToDock: '切换到 Dock 布局',
+      toggleToFallback: '切换到标签布局',
+      toggleReset: '清除偏好',
+      narrowMessage: '屏幕宽度不足，已切换到标签布局以保证可用性。',
+      manualFallbackHint: '当前处于标签布局，可随时切回 Dock 布局。',
+      fallbackTabsAria: '备用工作区面板列表',
+      compactSelectLabel: '选择要查看的面板',
+      reason: {
+        auto: '自动（屏宽不足）',
+        error: 'Dock 暂不可用',
+        user: '手动切换'
+      }
     }
   },
   calendar: {
@@ -113,6 +129,7 @@ export const zhCN = {
     solver: {
       title: '求解器',
       description: '配置硬/软约束并执行求解。',
+      intro: '先整理硬/软约束，再运行求解器，建议操作和诊断会在下方展示。',
       run: '运行求解器',
       solving: '求解中…',
       direction: '方向',
@@ -232,6 +249,45 @@ export const zhCN = {
       selectionRestored: '已恢复选课：已选 {selected} 门，待选 {wishlist} 门',
       errors: {
         rollback: '回滚失败'
+      },
+      targets: {
+        selected: '已选列表',
+        wishlist: '待选列表',
+        unknown: '列表'
+      },
+      scope: {
+        hard: '硬约束',
+        soft: '软约束'
+      },
+      change: {
+        add: '新增',
+        remove: '删除'
+      },
+      solverStatus: {
+        sat: 'SAT',
+        unsat: 'UNSAT',
+        unknown: '未知'
+      },
+      override: {
+        merge: '合并',
+        'replace-all': '全部替换'
+      },
+      describe: {
+        solverRun: '求解（{status}），计划 {plan} 条',
+        solverPreview: '预览求解计划（{plan} 条），目标 {target}',
+        solverApply: '应用求解计划（{plan} 条）到 {target}',
+        solverOverride: '覆写求解计划（{plan} 条），目标 {target}（{mode}）',
+        solverUndo: '撤销求解结果并恢复 {target}',
+        rollback: '回滚 {scope}'
+      },
+      selection: {
+        select: '已选 {course}',
+        deselect: '退选 {course}',
+        moveToWishlist: '移回待选：{course}',
+        wishlistAdd: '加入待选：{course}',
+        wishlistRemove: '从待选移除：{course}',
+        wishlistClear: '清空待选（{count} 门）',
+        unknownCourse: '课程'
       }
     },
     sync: {
@@ -372,12 +428,15 @@ export const zhCN = {
     includeShort: '必',
     excludeShort: '排',
     noneShort: '□',
+    conflict: '冲突',
+    conflictNone: '暂无冲突数据',
     statusLimited: '余量紧张',
     statusFull: '已满',
     teacherPending: '教师待定',
     timeLabel: '时间',
     infoLabel: '信息',
-    noTime: '暂无时间'
+    noTime: '暂无时间',
+    locationPending: '待排教室'
   },
   searchBar: {
     placeholder: '搜索课程或教师',
@@ -454,6 +513,11 @@ export const zhCN = {
       odd: '单周',
       even: '双周',
       all: '全部周'
+    },
+    conflictOptions: {
+      noAnyConflict: '无任何冲突',
+      noHardConstraintConflict: '无硬冲突',
+      noUnavoidableConflict: '排除不可调冲突'
     }
   },
   errors: {

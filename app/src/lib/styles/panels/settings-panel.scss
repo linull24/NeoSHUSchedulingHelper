@@ -1,44 +1,65 @@
-.panel {
-		padding: 0.75rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		box-sizing: border-box;
-		height: 100%;
-	}
+.settings-panel {
+	padding: var(--token-space-4);
+	display: flex;
+	flex-direction: column;
+	gap: var(--token-space-4);
+	box-sizing: border-box;
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	padding-bottom: var(--token-space-5);
+}
 
-	select {
-		margin-top: 0.25rem;
-		padding: 0.35rem 0.5rem;
-		border-radius: 0.4rem;
-		border: 1px solid color-mix(in srgb, var(--sl-color-neutral-400, #c1c5cf) 70%, transparent);
-	}
+.settings-panel label {
+	display: flex;
+	flex-direction: column;
+	gap: var(--token-space-2);
+	padding: var(--token-space-2) var(--token-space-3);
+	border-radius: var(--token-radius-md);
+	background: var(--token-color-surface-container-low);
+	overflow-wrap: anywhere;
+}
 
-	.toggle-row {
-		margin-top: 0.75rem;
-		padding: 0.6rem 0.5rem;
-		border-radius: 0.6rem;
+.settings-panel label p {
+	margin: 0;
+	color: var(--token-color-on-surface-variant);
+	font-size: var(--token-font-body-small-size);
+}
+
+.settings-panel select {
+	margin-top: var(--token-space-1);
+	padding: var(--token-space-2) var(--token-space-3);
+	border-radius: var(--token-radius-sm);
+	border: 1px solid var(--token-color-outline-variant);
+	background: var(--token-color-surface);
+}
+
+.settings-panel .toggle-row {
+		margin-top: var(--token-space-3);
+		padding: var(--token-space-3);
+		border-radius: var(--token-radius-lg);
 		border: 1px solid rgba(0, 0, 0, 0.08);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 1rem;
+		gap: var(--token-space-3);
+		flex-wrap: wrap;
 	}
 
-	.toggle-label {
+.settings-panel .toggle-label {
 		font-weight: 600;
 	}
 
-	.toggle-row p {
-		margin: 0.15rem 0 0 0;
+.settings-panel .toggle-row p {
+		margin: var(--token-space-1) 0 0 0;
 		color: #6b7086;
-		font-size: 0.85rem;
+		font-size: var(--token-font-body-small-size);
 	}
 
-	.toggle-row button {
+.settings-panel .toggle-row button {
 		border: none;
 		border-radius: 999px;
-		padding: 0.35rem 0.9rem;
+		padding: var(--token-space-2) var(--token-space-4);
 		cursor: pointer;
 		background: rgba(0, 0, 0, 0.08);
 		color: #1f2430;
@@ -46,36 +67,39 @@
 		font-weight: 600;
 	}
 
-	.toggle-row button.active {
+.settings-panel .toggle-row button.active {
 		background: rgba(59, 130, 246, 0.15);
 		color: #1e40af;
 	}
 
-	.toggle-row button:hover {
+.settings-panel .toggle-row button:hover {
 		background: rgba(59, 130, 246, 0.25);
 	}
 
-	.mode-buttons {
+.settings-panel .mode-buttons {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--token-space-2);
+		flex-wrap: wrap;
 	}
 
-	.input-row {
+.settings-panel .input-row {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-		gap: 0.6rem;
-		padding: 0.25rem 0.5rem;
+		gap: var(--token-space-2);
+		padding: var(--token-space-2) var(--token-space-3);
 	}
 
-	.input-row label {
+.settings-panel .input-row label {
 		display: flex;
 		flex-direction: column;
-		gap: 0.2rem;
+		gap: var(--token-space-1);
 		color: #4a4f5f;
+		background: none;
+		padding: 0;
 	}
 
-	.input-row input {
-		padding: 0.35rem 0.55rem;
-		border-radius: 0.45rem;
+.settings-panel .input-row input {
+		padding: var(--token-space-2) var(--token-space-3);
+		border-radius: var(--token-radius-sm);
 		border: 1px solid rgba(0, 0, 0, 0.12);
 	}

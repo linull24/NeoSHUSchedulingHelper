@@ -1,12 +1,14 @@
-<script lang="ts">
-	import '$lib/styles/chip-group.scss';
+<svelte:options runes={false} />
 
-	export let label: string | null = null;
+<script lang="ts">
+	let { label = null as string | null, class: className = '' } = $props();
 </script>
 
-<div class="chip-group">
-	{#if label}<span class="chip-group__label">{label}</span>{/if}
-	<div class="chip-group__body">
+<div class={`flex flex-col gap-1.5 ${className}`.trim()}>
+	{#if label}
+		<span class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{label}</span>
+	{/if}
+	<div class="flex flex-wrap items-center gap-2">
 		<slot />
 	</div>
 </div>
