@@ -1,10 +1,11 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { env as publicEnv } from '$env/dynamic/public';
+import { t } from '../../../../lib/i18n';
 
 function ensureClientId() {
 	const clientId = publicEnv.PUBLIC_GITHUB_CLIENT_ID;
 	if (!clientId) {
-		throw new Error('缺少 GitHub Client ID，无法发起登录。请设置 PUBLIC_GITHUB_CLIENT_ID');
+		throw new Error(t('errors.githubMissingClientId'));
 	}
 	return clientId;
 }

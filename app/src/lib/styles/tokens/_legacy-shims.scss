@@ -1,0 +1,183 @@
+/**
+ * Legacy Token Shims
+ *
+ * Provides backward compatibility by mapping old --ui-* tokens to new --token-* tokens.
+ * This allows existing components to continue working without changes during migration.
+ *
+ * DEPRECATION NOTICE:
+ * These shims are temporary and will be removed in a future version.
+ * New code should use --token-* tokens directly.
+ * Existing code should be gradually migrated to use --token-* tokens.
+ *
+ * Migration Timeline:
+ * - Phase 1 (Current): Both --ui-* and --token-* tokens available
+ * - Phase 2 (Q1 2026): Deprecation warnings added to documentation
+ * - Phase 3 (Q2 2026): --ui-* tokens removed, only --token-* tokens available
+ */
+
+:root {
+  /* ============================================
+   * COLOR SHIMS
+   * ============================================ */
+
+  /* Surface Colors */
+  --ui-surface: var(--token-color-surface);
+  --ui-surface-alt: var(--token-color-surface-container);
+  --ui-surface-muted: var(--token-color-surface-container-low);
+  --ui-surface-variant: var(--token-color-surface-variant);
+
+  /* Border Colors */
+  --ui-border: var(--token-color-outline-variant);
+  --ui-border-strong: var(--token-color-outline);
+
+  /* Accent Colors */
+  --ui-accent: var(--token-color-primary);
+  --ui-accent-soft: var(--token-color-primary-container);
+  --ui-accent-hover: var(--token-color-primary-hover);
+
+  /* Error/Warning Colors */
+  --ui-warn: var(--token-color-error);
+  --ui-warn-soft: var(--token-color-error-container);
+  --ui-error: var(--token-color-error);
+  --ui-error-soft: var(--token-color-error-container);
+
+  /* Text Colors */
+  --ui-muted: var(--token-color-on-surface-variant);
+  --ui-text: var(--token-color-on-surface);
+  --ui-text-inverse: var(--token-color-inverse-on-surface);
+
+  /* Background Colors */
+  --ui-background: var(--token-color-background);
+  --ui-on-background: var(--token-color-on-background);
+
+  /* Success Colors (custom mapping) */
+  --ui-success: var(--token-color-success);
+  --ui-success-soft: var(--token-color-success-container);
+
+  /* Info Colors (custom mapping) */
+  --ui-info: var(--token-color-info);
+  --ui-info-soft: var(--token-color-info-container);
+
+  /* ============================================
+   * SHAPE SHIMS
+   * ============================================ */
+
+  --ui-radius-sm: var(--token-radius-sm);
+  --ui-radius-md: var(--token-radius-md);
+  --ui-radius-lg: var(--token-radius-lg);
+  --ui-radius-xl: var(--token-radius-xl);
+  --ui-radius-full: var(--token-radius-full);
+
+  /* ============================================
+   * SPACING SHIMS
+   * ============================================ */
+
+  --ui-space-1: var(--token-space-1);
+  --ui-space-2: var(--token-space-2);
+  --ui-space-3: var(--token-space-3);
+  --ui-space-4: var(--token-space-4);
+  --ui-space-5: var(--token-space-5);
+  --ui-space-6: var(--token-space-6);
+  --ui-space-8: var(--token-space-8);
+  --ui-space-10: var(--token-space-10);
+  --ui-space-12: var(--token-space-12);
+
+  /* ============================================
+   * TYPOGRAPHY SHIMS
+   * ============================================ */
+
+  /* Map old simple scale to new body scale */
+  --ui-font-sm: var(--token-font-body-small-size);
+  --ui-font-md: var(--token-font-body-medium-size);
+  --ui-font-lg: var(--token-font-body-large-size);
+
+  /* Font families */
+  --ui-font-family: var(--token-font-family-base);
+  --ui-font-family-mono: var(--token-font-family-mono);
+
+  /* ============================================
+   * ELEVATION SHIMS
+   * ============================================ */
+
+  --ui-elev-0: var(--token-elevation-0);
+  --ui-elev-1: var(--token-elevation-1);
+  --ui-elev-2: var(--token-elevation-2);
+  --ui-elev-3: var(--token-elevation-3);
+  --ui-elev-4: var(--token-elevation-4);
+  --ui-elev-5: var(--token-elevation-5);
+
+  /* Legacy shadow aliases */
+  --ui-shadow-sm: var(--token-elevation-1);
+  --ui-shadow-md: var(--token-elevation-2);
+  --ui-shadow-lg: var(--token-elevation-3);
+  --ui-shadow-xl: var(--token-elevation-4);
+
+  /* ============================================
+   * STATE SHIMS
+   * ============================================ */
+
+  --ui-hover-opacity: var(--token-state-hover-opacity);
+  --ui-focus-opacity: var(--token-state-focus-opacity);
+  --ui-pressed-opacity: var(--token-state-pressed-opacity);
+  --ui-disabled-opacity: var(--token-state-disabled-opacity);
+
+  /* ============================================
+   * TRANSITION SHIMS
+   * ============================================ */
+
+  --ui-transition-fast: var(--token-transition-duration-short);
+  --ui-transition-normal: var(--token-transition-duration-medium);
+  --ui-transition-slow: var(--token-transition-duration-long);
+
+  --ui-easing-standard: var(--token-transition-easing-standard);
+  --ui-easing-emphasized: var(--token-transition-easing-emphasized);
+
+  /* ============================================
+   * Z-INDEX SHIMS
+   * ============================================ */
+
+  --ui-z-dropdown: var(--token-z-index-dropdown);
+  --ui-z-sticky: var(--token-z-index-sticky);
+  --ui-z-fixed: var(--token-z-index-fixed);
+  --ui-z-modal: var(--token-z-index-modal);
+  --ui-z-popover: var(--token-z-index-popover);
+  --ui-z-tooltip: var(--token-z-index-tooltip);
+}
+
+/* ============================================
+ * MIGRATION HELPERS
+ * ============================================ */
+
+/**
+ * Usage Example - Old vs New:
+ *
+ * OLD (deprecated):
+ * .component {
+ *   background: var(--ui-surface);
+ *   border: 1px solid var(--ui-border);
+ *   padding: var(--ui-space-4);
+ *   border-radius: var(--ui-radius-md);
+ *   color: var(--ui-accent);
+ * }
+ *
+ * NEW (recommended):
+ * .component {
+ *   background: var(--token-color-surface);
+ *   border: 1px solid var(--token-color-outline-variant);
+ *   padding: var(--token-space-4);
+ *   border-radius: var(--token-radius-md);
+ *   color: var(--token-color-primary);
+ * }
+ */
+
+/**
+ * Migration Checklist:
+ *
+ * 1. Search for --ui-* usage in your component
+ * 2. Replace with corresponding --token-* token (see mapping above)
+ * 3. Test component in both MD3 and Fluent2 themes
+ * 4. Remove @use '$lib/styles/ui-tokens.scss' import
+ * 5. Add @use '$lib/styles/tokens' import if needed
+ * 6. Verify no visual regressions
+ * 7. Update component documentation
+ */

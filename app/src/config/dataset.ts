@@ -1,11 +1,13 @@
 export interface DatasetConfig {
 	/**
-	 * Term identifier, used when presenting metadata or routing.
+	 * Term identifier.
+	 *
+	 * Frontend will load `crawler/data/terms/<termId>.json` as the raw snapshot.
 	 */
 	termId: string;
 	/**
 	 * Absolute or relative path pointing to the crawler snapshot JSON.
-	 * Mostly informational so we remember which file drives the current bundle.
+	 * Informational only (for debugging / human reference).
 	 */
 	snapshotPath: string;
 	/**

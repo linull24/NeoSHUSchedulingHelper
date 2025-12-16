@@ -8,7 +8,7 @@ import type { ManualUpdate, ManualUpdateResult } from '../manualUpdates';
 import { deepClone } from '../utils/clone';
 import type { SolverResultRecord, SolverRunMetrics } from './resultTypes';
 import { saveSolverResult } from '../stateRepository';
-import type { ActionLog } from '../actionLog';
+import type { ActionLog, ApplyUpdatesLogOptions } from '../actionLog';
 import { applyManualUpdatesWithLog } from '../actionLog';
 import { resolveTermId } from '../../../config/term';
 
@@ -102,23 +102,43 @@ export function applySolverResultPlan({
 	data,
 	record,
 	log,
-	context
+	context,
+	logOptions
 }: {
 	data: InsaneCourseData;
 	record: SolverResultRecord;
 	log: ActionLog;
 	context?: Parameters<typeof applyManualUpdatesWithLog>[3];
+	logOptions?: ApplyUpdatesLogOptions;
 }): ManualUpdateResult {
 	if (!record.plan.length) {
 		throw new Error('Solver result plan 为空，无法应用');
 	}
+	const overrides = logOptions?.payload ?? {};
+	const { kind: overrideKind, ...restPayload } = overrides as { kind?: string } & Record<string, unknown>;
 	return applyManualUpdatesWithLog(data, record.plan, log, context, {
-		action: 'solver-apply',
+		action: logOptions?.action ?? 'solver:apply',
 		payload: {
+			kind: overrideKind ?? 'solver:apply',
 			solverResultId: record.id,
 			solver: record.solver,
-			metrics: record.metrics
-		}
+			metrics: record.metrics,
+			planLength: record.plan.length,
+			desiredSignature: record.desiredSignature,
+			selectionSignature: record.selectionSignature,
+			runType: record.runType ?? 'manual',
+			defaultTarget: logOptions?.defaultTarget ?? 'selected',
+			overrideMode: logOptions?.overrideMode ?? 'merge',
+			...restPayload
+		},
+		termId: logOptions?.termId,
+		dockSessionId: logOptions?.dockSessionId,
+		solverResultId: record.id,
+		defaultTarget: logOptions?.defaultTarget ?? 'selected',
+		overrideMode: logOptions?.overrideMode ?? 'merge',
+		selectionSnapshotBase64: logOptions?.selectionSnapshotBase64,
+		revertedEntryId: logOptions?.revertedEntryId,
+		versionBase64: logOptions?.versionBase64 ?? record.selectionSignature
 	});
 }
 

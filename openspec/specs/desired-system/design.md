@@ -24,6 +24,26 @@
 
 所有持久化策略与 `openspec/specs/data-pipeline/design.md` 的表格保持一致，便于多端同步。
 
+### 2.2 依赖与级联（待选/已选 → solver inputs）
+
+solver inputs（Desired/Locks/SoftConstraints）对 Selection 有强依赖：用户对待选/已选的“单向加入/移除”会改变 solver 的候选池与可解空间，因此必须显式建模依赖、级联与用户提示。
+
+#### 候选池（Candidate Pool）
+- 默认定义：`candidatePool = wishlistCourseIds ∪ selectedCourseIds`。
+- Desired/Locks/SoftConstraints 中出现的 `courseHash/sectionId/...` MUST 属于候选池，且必须能在当前 `termId` 的课程数据集中解析。
+
+#### Orphan（引用失效隔离区）
+- 若某条 Desired/Lock/SoftConstraint 引用无法解析（数据集变更、课程被移出候选池等），该条目必须进入 orphan：
+  - orphan 条目 **不得参与求解**、不得参与“推送到教务”等云端操作；
+  - UI 必须提示，并提供“一键清理/重新映射”入口。
+
+#### 删除待选/已选时的级联策略（必须提示用户）
+当一个课程从候选池被移除（例如从 wishlist 删除且该课程不在 selected），任何引用该课程的 solver inputs 都必须触发用户提示，并提供默认路径：
+1) **默认：自动级联删除**这些依赖项（Desired/Locks/SoftConstraints），并将“selection 变更 + 级联清理”作为同一原子动作记录到 Action Log（可回滚）。
+2) **备选：保留为 orphan**（但必须阻止其进入 solver/push/sync apply）。
+
+统一状态机与不变量的合同入口见 `openspec/changes/UNDO-SM-1/design.md`。
+
 1. **DesiredCourse**
    ```ts
    interface DesiredCourse {
@@ -156,7 +176,7 @@
    - “华容道”操作生成器（最小换课序列）。
 3. **文档**：更新 data pipeline、action log，说明 Desired/SAT 交互流程、锁系统、软约束管理。
 4. **同步**：Desired 状态 + locks + solver log 也要写入本地 DB 与 GitHub Gist。
-5. **求解结果存储 & Apply/Undo 设计**：
+5. **求解结果存储 & Apply/Undo 设计（包含 dock 覆盖）**：
    - **Result Snapshot**：`solver_result` 表（DuckDB/SQL.js）记录 solver run 元信息（输入版本签名、变量数、hard/soft 计数、solver 名称、耗时、assignment base64）。字段示例：
      ```sql
      CREATE TABLE solver_result (
@@ -170,8 +190,16 @@
        plan TEXT               -- base64 的“华容道”操作列表
      );
      ```
-   - **一键 Apply**：当用户点击“应用方案”时，读取 `plan`（操作序列）逐条转换为 `ManualUpdate`，通过 `applyManualUpdatesWithLog` 执行，并写入 Action Log（带 versionBase64 + undo 指令）。同一 solver result 可多次回放，但每次都会生成新的 Action Log 记录。
-   - **撤销**：Action Log 中保存的 `undo` 队列可直接逆序套用；对 solver result 则记录 `appliedResultId`（selection matrix state + action log entry 引用），便于“撤销本次方案”时找到对应日志并执行 undo。
+  - **Dock 默认呈现 + 一键覆盖**：
+    1. 求解完成后，结果会被推送到 dock 中的 Solver panel，并默认关联 `defaultTarget='selected'`，以“预览卡片”形式显示在已选列表区域，同时写入 `solver:preview` entry（携带 `dockSessionId`、signatures、planLength、runType）。
+    2. “添加/合并”按钮使用 `solver:apply`（overrideMode=`merge`），按 plan 增量调整 selection，`undo` 即 plan 本身。
+    3. “一键覆盖已选”按钮使用 `solver:override`（overrideMode=`replace-all`）：在执行 `applyManualUpdatesWithLog` 之前，先调用 selection store 生成 base64 快照（沿用 `selectionPersistence` schema，包含 matrix + wishlist + version），写入 Action Log entry 的 `selectionSnapshotBase64` 字段；计划依旧映射为 `ManualUpdate[]` 存入 `undo`。
+  - **Action Log 写入**：每次 apply/override 都会：
+    - 记录 `solverResultId`、dock session id、run type、plan 长度、desired/selection signature；
+    - 标记默认落地列表（selected/wishlist），供 UI 恢复“预览在何处展示”；
+    - 保存 `undo` plan，覆盖模式还要带 selection snapshot，保证跨设备撤销；
+    - 将 `versionBase64` 与 selection snapshot 一并序列化，方便 gist/DB 校验。
+  - **撤销**：Action Log 中保存的 `undo` 队列可直接逆序套用；当执行 dock 触发的回滚时，先读取 entry 的 `selectionSnapshotBase64`（若存在）恢复 selection，再回放 `undo` plan；写入 `action=solver:undo` 并指向 `revertedEntryId`，便于“撤销本次方案”时找到对应日志，同时继承 `dockSessionId` 让 UI 能移除相应 preview。
    - **持久化策略**：`stateRepository.ts` 将在后续扩展保存 solver result / plan 表，gist 同步 (`syncStateBundle`) 也会追加 `solver-result.jsonl`，保证跨设备可还原。
 6. **扩展思考**：
    - 真/假冲突判定表；互斥课程列表。

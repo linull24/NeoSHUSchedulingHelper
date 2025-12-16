@@ -1,66 +1,28 @@
-# 课程表切分实现总结
+# 课程表切分（clip-path）设计说明
 
-## 修改内容
+## 背景
+CourseCalendarPanel 需要把“上/下半学期、单/双周”等限制可视化为课程块的可见区域，并确保：
+- 不上课区域透明；
+- hover/outline/click 等交互只在可见区域生效；
+- 同一时间格内多个互补切分块不会互相抢 hover（命中随鼠标位置变化）。
 
-### 1. CourseCalendarPanel.svelte
+该合同由 `openspec/specs/calendar-split/spec.md` 定义。
 
-**新增 `getClipPath()` 函数**：根据 `weekSpan` 和 `weekParity` 计算 clip-path
+## 当前实现（实现要点）
+实现位于：
+- `app/src/lib/apps/CourseCalendarPanel.state.ts`：`getClipPath()` + `buildBlockStyle()` 生成 `--course-clip-path`
+- `app/src/lib/apps/CourseCalendarPanel.svelte`：对渲染与命中应用 `--course-clip-path`
 
-```typescript
-function getClipPath(entry: DemoCalendarEntry): string {
-  // 极端组合（4种）
-  if (上半学期 && 单周) return 'polygon(0 0, 100% 0, 0 100%)';      // 左上角三角形
-  if (上半学期 && 双周) return 'polygon(0 0, 100% 0, 100% 100%)';   // 右上角三角形
-  if (下半学期 && 单周) return 'polygon(0 0, 0 100%, 100% 100%)';   // 左下角三角形
-  if (下半学期 && 双周) return 'polygon(100% 0, 100% 100%, 0 100%)'; // 右下角三角形
-  
-  // 单一切分（4种）
-  if (上半学期) return 'polygon(0 0, 100% 0, 100% 50%, 0 50%)';     // 上半矩形
-  if (下半学期) return 'polygon(0 50%, 100% 50%, 100% 100%, 0 100%)'; // 下半矩形
-  if (单周) return 'polygon(0 0, 50% 0, 50% 100%, 0 100%)';         // 左半矩形
-  if (双周) return 'polygon(50% 0, 100% 0, 100% 100%, 50% 100%)';   // 右半矩形
-  
-  return 'none';
-}
-```
+### 1) 视觉裁剪
+- `buildBlockStyle(entry)` 计算并注入 `--course-clip-path`（值为 `polygon(...)` 或 `none`）。
+- `.course-bg` 使用 `clip-path: var(--course-clip-path)` 只裁剪背景层，从而保证透明区域“露出底色”。
 
-**修改 `buildBlockStyle()`**：应用 clip-path 到 style
+### 2) 交互命中（关键）
+- 对存在切分的课程块，`.course-block.with-clip` 也应用同一个 `clip-path`。
+- 这样浏览器的 hit-testing 会基于 clip 区域判定命中，避免同一格子内互补区域被“矩形按钮框”抢走 hover/click。
 
-```typescript
-function buildBlockStyle(entry: DemoCalendarEntry) {
-  const clipPath = getClipPath(entry);
-  return [
-    // ... 其他样式
-    clipPath !== 'none' ? `clip-path:${clipPath}` : ''
-  ].filter(Boolean).join(';');
-}
-```
+## 手动验证建议
+1. 打开课程表（CourseCalendarPanel）。
+2. 找到同一时间格存在互补切分的课程块（例如不同周次/学期导致多个块重叠）。
+3. 在不同切分区域移动鼠标，确认 HoverInfoBar/高亮会跟随鼠标区域切换到对应课程。
 
-**删除伪元素样式**：移除 `::before` 和 `::after` 的白色遮罩层
-
-### 2. sampleCourses.ts
-
-**新增 4 个极端测试用例**：
-
-| ID | 课程名称 | 时间 | weekSpan | weekParity |
-|----|---------|------|----------|-----------|
-| TEST-EXTREME-1 | 极端测试-上半单周 | 周四 7-8节 | 上半学期 | 单周 |
-| TEST-EXTREME-2 | 极端测试-上半双周 | 周四 9-10节 | 上半学期 | 双周 |
-| TEST-EXTREME-3 | 极端测试-下半单周 | 周五 7-8节 | 下半学期 | 单周 |
-| TEST-EXTREME-4 | 极端测试-下半双周 | 周五 9-11节 | 下半学期 | 双周 |
-
-## 效果
-
-- ✅ 课程块的轮廓、阴影、hover效果都只显示在实际上课的区域
-- ✅ 不上课的区域完全透明，显示为背景色（白色）
-- ✅ 鼠标交互只在可见区域生效
-- ✅ 覆盖所有 8 种切分情况（4种单一 + 4种组合）
-
-## 测试方法
-
-```bash
-cd app
-npm run dev
-```
-
-访问课程表面板，观察周四和周五的测试课程块形状。

@@ -1,27 +1,29 @@
 <script lang="ts">
-	import DockPanel from './DockPanel.svelte';
-	import type { DockPanelData, DockZone, PanelTemplate, PanelKind } from '$lib/types/dock';
-	import { PANEL_MIME_TYPE } from '$lib/types/dock';
+import DockPanel from './DockPanel.svelte';
+import type { DockPanelData, DockZone, PanelTemplate, PanelKind } from '$lib/types/dock';
+import { PANEL_MIME_TYPE } from '$lib/types/dock';
+import AppButton from '$lib/primitives/AppButton.svelte';
+import AppListCard from '$lib/components/AppListCard.svelte';
 
 	const panelTemplates: PanelTemplate[] = [
 		{
 			kind: 'console',
-			title: '执行日志',
-			subtitle: '课程调度核心日志',
+			title: 'Execution log',
+			subtitle: 'Core scheduling log',
 			defaultZone: 'bottom',
 			payload: {
 				logs: [
-					{ id: 'log-1', level: 'info', message: '加载 2024 春季课表快照', timestamp: '08:03:11' },
-					{ id: 'log-2', level: 'warn', message: '检测到 2 个时间冲突，已自动标记', timestamp: '08:03:15' },
-					{ id: 'log-3', level: 'info', message: '完成调度求解（412ms）', timestamp: '08:03:16' },
-					{ id: 'log-4', level: 'error', message: '重试教务系统握手：token 401', timestamp: '08:03:18' }
+					{ id: 'log-1', level: 'info', message: 'Loaded 2024 spring schedule snapshot', timestamp: '08:03:11' },
+					{ id: 'log-2', level: 'warn', message: 'Detected 2 time conflicts and tagged automatically', timestamp: '08:03:15' },
+					{ id: 'log-3', level: 'info', message: 'Finished solving (412ms)', timestamp: '08:03:16' },
+					{ id: 'log-4', level: 'error', message: 'Retrying registrar handshake: token 401', timestamp: '08:03:18' }
 				]
 			}
 		},
 		{
 			kind: 'state',
-			title: '状态树',
-			subtitle: '实时调度状态快照',
+			title: 'State tree',
+			subtitle: 'Live scheduler snapshot',
 			defaultZone: 'left',
 			payload: {
 				tree: [
@@ -48,8 +50,8 @@
 		},
 		{
 			kind: 'network',
-			title: '请求追踪',
-			subtitle: '教务接口调用记录',
+			title: 'Request trace',
+			subtitle: 'Registrar API calls',
 			defaultZone: 'right',
 			payload: {
 				requests: [
@@ -61,19 +63,19 @@
 		},
 		{
 			kind: 'scheduler',
-			title: '调度指标',
-			subtitle: '冲突与耗时监控',
+			title: 'Scheduler metrics',
+			subtitle: 'Conflict & latency monitor',
 			defaultZone: 'right',
 			payload: {
 				metrics: [
-					{ id: 'metric-1', label: '冲突', value: '2' },
-					{ id: 'metric-2', label: '候选解', value: '5' },
-					{ id: 'metric-3', label: '耗时', value: '412 ms' }
+					{ id: 'metric-1', label: 'Conflicts', value: '2' },
+					{ id: 'metric-2', label: 'Candidate plans', value: '5' },
+					{ id: 'metric-3', label: 'Duration', value: '412 ms' }
 				],
 				timeline: [
-					{ id: 'time-1', title: '抓取课表', at: '08:03:09', note: '共 242 门课程' },
-					{ id: 'time-2', title: '冲突求解', at: '08:03:10', note: '回溯 2 次' },
-					{ id: 'time-3', title: '写入草稿', at: '08:03:16', note: '占用 18 学分' }
+					{ id: 'time-1', title: 'Fetch schedule', at: '08:03:09', note: '242 courses total' },
+					{ id: 'time-2', title: 'Conflict solving', at: '08:03:10', note: '2 backtracks' },
+					{ id: 'time-3', title: 'Save draft', at: '08:03:16', note: '18 credits used' }
 				]
 			}
 		}
@@ -97,7 +99,7 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 	let panels: DockPanelData[] = panelTemplates.map((template) => buildPanel(template));
 	let activePanelId: string | null = panels[0]?.id ?? null;
 	let highlightedZone: DockZone | null = null;
-	let selectedScenario = '2024春季';
+	let selectedScenario = '2024 Spring';
 
 	function addPanel(kind: PanelKind) {
 		const template = panelTemplates.find((item) => item.kind === kind);
@@ -149,57 +151,74 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 	$: leftPanels = panels.filter((panel) => panel.zone === 'left');
 	$: rightPanels = panels.filter((panel) => panel.zone === 'right');
 	$: bottomPanels = panels.filter((panel) => panel.zone === 'bottom');
+
+	const zoneBaseClass =
+		'dock-zone flex flex-col gap-3 rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[color-mix(in_srgb,var(--app-color-bg-elevated)_95%,var(--app-color-fg)_5%)] p-4 min-h-[240px] transition-colors';
+	const zoneHighlightClass =
+		'border-[color:var(--app-color-primary)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--app-color-primary)_40%,transparent)]';
+
 </script>
 
-<section class="workbench">
-	<header class="workbench__toolbar">
-		<div>
-			<h1>SHU 调课调试工作台</h1>
-			<p>拖动面板到任意区域，快速搭建适合自己的调试视角。</p>
+<section class="workbench flex flex-col gap-6 p-6 text-[var(--app-text-sm)] text-[var(--app-color-fg)] bg-[var(--app-color-bg)] rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] shadow-[var(--app-shadow-soft)]">
+	<header class="workbench__toolbar flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+		<div class="space-y-1.5">
+			<h1 class="m-0 text-[var(--app-text-lg)] font-semibold">SHU Scheduling Debug Workbench</h1>
+			<p class="m-0 text-[var(--app-color-fg-muted)]">Drag panels anywhere to build your own debugging view.</p>
 		</div>
-		<div class="session-controls">
-			<label>
-				场景
-				<select bind:value={selectedScenario}>
-					<option value="2024春季">2024 春季</option>
-					<option value="2024秋季">2024 秋季</option>
-					<option value="实验课程">实验课程</option>
+		<div class="session-controls flex flex-wrap items-end gap-3">
+			<label class="flex flex-col gap-1 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+				<span>Scenario</span>
+				<select
+					bind:value={selectedScenario}
+					class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
+				>
+					<option value="2024 Spring">2024 Spring</option>
+					<option value="2024 Fall">2024 Fall</option>
+					<option value="Lab courses">Lab courses</option>
 				</select>
 			</label>
-			<button type="button">刷新快照</button>
+			<AppButton variant="primary" size="sm">Refresh snapshot</AppButton>
 		</div>
 	</header>
 
-	<div class="panel-library">
-		<h3>面板库</h3>
-		<p>随时添加一块新的观察面板，便于临时分析或对照。</p>
-		<div class="template-grid">
+	<div class="panel-library rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg-elevated)] p-4 shadow-[var(--app-shadow-soft)]">
+		<h3 class="m-0 text-[var(--app-text-md)] font-semibold">Panel library</h3>
+		<p class="mb-4 mt-1 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Add panels anytime for quick analysis or comparison.</p>
+		<div class="template-grid grid gap-3 md:grid-cols-2 xl:grid-cols-3">
 			{#each panelTemplates as template (template.kind)}
-				<button type="button" on:click={() => addPanel(template.kind)}>
-					<strong>{template.title}</strong>
-					<span>{template.subtitle}</span>
-					<small>默认位置：{template.defaultZone}</small>
-				</button>
+				<AppListCard
+					title={template.title}
+					subtitle={template.subtitle}
+					interactive={true}
+					class="cursor-pointer border-[color-mix(in_srgb,var(--app-color-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--app-color-primary)_12%,var(--app-color-bg))] hover:bg-[color-mix(in_srgb,var(--app-color-primary)_18%,var(--app-color-bg))]"
+					role="button"
+					tabindex={0}
+					on:click={() => addPanel(template.kind)}
+				>
+					<small class="text-[var(--app-text-xs)] text-[var(--app-color-primary)]">
+						Default zone: {template.defaultZone}
+					</small>
+				</AppListCard>
 			{/each}
 		</div>
 	</div>
 
-	<div class="dock-layout">
+	<div class="dock-layout grid gap-4 xl:grid-cols-[280px,1fr,280px]">
 		<div
-			class={`dock-zone left ${highlightedZone === 'left' ? 'highlight' : ''}`}
+			class={`${zoneBaseClass} ${highlightedZone === 'left' ? zoneHighlightClass : ''}`}
 			role="region"
-			aria-label="左侧工作栈放置区域"
+			aria-label="Left dock drop zone"
 			on:dragenter={(event) => handleDragEnter('left', event)}
 			on:dragover={handleDragOver}
 			on:drop={(event) => handleDrop('left', event)}
 			on:dragleave={(event) => handleDragLeave('left', event)}
 		>
-			<div class="zone-header">
-				<h4>左侧工作栈</h4>
-				<span>{leftPanels.length} 个面板</span>
+			<div class="zone-header flex items-center justify-between text-[var(--app-text-xs)] uppercase tracking-[0.08em] text-[var(--app-color-fg-muted)]">
+				<h4 class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">Left dock</h4>
+				<span>{leftPanels.length} panels</span>
 			</div>
 			{#if leftPanels.length === 0}
-				<p class="zone-placeholder">拖拽任意面板到这里</p>
+				<p class="zone-placeholder rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-bg)_92%,var(--app-color-fg)_8%)] px-3 py-2 text-center text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Drag any panel here</p>
 			{/if}
 			{#each leftPanels as panel (panel.id)}
 				<DockPanel
@@ -213,32 +232,32 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 			{/each}
 		</div>
 
-		<div class="viewport">
-			<div class="viewport__header">
-				<div>
-					<h3>课表视图</h3>
-					<p>当前场景：{selectedScenario}</p>
+		<div class="viewport order-first flex flex-col rounded-[var(--app-radius-xl)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg-elevated)] shadow-[var(--app-shadow-soft)] xl:order-none">
+			<div class="viewport__header flex flex-col gap-2 border-b border-[color:var(--app-color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="space-y-1">
+					<h3 class="m-0 text-[var(--app-text-md)] font-semibold">Schedule preview</h3>
+					<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Current scenario: {selectedScenario}</p>
 				</div>
-				<div class="view-actions">
-					<button type="button">高亮冲突</button>
-					<button type="button">导出草稿</button>
+				<div class="view-actions flex flex-wrap gap-2">
+					<AppButton variant="secondary" size="sm">Highlight conflicts</AppButton>
+					<AppButton variant="secondary" size="sm">Export draft</AppButton>
 				</div>
 			</div>
-			<div class="viewport__canvas">
-				<div class="timeline-bar">
-					<div class="tick danger" style="left: 35%"></div>
-					<div class="tick warn" style="left: 62%"></div>
-					<div class="tick ok" style="left: 82%"></div>
+			<div class="viewport__canvas flex flex-col gap-4 p-4">
+				<div class="timeline-bar relative h-1.5 rounded-full bg-[color-mix(in_srgb,var(--app-color-border-subtle)_60%,transparent)]">
+					<div class="absolute -top-1.5 h-4 w-2 rounded-full bg-[var(--app-color-danger)]" style="left:35%"></div>
+					<div class="absolute -top-1.5 h-4 w-2 rounded-full bg-[var(--app-color-warning)]" style="left:62%"></div>
+					<div class="absolute -top-1.5 h-4 w-2 rounded-full bg-[var(--app-color-success)]" style="left:82%"></div>
 				</div>
-				<div class="grid">
+				<div class="grid flex flex-col gap-3">
 					{#each Array(5) as _, idx}
-						<div class="grid-row">
-							<span>第 {idx + 1} 天</span>
-							<div class="grid-cells">
-								<div class="cell busy"></div>
-								<div class="cell"></div>
-								<div class="cell busy"></div>
-								<div class="cell conflict"></div>
+						<div class="grid-row flex items-center gap-3">
+							<span class="w-16 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Day {idx + 1}</span>
+							<div class="grid-cells grid w-full grid-cols-4 gap-2">
+								<div class="cell h-12 rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-primary)_20%,var(--app-color-bg-elevated))]"></div>
+								<div class="cell h-12 rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-bg-elevated)_95%,var(--app-color-fg)_5%)]"></div>
+								<div class="cell h-12 rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-primary)_20%,var(--app-color-bg-elevated))]"></div>
+								<div class="cell h-12 rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-danger)_20%,var(--app-color-bg-elevated))]"></div>
 							</div>
 						</div>
 					{/each}
@@ -247,20 +266,20 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 		</div>
 
 		<div
-			class={`dock-zone right ${highlightedZone === 'right' ? 'highlight' : ''}`}
+			class={`${zoneBaseClass} ${highlightedZone === 'right' ? zoneHighlightClass : ''}`}
 			role="region"
-			aria-label="右侧工作栈放置区域"
+			aria-label="Right dock drop zone"
 			on:dragenter={(event) => handleDragEnter('right', event)}
 			on:dragover={handleDragOver}
 			on:drop={(event) => handleDrop('right', event)}
 			on:dragleave={(event) => handleDragLeave('right', event)}
 		>
-			<div class="zone-header">
-				<h4>右侧工作栈</h4>
-				<span>{rightPanels.length} 个面板</span>
+			<div class="zone-header flex items-center justify-between text-[var(--app-text-xs)] uppercase tracking-[0.08em] text-[var(--app-color-fg-muted)]">
+				<h4 class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">Right dock</h4>
+				<span>{rightPanels.length} panels</span>
 			</div>
 			{#if rightPanels.length === 0}
-				<p class="zone-placeholder">拖拽任意面板到这里</p>
+				<p class="zone-placeholder rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-bg)_92%,var(--app-color-fg)_8%)] px-3 py-2 text-center text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Drag any panel here</p>
 			{/if}
 			{#each rightPanels as panel (panel.id)}
 				<DockPanel
@@ -276,22 +295,22 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 	</div>
 
 	<div
-		class={`dock-zone bottom ${highlightedZone === 'bottom' ? 'highlight' : ''}`}
+		class={`${zoneBaseClass} ${highlightedZone === 'bottom' ? zoneHighlightClass : ''}`}
 		role="region"
-		aria-label="底部输出放置区域"
+		aria-label="Bottom dock drop zone"
 		on:dragenter={(event) => handleDragEnter('bottom', event)}
 		on:dragover={handleDragOver}
 		on:drop={(event) => handleDrop('bottom', event)}
 		on:dragleave={(event) => handleDragLeave('bottom', event)}
 	>
-		<div class="zone-header">
-			<h4>底部输出</h4>
-			<span>{bottomPanels.length} 个面板</span>
+		<div class="zone-header flex items-center justify-between text-[var(--app-text-xs)] uppercase tracking-[0.08em] text-[var(--app-color-fg-muted)]">
+			<h4 class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">Bottom output</h4>
+			<span>{bottomPanels.length} panels</span>
 		</div>
 		{#if bottomPanels.length === 0}
-			<p class="zone-placeholder">拖拽任意面板到这里</p>
+			<p class="zone-placeholder rounded-[var(--app-radius-md)] bg-[color-mix(in_srgb,var(--app-color-bg)_92%,var(--app-color-fg)_8%)] px-3 py-2 text-center text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">Drag any panel here</p>
 		{/if}
-		<div class="bottom-panels">
+		<div class="bottom-panels grid gap-3 md:grid-cols-2">
 			{#each bottomPanels as panel (panel.id)}
 				<DockPanel
 					title={panel.title}
@@ -305,296 +324,3 @@ const buildPanel = (template: PanelTemplate): DockPanelData => ({
 		</div>
 	</div>
 </section>
-
-<style>
-	:global(body) {
-		background: radial-gradient(circle at top, #111827, #05070f);
-		color: #e5edff;
-		font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-		margin: 0;
-		min-height: 100vh;
-	}
-
-	:global(#svelte) {
-		min-height: 100vh;
-	}
-
-	.workbench {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		padding: 2rem clamp(1.5rem, 4vw, 3rem) 4rem;
-	}
-
-	.workbench__toolbar {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
-		gap: 1rem;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: clamp(1.4rem, 3vw, 2rem);
-	}
-
-	.workbench__toolbar p {
-		color: #94a3c7;
-		margin: 0.25rem 0 0;
-	}
-
-	.session-controls {
-		display: flex;
-		gap: 0.75rem;
-		align-items: flex-end;
-	}
-
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		font-size: 0.85rem;
-		color: #c1c8dd;
-	}
-
-	select {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.15);
-		color: inherit;
-		padding: 0.4rem 0.6rem;
-		border-radius: 8px;
-	}
-
-	button {
-		background: linear-gradient(135deg, #2563eb, #1d4ed8);
-		color: #fff;
-		border: none;
-		padding: 0.45rem 0.9rem;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 600;
-		box-shadow: 0 8px 20px rgba(29, 78, 216, 0.35);
-	}
-
-	button:hover {
-		opacity: 0.9;
-	}
-
-	.panel-library {
-		background: rgba(7, 11, 20, 0.85);
-		border: 1px solid rgba(255, 255, 255, 0.05);
-		border-radius: 18px;
-		padding: 1rem;
-	}
-
-	.panel-library h3 {
-		margin: 0;
-	}
-
-	.panel-library p {
-		margin: 0.3rem 0 1rem;
-		color: #94a3c7;
-	}
-
-	.template-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 0.75rem;
-	}
-
-	.template-grid button {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		background: rgba(37, 99, 235, 0.08);
-		border: 1px solid rgba(37, 99, 235, 0.3);
-		box-shadow: none;
-		gap: 0.25rem;
-	}
-
-	.template-grid strong {
-		font-size: 0.95rem;
-	}
-
-	.template-grid span {
-		font-size: 0.8rem;
-		color: #c1c8dd;
-	}
-
-	.template-grid small {
-		font-size: 0.7rem;
-		color: #7ea2f2;
-	}
-
-	.dock-layout {
-		display: grid;
-		grid-template-columns: 280px 1fr 280px;
-		gap: 1rem;
-		min-height: 420px;
-	}
-
-	.dock-zone {
-		background: rgba(6, 10, 18, 0.75);
-		border: 1px dashed rgba(255, 255, 255, 0.1);
-		border-radius: 18px;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		min-height: 280px;
-		transition: border-color 0.2s ease, box-shadow 0.2s ease;
-	}
-
-	.dock-zone.highlight {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
-	}
-
-	.zone-header {
-		display: flex;
-		justify-content: space-between;
-		color: #94a3c7;
-		font-size: 0.8rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.zone-placeholder {
-		margin: 0;
-		padding: 0.6rem;
-		border-radius: 10px;
-		background: rgba(255, 255, 255, 0.02);
-		color: #6b7287;
-		text-align: center;
-		font-size: 0.85rem;
-	}
-
-	.viewport {
-		background: rgba(5, 8, 14, 0.9);
-		border-radius: 22px;
-		border: 1px solid rgba(255, 255, 255, 0.05);
-		display: flex;
-		flex-direction: column;
-		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-	}
-
-	.viewport__header {
-		display: flex;
-		justify-content: space-between;
-		padding: 1rem 1.2rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-	}
-
-	.viewport__header h3 {
-		margin: 0;
-	}
-
-	.viewport__header p {
-		margin: 0.2rem 0 0;
-		color: #94a3c7;
-	}
-
-	.view-actions {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.view-actions button {
-		padding: 0.4rem 0.8rem;
-		font-size: 0.85rem;
-	}
-
-	.viewport__canvas {
-		padding: 1rem 1.2rem 1.5rem;
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.timeline-bar {
-		position: relative;
-		height: 6px;
-		background: rgba(255, 255, 255, 0.08);
-		border-radius: 999px;
-	}
-
-	.timeline-bar .tick {
-		position: absolute;
-		top: -6px;
-		width: 12px;
-		height: 18px;
-		border-radius: 999px;
-	}
-
-	.timeline-bar .tick.danger {
-		background: #f87171;
-	}
-
-	.timeline-bar .tick.warn {
-		background: #fbbf24;
-	}
-
-	.timeline-bar .tick.ok {
-		background: #34d399;
-	}
-
-	.grid {
-		display: flex;
-		flex-direction: column;
-		gap: 0.8rem;
-	}
-
-	.grid-row {
-		display: flex;
-		gap: 0.8rem;
-		align-items: center;
-	}
-
-	.grid-row span {
-		width: 80px;
-		color: #8b92a7;
-		font-size: 0.85rem;
-	}
-
-	.grid-cells {
-		display: grid;
-		grid-template-columns: repeat(4, minmax(80px, 1fr));
-		gap: 0.4rem;
-		width: 100%;
-	}
-
-	.cell {
-		height: 48px;
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.05);
-	}
-
-	.cell.busy {
-		background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(59, 130, 246, 0.1));
-	}
-
-	.cell.conflict {
-		background: linear-gradient(135deg, rgba(248, 113, 113, 0.35), rgba(248, 113, 113, 0.1));
-	}
-
-	.bottom {
-		margin-top: 1rem;
-	}
-
-	.bottom-panels {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-		gap: 0.8rem;
-	}
-
-	@media (max-width: 1100px) {
-		.dock-layout {
-			grid-template-columns: 1fr;
-		}
-
-		.viewport {
-			order: -1;
-		}
-	}
-</style>

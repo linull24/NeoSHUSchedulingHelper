@@ -1,0 +1,462 @@
+/**
+ * Abstract Design Token Layer
+ *
+ * This file defines theme-agnostic design tokens that map to both MD3 and Fluent2.
+ * Components should ONLY consume these abstract tokens, never theme-specific values.
+ *
+ * Token Naming Convention: --token-{category}-{role}-{variant?}-{property?}
+ *
+ * Categories:
+ * - color: Color roles and semantic colors
+ * - font: Typography scale and properties
+ * - space: Spacing scale
+ * - elevation: Shadow/elevation levels
+ * - radius: Border radius sizes
+ * - state: Interaction state properties
+ */
+
+:root {
+  /* ============================================
+   * COLOR TOKENS
+   * ============================================ */
+
+  /* Primary Colors */
+  --token-color-primary: #1e3a8a;
+  --token-color-primary-hover: #1e40af;
+  --token-color-primary-pressed: #1e3a8a;
+  --token-color-on-primary: #ffffff;
+  --token-color-primary-container: #dbeafe;
+  --token-color-on-primary-container: #1e3a8a;
+
+  /* Secondary Colors */
+  --token-color-secondary: #64748b;
+  --token-color-secondary-hover: #475569;
+  --token-color-secondary-pressed: #334155;
+  --token-color-on-secondary: #ffffff;
+  --token-color-secondary-container: #e2e8f0;
+  --token-color-on-secondary-container: #334155;
+
+  /* Tertiary Colors */
+  --token-color-tertiary: #7c3aed;
+  --token-color-tertiary-hover: #6d28d9;
+  --token-color-tertiary-pressed: #5b21b6;
+  --token-color-on-tertiary: #ffffff;
+  --token-color-tertiary-container: #ede9fe;
+  --token-color-on-tertiary-container: #5b21b6;
+
+  /* Error Colors */
+  --token-color-error: #dc2626;
+  --token-color-error-hover: #b91c1c;
+  --token-color-error-pressed: #991b1b;
+  --token-color-on-error: #ffffff;
+  --token-color-error-container: #fee2e2;
+  --token-color-on-error-container: #991b1b;
+
+  /* Warning Colors */
+  --token-color-warning: #f59e0b;
+  --token-color-warning-hover: #d97706;
+  --token-color-warning-pressed: #b45309;
+  --token-color-on-warning: #ffffff;
+  --token-color-warning-container: #fef3c7;
+  --token-color-on-warning-container: #b45309;
+
+  /* Success Colors */
+  --token-color-success: #16a34a;
+  --token-color-success-hover: #15803d;
+  --token-color-success-pressed: #166534;
+  --token-color-on-success: #ffffff;
+  --token-color-success-container: #dcfce7;
+  --token-color-on-success-container: #166534;
+
+  /* Info Colors */
+  --token-color-info: #0284c7;
+  --token-color-info-hover: #0369a1;
+  --token-color-info-pressed: #075985;
+  --token-color-on-info: #ffffff;
+  --token-color-info-container: #e0f2fe;
+  --token-color-on-info-container: #075985;
+
+  /* Surface Colors */
+  --token-color-surface: #ffffff;
+  --token-color-surface-variant: #f5f5f7;
+  --token-color-surface-container: #f8f9fb;
+  --token-color-surface-container-low: #fafbfc;
+  --token-color-surface-container-high: #f0f1f3;
+  --token-color-surface-container-highest: #e8e9eb;
+  --token-color-on-surface: #0f1223;
+  --token-color-on-surface-variant: #6b7280;
+
+  /* Background Colors */
+  --token-color-background: #ffffff;
+  --token-color-on-background: #0f1223;
+
+  /* Outline Colors */
+  --token-color-outline: rgba(15, 18, 35, 0.2);
+  --token-color-outline-variant: rgba(15, 18, 35, 0.12);
+
+  /* Inverse Colors */
+  --token-color-inverse-surface: #1f2937;
+  --token-color-inverse-on-surface: #f9fafb;
+  --token-color-inverse-primary: #60a5fa;
+
+  /* Scrim (overlay) */
+  --token-color-scrim: rgba(0, 0, 0, 0.32);
+
+  /* ============================================
+   * TYPOGRAPHY TOKENS
+   * ============================================ */
+
+  /* Font Families */
+  --token-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --token-font-family-display: var(--token-font-family-base);
+  --token-font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+
+  /* Display Scale */
+  --token-font-display-lg-family: var(--token-font-family-display);
+  --token-font-display-lg-size: 3.5rem;
+  --token-font-display-lg-weight: 400;
+  --token-font-display-lg-line-height: 1.2;
+  --token-font-display-lg-letter-spacing: -0.02em;
+
+  --token-font-display-md-family: var(--token-font-family-display);
+  --token-font-display-md-size: 2.75rem;
+  --token-font-display-md-weight: 400;
+  --token-font-display-md-line-height: 1.2;
+  --token-font-display-md-letter-spacing: -0.01em;
+
+  --token-font-display-sm-family: var(--token-font-family-display);
+  --token-font-display-sm-size: 2.25rem;
+  --token-font-display-sm-weight: 400;
+  --token-font-display-sm-line-height: 1.3;
+  --token-font-display-sm-letter-spacing: 0;
+
+  /* Headline Scale */
+  --token-font-headline-lg-family: var(--token-font-family-base);
+  --token-font-headline-lg-size: 2rem;
+  --token-font-headline-lg-weight: 500;
+  --token-font-headline-lg-line-height: 1.3;
+  --token-font-headline-lg-letter-spacing: 0;
+
+  --token-font-headline-md-family: var(--token-font-family-base);
+  --token-font-headline-md-size: 1.75rem;
+  --token-font-headline-md-weight: 500;
+  --token-font-headline-md-line-height: 1.4;
+  --token-font-headline-md-letter-spacing: 0;
+
+  --token-font-headline-sm-family: var(--token-font-family-base);
+  --token-font-headline-sm-size: 1.5rem;
+  --token-font-headline-sm-weight: 500;
+  --token-font-headline-sm-line-height: 1.4;
+  --token-font-headline-sm-letter-spacing: 0;
+
+  /* Title Scale */
+  --token-font-title-lg-family: var(--token-font-family-base);
+  --token-font-title-lg-size: 1.375rem;
+  --token-font-title-lg-weight: 500;
+  --token-font-title-lg-line-height: 1.5;
+  --token-font-title-lg-letter-spacing: 0;
+
+  --token-font-title-md-family: var(--token-font-family-base);
+  --token-font-title-md-size: 1.125rem;
+  --token-font-title-md-weight: 500;
+  --token-font-title-md-line-height: 1.5;
+  --token-font-title-md-letter-spacing: 0.01em;
+
+  --token-font-title-sm-family: var(--token-font-family-base);
+  --token-font-title-sm-size: 0.875rem;
+  --token-font-title-sm-weight: 500;
+  --token-font-title-sm-line-height: 1.5;
+  --token-font-title-sm-letter-spacing: 0.01em;
+
+  /* Body Scale */
+  --token-font-body-lg-family: var(--token-font-family-base);
+  --token-font-body-lg-size: 1.125rem;
+  --token-font-body-lg-weight: 400;
+  --token-font-body-lg-line-height: 1.6;
+  --token-font-body-lg-letter-spacing: 0.01em;
+
+  --token-font-body-md-family: var(--token-font-family-base);
+  --token-font-body-md-size: 1rem;
+  --token-font-body-md-weight: 400;
+  --token-font-body-md-line-height: 1.6;
+  --token-font-body-md-letter-spacing: 0.01em;
+
+  --token-font-body-sm-family: var(--token-font-family-base);
+  --token-font-body-sm-size: 0.875rem;
+  --token-font-body-sm-weight: 400;
+  --token-font-body-sm-line-height: 1.5;
+  --token-font-body-sm-letter-spacing: 0.01em;
+
+  /* Label Scale */
+  --token-font-label-lg-family: var(--token-font-family-base);
+  --token-font-label-lg-size: 0.875rem;
+  --token-font-label-lg-weight: 500;
+  --token-font-label-lg-line-height: 1.5;
+  --token-font-label-lg-letter-spacing: 0.01em;
+
+  --token-font-label-md-family: var(--token-font-family-base);
+  --token-font-label-md-size: 0.75rem;
+  --token-font-label-md-weight: 500;
+  --token-font-label-md-line-height: 1.5;
+  --token-font-label-md-letter-spacing: 0.02em;
+
+  --token-font-label-sm-family: var(--token-font-family-base);
+  --token-font-label-sm-size: 0.6875rem;
+  --token-font-label-sm-weight: 500;
+  --token-font-label-sm-line-height: 1.4;
+  --token-font-label-sm-letter-spacing: 0.02em;
+
+  /* ============================================
+   * SPACING TOKENS
+   * ============================================ */
+
+  --token-space-0: 0;
+  --token-space-1: 0.25rem;   /* 4px */
+  --token-space-2: 0.5rem;    /* 8px */
+  --token-space-3: 0.75rem;   /* 12px */
+  --token-space-4: 1rem;      /* 16px */
+  --token-space-5: 1.25rem;   /* 20px */
+  --token-space-6: 1.5rem;    /* 24px */
+  --token-space-8: 2rem;      /* 32px */
+  --token-space-10: 2.5rem;   /* 40px */
+  --token-space-12: 3rem;     /* 48px */
+  --token-space-16: 4rem;     /* 64px */
+  --token-space-20: 5rem;     /* 80px */
+  --token-space-24: 6rem;     /* 96px */
+
+  /* ============================================
+   * ELEVATION TOKENS
+   * ============================================ */
+
+  --token-elevation-0: none;
+  --token-elevation-1: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --token-elevation-2: 0 2px 8px 0 rgba(0, 0, 0, 0.08);
+  --token-elevation-3: 0 4px 16px 0 rgba(0, 0, 0, 0.12);
+  --token-elevation-4: 0 8px 24px 0 rgba(0, 0, 0, 0.16);
+  --token-elevation-5: 0 12px 32px 0 rgba(0, 0, 0, 0.20);
+
+  /* ============================================
+   * SHAPE TOKENS (Border Radius)
+   * ============================================ */
+
+  --token-radius-none: 0;
+  --token-radius-xs: 0.125rem;  /* 2px */
+  --token-radius-sm: 0.25rem;   /* 4px */
+  --token-radius-md: 0.5rem;    /* 8px */
+  --token-radius-lg: 0.75rem;   /* 12px */
+  --token-radius-xl: 1rem;      /* 16px */
+  --token-radius-2xl: 1.5rem;   /* 24px */
+  --token-radius-full: 9999px;
+
+  /* ============================================
+   * STATE TOKENS
+   * ============================================ */
+
+  --token-state-hover-opacity: 0.08;
+  --token-state-focus-opacity: 0.12;
+  --token-state-pressed-opacity: 0.12;
+  --token-state-dragged-opacity: 0.16;
+  --token-state-disabled-opacity: 0.38;
+  --token-state-disabled-container-opacity: 0.12;
+
+  /* State layer colors (for overlays) */
+  --token-state-layer-hover: rgba(0, 0, 0, var(--token-state-hover-opacity));
+  --token-state-layer-focus: rgba(0, 0, 0, var(--token-state-focus-opacity));
+  --token-state-layer-pressed: rgba(0, 0, 0, var(--token-state-pressed-opacity));
+  --token-state-layer-dragged: rgba(0, 0, 0, var(--token-state-dragged-opacity));
+
+  /* ============================================
+   * TRANSITION TOKENS
+   * ============================================ */
+
+  --token-transition-duration-short: 100ms;
+  --token-transition-duration-medium: 200ms;
+  --token-transition-duration-long: 300ms;
+  --token-transition-duration-extra-long: 500ms;
+
+  --token-transition-easing-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --token-transition-easing-decelerate: cubic-bezier(0.0, 0.0, 0.2, 1);
+  --token-transition-easing-accelerate: cubic-bezier(0.4, 0.0, 1, 1);
+  --token-transition-easing-sharp: cubic-bezier(0.4, 0.0, 0.6, 1);
+
+  /* ============================================
+   * Z-INDEX TOKENS
+   * ============================================ */
+
+  --token-z-index-dropdown: 1000;
+  --token-z-index-sticky: 1020;
+  --token-z-index-fixed: 1030;
+  --token-z-index-modal-backdrop: 1040;
+  --token-z-index-modal: 1050;
+  --token-z-index-popover: 1060;
+  --token-z-index-tooltip: 1070;
+
+  /* ============================================
+   * LAYOUT TOKENS
+   * ============================================ */
+
+  --token-layout-max-width-sm: 640px;
+  --token-layout-max-width-md: 768px;
+  --token-layout-max-width-lg: 1024px;
+  --token-layout-max-width-xl: 1280px;
+  --token-layout-max-width-2xl: 1536px;
+
+  /* ============================================
+   * COMPONENT-SPECIFIC TOKENS
+   * ============================================ */
+
+  /* Buttons */
+  --token-button-height-sm: 2rem;
+  --token-button-height-md: 2.5rem;
+  --token-button-height-lg: 3rem;
+  --token-button-padding-x-sm: var(--token-space-3);
+  --token-button-padding-x-md: var(--token-space-4);
+  --token-button-padding-x-lg: var(--token-space-6);
+
+  /* Inputs */
+  --token-input-height-sm: 2rem;
+  --token-input-height-md: 2.5rem;
+  --token-input-height-lg: 3rem;
+  --token-input-padding-x: var(--token-space-3);
+  --token-input-padding-y: var(--token-space-2);
+
+  /* Cards */
+  --token-card-padding: var(--token-space-4);
+  --token-card-gap: var(--token-space-3);
+
+  /* Lists */
+  --token-list-item-height-sm: 2rem;
+  --token-list-item-height-md: 2.5rem;
+  --token-list-item-height-lg: 3rem;
+  --token-list-item-padding-x: var(--token-space-4);
+  --token-list-item-padding-y: var(--token-space-2);
+
+  /* Chips */
+  --token-chip-height: 2rem;
+  --token-chip-padding-x: var(--token-space-3);
+  --token-chip-gap: var(--token-space-2);
+}
+
+/* ============================================
+ * TYPOGRAPHY MIXINS (as CSS classes)
+ * ============================================ */
+
+.token-display-lg {
+  font-family: var(--token-font-display-lg-family);
+  font-size: var(--token-font-display-lg-size);
+  font-weight: var(--token-font-display-lg-weight);
+  line-height: var(--token-font-display-lg-line-height);
+  letter-spacing: var(--token-font-display-lg-letter-spacing);
+}
+
+.token-display-md {
+  font-family: var(--token-font-display-md-family);
+  font-size: var(--token-font-display-md-size);
+  font-weight: var(--token-font-display-md-weight);
+  line-height: var(--token-font-display-md-line-height);
+  letter-spacing: var(--token-font-display-md-letter-spacing);
+}
+
+.token-display-sm {
+  font-family: var(--token-font-display-sm-family);
+  font-size: var(--token-font-display-sm-size);
+  font-weight: var(--token-font-display-sm-weight);
+  line-height: var(--token-font-display-sm-line-height);
+  letter-spacing: var(--token-font-display-sm-letter-spacing);
+}
+
+.token-headline-lg {
+  font-family: var(--token-font-headline-lg-family);
+  font-size: var(--token-font-headline-lg-size);
+  font-weight: var(--token-font-headline-lg-weight);
+  line-height: var(--token-font-headline-lg-line-height);
+  letter-spacing: var(--token-font-headline-lg-letter-spacing);
+}
+
+.token-headline-md {
+  font-family: var(--token-font-headline-md-family);
+  font-size: var(--token-font-headline-md-size);
+  font-weight: var(--token-font-headline-md-weight);
+  line-height: var(--token-font-headline-md-line-height);
+  letter-spacing: var(--token-font-headline-md-letter-spacing);
+}
+
+.token-headline-sm {
+  font-family: var(--token-font-headline-sm-family);
+  font-size: var(--token-font-headline-sm-size);
+  font-weight: var(--token-font-headline-sm-weight);
+  line-height: var(--token-font-headline-sm-line-height);
+  letter-spacing: var(--token-font-headline-sm-letter-spacing);
+}
+
+.token-title-lg {
+  font-family: var(--token-font-title-lg-family);
+  font-size: var(--token-font-title-lg-size);
+  font-weight: var(--token-font-title-lg-weight);
+  line-height: var(--token-font-title-lg-line-height);
+  letter-spacing: var(--token-font-title-lg-letter-spacing);
+}
+
+.token-title-md {
+  font-family: var(--token-font-title-md-family);
+  font-size: var(--token-font-title-md-size);
+  font-weight: var(--token-font-title-md-weight);
+  line-height: var(--token-font-title-md-line-height);
+  letter-spacing: var(--token-font-title-md-letter-spacing);
+}
+
+.token-title-sm {
+  font-family: var(--token-font-title-sm-family);
+  font-size: var(--token-font-title-sm-size);
+  font-weight: var(--token-font-title-sm-weight);
+  line-height: var(--token-font-title-sm-line-height);
+  letter-spacing: var(--token-font-title-sm-letter-spacing);
+}
+
+.token-body-lg {
+  font-family: var(--token-font-body-lg-family);
+  font-size: var(--token-font-body-lg-size);
+  font-weight: var(--token-font-body-lg-weight);
+  line-height: var(--token-font-body-lg-line-height);
+  letter-spacing: var(--token-font-body-lg-letter-spacing);
+}
+
+.token-body-md {
+  font-family: var(--token-font-body-md-family);
+  font-size: var(--token-font-body-md-size);
+  font-weight: var(--token-font-body-md-weight);
+  line-height: var(--token-font-body-md-line-height);
+  letter-spacing: var(--token-font-body-md-letter-spacing);
+}
+
+.token-body-sm {
+  font-family: var(--token-font-body-sm-family);
+  font-size: var(--token-font-body-sm-size);
+  font-weight: var(--token-font-body-sm-weight);
+  line-height: var(--token-font-body-sm-line-height);
+  letter-spacing: var(--token-font-body-sm-letter-spacing);
+}
+
+.token-label-lg {
+  font-family: var(--token-font-label-lg-family);
+  font-size: var(--token-font-label-lg-size);
+  font-weight: var(--token-font-label-lg-weight);
+  line-height: var(--token-font-label-lg-line-height);
+  letter-spacing: var(--token-font-label-lg-letter-spacing);
+}
+
+.token-label-md {
+  font-family: var(--token-font-label-md-family);
+  font-size: var(--token-font-label-md-size);
+  font-weight: var(--token-font-label-md-weight);
+  line-height: var(--token-font-label-md-line-height);
+  letter-spacing: var(--token-font-label-md-letter-spacing);
+}
+
+.token-label-sm {
+  font-family: var(--token-font-label-sm-family);
+  font-size: var(--token-font-label-sm-size);
+  font-weight: var(--token-font-label-sm-weight);
+  line-height: var(--token-font-label-sm-line-height);
+  letter-spacing: var(--token-font-label-sm-letter-spacing);
+}

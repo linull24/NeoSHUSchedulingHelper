@@ -6,10 +6,11 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import sys
 import time
 import threading
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 from urllib.parse import urljoin
 
 import requests
@@ -119,6 +120,56 @@ DEFAULT_FIELD_VALUES = {
 }
 
 
+class ProgressTracker:
+    BAR_LENGTH = 30
+
+    def __init__(self, total_steps: int):
+        self.total_steps = max(1, total_steps)
+        self.completed = 0
+        self.last_message = "准备开始"
+        self._last_line_len = 0
+        self._started = False
+
+    def start(self, initial_message: str | None = None) -> None:
+        if initial_message:
+            self.last_message = initial_message
+        if not self._started:
+            self._started = True
+            self._render()
+
+    def log_step(self, message: str) -> None:
+        self.start()
+        self.completed = min(self.total_steps, self.completed + 1)
+        self.last_message = message
+        self._clear_line()
+        print(f"[{self.completed}/{self.total_steps}] {message}")
+        self._render()
+
+    def log(self, message: str) -> None:
+        self.start()
+        self.last_message = message
+        self._clear_line()
+        print(message)
+        self._render()
+
+    def _render(self) -> None:
+        ratio = self.completed / self.total_steps
+        filled = int(self.BAR_LENGTH * ratio)
+        bar = "█" * filled + "░" * (self.BAR_LENGTH - filled)
+        line = f"进度 [{bar}] {self.completed}/{self.total_steps} - {self.last_message}"
+        padding = max(self._last_line_len - len(line), 0)
+        sys.stdout.write("\r" + line + " " * padding)
+        sys.stdout.flush()
+        self._last_line_len = len(line)
+        if self.completed == self.total_steps:
+            sys.stdout.write("\n")
+
+    def _clear_line(self) -> None:
+        if self._last_line_len:
+            sys.stdout.write("\r" + " " * self._last_line_len + "\r")
+            sys.stdout.flush()
+
+
 def encrypt_password(password: str) -> str:
     key = rsa.PublicKey.load_pkcs1_openssl_pem(RSA_PUBKEY.encode())
     encrypted = rsa.encrypt(password.encode(), key)
@@ -184,11 +235,38 @@ def resolve_credentials(
     return username, password
 
 
+def prompt_request_interval(default: float = 0.0) -> float:
+    if not sys.stdin.isatty():
+        return default
+    try:
+        raw = input("每次请求之间的等待时间（秒，默认 0，直接回车跳过）：").strip()
+    except EOFError:
+        return default
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        print("输入无效，将使用 0 秒间隔", file=sys.stderr)
+        return default
+    if value < 0:
+        print("输入为负数，将使用 0 秒间隔", file=sys.stderr)
+        return default
+    return value
+
+
 class JWXTCrawler:
-    def __init__(self, username: str, password: str, workers: int = 8):
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        workers: int = 8,
+        request_interval: float = 0.0,
+    ):
         self.username = username
         self.password = password
         self.workers = workers
+        self.request_interval = max(0.0, request_interval)
         self.session = requests.Session()
         self.session.verify = False
         self.session.headers.update(
@@ -202,24 +280,32 @@ class JWXTCrawler:
         )
         self._thread_local = threading.local()
 
+    def _sleep_if_needed(self) -> None:
+        if self.request_interval > 0:
+            time.sleep(self.request_interval)
+
     def login(self) -> None:
+        self._sleep_if_needed()
         resp = self.session.get(f"{JWXT_HOST}/sso/shulogin", allow_redirects=False)
         if resp.status_code not in (301, 302):
             raise RuntimeError(f"Unexpected SSO entry status {resp.status_code}")
         url = urljoin(resp.url, resp.headers.get("Location", ""))
 
+        self._sleep_if_needed()
         resp = self.session.get(url, allow_redirects=False)
         if resp.status_code not in (301, 302):
             raise RuntimeError("Failed to reach SHU SSO login page")
         login_url = urljoin(url, resp.headers.get("Location", ""))
 
         # Load login page to obtain required cookies
+        self._sleep_if_needed()
         self.session.get(login_url, timeout=15)
 
         payload = {
             "username": self.username,
             "password": encrypt_password(self.password),
         }
+        self._sleep_if_needed()
         resp = self.session.post(
             login_url,
             data=payload,
@@ -235,12 +321,14 @@ class JWXTCrawler:
             if not location:
                 break
             current = urljoin(current, location)
+            self._sleep_if_needed()
             resp = self.session.get(current, allow_redirects=False, timeout=15)
 
         if resp.status_code != 200:
             raise RuntimeError(f"Login failed, last status {resp.status_code}")
 
         # Warm up jwglxt so the server issues valid teaching cookies
+        self._sleep_if_needed()
         self.session.get(
             f"{JWXT_HOST}/jwglxt/xtgl/index_initMenu.html?"
             f"jsdm=xs&_t={int(time.time()*1000)}",
@@ -248,6 +336,7 @@ class JWXTCrawler:
         )
 
     def fetch_selection_page(self) -> Tuple[str, Dict[str, str]]:
+        self._sleep_if_needed()
         resp = self.session.get(SELECTION_ENDPOINT, timeout=15)
         if resp.status_code != 200:
             raise RuntimeError(
@@ -288,6 +377,7 @@ class JWXTCrawler:
     def fetch_course_rows(self, params: Dict[str, str]) -> List[Dict]:
         payload = dict(params)
         payload.update({"kspage": "1", "jspage": "9999"})
+        self._sleep_if_needed()
         resp = self.session.post(
             COURSE_LIST_ENDPOINT,
             data=payload,
@@ -308,9 +398,14 @@ class JWXTCrawler:
         return rows
 
     def fetch_course_details(
-        self, params: Dict[str, str], meta: Dict[str, Dict]
+        self,
+        params: Dict[str, str],
+        meta: Dict[str, Dict],
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> List[Dict]:
         results: List[Dict] = []
+        total_items = len(meta)
+        completed = 0
         detail_base = dict(params)
         detail_base.pop("kspage", None)
         detail_base.pop("jspage", None)
@@ -326,6 +421,7 @@ class JWXTCrawler:
                 }
             )
             session = self._thread_session()
+            self._sleep_if_needed()
             resp = session.post(
                 COURSE_DETAIL_ENDPOINT,
                 data=payload,
@@ -360,6 +456,9 @@ class JWXTCrawler:
             ]
             for fut in concurrent.futures.as_completed(futures):
                 results.extend(fut.result())
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total_items)
         return results
 
     def _thread_session(self) -> requests.Session:
@@ -576,11 +675,23 @@ def crawl(
     username: str,
     password: str,
     max_courses: int | None = None,
+    request_interval: float = 0.0,
 ) -> None:
-    crawler = JWXTCrawler(username, password)
+    progress = ProgressTracker(total_steps=6)
+    progress.start("准备登录教务系统")
+    progress.log(f"本次请求间隔：{request_interval:.2f} 秒")
+
+    crawler = JWXTCrawler(
+        username,
+        password,
+        request_interval=request_interval,
+    )
     crawler.login()
+    progress.log_step("登录成功")
+
     _, fields = crawler.fetch_selection_page()
     params = crawler.build_query_context(fields)
+    progress.log_step("选课页面加载完毕")
 
     course_rows = crawler.fetch_course_rows(params)
     if not course_rows:
@@ -606,8 +717,23 @@ def crawl(
         limited_keys = list(meta.keys())[:max_courses]
         meta = {key: meta[key] for key in limited_keys}
 
-    courses = crawler.fetch_course_details(params, meta)
+    progress.log_step(f"课程列表获取完成，共 {len(meta)} 门课程")
+
+    def detail_progress(current: int, total: int) -> None:
+        if total <= 0:
+            return
+        if current % 300 == 0 or current == total:
+            progress.log(
+                f"课程详情抓取成功：({current}/{total})"
+            )
+
+    courses = crawler.fetch_course_details(
+        params,
+        meta,
+        progress_callback=detail_progress,
+    )
     courses.sort(key=lambda x: (x["courseId"], x["teachingClassId"]))
+    progress.log_step(f"课程详情抓取完成，共 {len(courses)} 个教学班")
 
     term_code = f"{fields.get('xkxnm', '').strip()}-{fields.get('xkxqm', '').strip()}"
     term_name = (
@@ -628,11 +754,13 @@ def crawl(
     term_path = output_dir / "terms" / f"{term_code}.json"
     with open(term_path, "w", encoding="utf-8") as fh:
         json.dump(result, fh, ensure_ascii=False, indent=2)
+    progress.log_step(f"学期 {term_code} 数据写入完成")
 
     with open(output_dir / "current.json", "w", encoding="utf-8") as fh:
         json.dump([term_code], fh, ensure_ascii=False, indent=2)
-
-    print(f"Saved {len(courses)} teaching classes to {term_path}")
+    progress.log_step(
+        f"current.json 已更新，共保存 {len(courses)} 个教学班"
+    )
 
 
 def main() -> None:
@@ -660,14 +788,29 @@ def main() -> None:
         type=int,
         help="仅抓取前 N 门课程（调试用）",
     )
+    parser.add_argument(
+        "--request-interval",
+        type=float,
+        help="相邻请求之间的等待秒数（默认 0）",
+    )
     args = parser.parse_args()
 
     output_dir = resolve_output_dir(args.output_dir)
     secrets_path = Path(args.secrets_file).expanduser().resolve()
     username, password = resolve_credentials(args, secrets_path)
+    request_interval = args.request_interval
+    if request_interval is None:
+        request_interval = prompt_request_interval()
+    request_interval = max(0.0, request_interval)
 
     requests.packages.urllib3.disable_warnings()  # type: ignore[attr-defined]
-    crawl(output_dir, username, password, max_courses=args.limit)
+    crawl(
+        output_dir,
+        username,
+        password,
+        max_courses=args.limit,
+        request_interval=request_interval,
+    )
 
 
 if __name__ == "__main__":

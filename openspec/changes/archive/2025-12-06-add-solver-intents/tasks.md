@@ -53,5 +53,8 @@
   - Render solver results with hover previews respecting standardized diagnostic labels; ensure soft violations and group outcomes use the shared templates.
 
 ## 4. Validation
-- [ ] 4.1 `npm run check` + manual flows: add constraints from lists, templates CRUD, feasibility cache with paging, hover rules, direction/priority picker flow, pre-solve prompt, diagnostics lists, hard↔软 conversion.
-- [ ] 4.2 `openspec validate add-solver-intents --strict`.
+- [ ] 4.1 `npm run check` + manual flows: add constraints from lists, templates CRUD, feasibility cache with paging, hover rules, direction/priority picker flow, pre-solve prompt, diagnostics lists, hard↔软 conversion。（用户确认本 change 已归档，验证步骤暂不执行）
+- [ ] 4.2 `openspec validate add-solver-intents --strict`。（用户确认本 change 已归档，验证步骤暂不执行）
+
+## Archive note
+- 用户确认：保持已归档状态，以上验证步骤不再执行，留作历史参考。

@@ -1,919 +1,432 @@
+<svelte:options runes={false} />
+
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
+	import ListSurface from '$lib/components/ListSurface.svelte';
+	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
+	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
+	import AppField from '$lib/primitives/AppField.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import AppDialog from '$lib/primitives/AppDialog.svelte';
+	import { translator, type TranslateFn } from '$lib/i18n';
+	import { filterOptions } from '$lib/stores/courseFilters';
+	import { courseCatalog } from '$lib/data/catalog/courseCatalog';
 	import type { DesiredLock, SoftConstraint } from '$lib/data/desired/types';
 	import {
-		desiredStateStore,
-		ensureDesiredStateLoaded,
-		addDesiredLock,
-		removeDesiredLock,
-		addSoftConstraint,
-		removeSoftConstraint,
-		updateDesiredLock,
-		getDesiredStateSnapshot
-	} from '$lib/stores/desiredStateStore';
-	import { filterOptions } from '$lib/stores/courseFilters';
-	import { courseCatalog, courseDataset, courseCatalogMap } from '$lib/data/catalog/courseCatalog';
-	import type { CourseCatalogEntry } from '$lib/data/catalog/courseCatalog';
-	import { solveDesiredWithPlan } from '$lib/data/solver/service';
-	import type { SolverResultRecord } from '$lib/data/solver/resultTypes';
-	import type { ManualUpdate } from '$lib/data/manualUpdates';
-	import { DEFAULT_MATRIX_DIMENSIONS } from '$lib/data/selectionMatrix';
-	import { loadSelectionMatrixState } from '$lib/data/stateRepository';
-	import { appendActionLog, ensureActionLogLoaded } from '$lib/stores/actionLogStore';
-	import { intentSelection, clearIntentSelection } from '$lib/stores/intentSelection';
-	import ConstraintList from '$lib/components/ConstraintList.svelte';
-	import type { ConstraintItem } from '$lib/components/ConstraintList.svelte';
-	import DiagnosticsList from '$lib/components/DiagnosticsList.svelte';
-	import type { DiagnosticItem } from '$lib/components/DiagnosticsList.svelte';
-	import {
-		addTimeTemplate,
-		loadTimeTemplates,
-		removeTimeTemplate,
-		type TimeTemplate
-	} from '$lib/data/solver/timeTemplates';
+		clearTermStateAlert,
+		dispatchTermAction,
+		dispatchTermActionWithEffects,
+		ensureTermStateLoaded,
+		termState,
+		termStateAlert
+	} from '$lib/stores/termStateStore';
 
-	let intentDirection: 'include' | 'exclude' = 'include';
-	let intentPriority: 'hard' | 'soft' = 'hard';
+	let t: TranslateFn = (key) => key;
+	$: t = $translator;
 
-	let lockType: DesiredLock['type'] = 'course';
-	let lockPriority: 'hard' | 'soft' = 'hard';
+	let message = '';
+	let solving = false;
+	let actionBusy = false;
+	let applyMode: 'merge' | 'replace-all' = 'merge';
+
 	let lockCourseHash = '';
-	let lockTeacherId = '';
-	let lockDay = 0;
-	let lockStart = 0;
-	let lockEnd = 1;
+	let lockPriority: DesiredLock['priority'] = 'hard';
 	let lockNote = '';
 
 	let softType: SoftConstraint['type'] = 'avoid-early';
-	let softWeight = 2;
+	let softWeight = 10;
 	let softCampus = '';
 	let softNote = '';
 
-	let solving = false;
-	let solverRecord: SolverResultRecord | null = null;
-	let solverPlan: ManualUpdate[] = [];
-	let solverError: string | null = null;
-	let selectedTimePreset = '';
-	let showPresetMenu = false;
-	const presetOptions = ['第1节', '11-12', '上午', '下午', '晚间'];
-	let timeTemplates: TimeTemplate[] = [];
-	let newTemplateName = '';
-	let newTemplateValue = '';
-	let preSolveBlock = false;
-	let diagnostics: { title: string; items: DiagnosticItem[] } | null = null;
+	const inputClass =
+		'w-full rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]';
 
-	const courseOptions: Array<{ hash: string; label: string }> = buildCourseOptions(courseCatalog);
-	if (courseOptions.length > 0) {
-		lockCourseHash = courseOptions[0].hash;
-	}
-	const campusOptions = filterOptions.campuses;
-	const softWeightMemory = new Map<string, number>();
+	onMount(() => void ensureTermStateLoaded());
 
-	const lockTypeLabels: Record<DesiredLock['type'], ConstraintItem['type']> = {
-		course: 'course',
-		section: 'section',
-		teacher: 'teacher',
-		time: 'time',
-		group: 'group'
-	};
+	$: locks = (($termState?.solver.constraints.locks ?? []) as unknown as DesiredLock[]).slice().sort((a, b) => a.id.localeCompare(b.id));
+	$: softConstraints = (($termState?.solver.constraints.soft ?? []) as unknown as SoftConstraint[])
+		.slice()
+		.sort((a, b) => a.id.localeCompare(b.id));
+	$: latestResult = $termState?.solver.results?.length ? $termState.solver.results[$termState.solver.results.length - 1] : null;
+	$: invalidDialogOpen = $termStateAlert?.kind === 'SOLVER_INVALID_CONSTRAINTS';
+	$: invalidIssues = $termStateAlert?.kind === 'SOLVER_INVALID_CONSTRAINTS' ? $termStateAlert.issues : [];
+	$: canUndoApply =
+		!!$termState &&
+		(($termState.history.entries ?? []).slice(0, $termState.history.cursor + 1) as any[]).some(
+			(entry) => entry?.type === 'solver' && (entry?.details as any)?.kind === 'solver:apply'
+		);
 
-	function ensureWeightMemory(key: string, fallback = 10) {
-		if (!softWeightMemory.has(key)) {
-			softWeightMemory.set(key, fallback);
+	const courseOptions = buildCourseOptions();
+	$: if (!lockCourseHash && courseOptions.length) lockCourseHash = courseOptions[0].hash;
+	$: if (!softCampus && filterOptions.campuses.length) softCampus = filterOptions.campuses[0] ?? '';
+
+	function buildCourseOptions() {
+		const seen = new Set<string>();
+		const options: Array<{ hash: string; label: string }> = [];
+		for (const entry of courseCatalog) {
+			if (!entry.courseHash || seen.has(entry.courseHash)) continue;
+			seen.add(entry.courseHash);
+			const code = entry.courseCode ? `${entry.courseCode} · ` : '';
+			options.push({ hash: entry.courseHash, label: `${code}${entry.title}` });
 		}
-		return softWeightMemory.get(key) ?? fallback;
+		return options.sort((a, b) => a.label.localeCompare(b.label));
 	}
 
-	function lockToConstraintItem(lock: DesiredLock): ConstraintItem {
-		const tags: string[] = [];
-		if (lock.includeSections?.length) tags.push(`包含 ${lock.includeSections.length}`);
-		if (lock.excludeSections?.length) tags.push(`排除 ${lock.excludeSections.length}`);
-		const direction: ConstraintItem['direction'] =
-			lock.excludeSections?.length && !lock.includeSections?.length ? 'exclude' : 'include';
-		const priorityWeight = lock.priority === 'soft' ? ensureWeightMemory(lock.id) : undefined;
-		const mappedType = lockTypeLabels[lock.type] ?? 'group';
-		return {
-			id: lock.id,
-			label: describeLock(lock),
-			detail: lock.note,
-			priority: lock.priority,
-			direction,
-			type: mappedType,
-			status: 'enabled',
-			source: 'solver',
-			kind: 'lock',
-			tags,
-			weight: priorityWeight
-		};
+	function createId(prefix: string) {
+		const cryptoObj = typeof globalThis !== 'undefined' ? (globalThis.crypto as Crypto | undefined) : undefined;
+		if (cryptoObj?.randomUUID) return `${prefix}_${cryptoObj.randomUUID()}`;
+		return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 	}
 
-	function softConstraintToItem(constraint: SoftConstraint): ConstraintItem {
-		const type: ConstraintItem['type'] = constraint.type === 'custom' ? 'custom' : 'time';
-		return {
-			id: constraint.id,
-			label: describeSoft(constraint),
-			detail: constraint.note,
-			priority: 'soft',
-			direction: 'include',
-			type,
-			status: 'enabled',
-			source: 'solver',
-			kind: 'soft',
-			weight: constraint.weight
-		};
-	}
-
-	$: hardItems = ($desiredStateStore?.locks ?? [])
-		.filter((lock) => lock.priority === 'hard')
-		.map<ConstraintItem>((lock) => lockToConstraintItem(lock));
-
-	$: softItems = [
-		...($desiredStateStore?.locks ?? [])
-			.filter((lock) => lock.priority === 'soft')
-			.map<ConstraintItem>((lock) => lockToConstraintItem(lock)),
-		...($desiredStateStore?.softConstraints ?? []).map<ConstraintItem>((constraint) =>
-			softConstraintToItem(constraint)
-		)
-	];
-
-	onMount(async () => {
-		await Promise.all([ensureDesiredStateLoaded(), ensureActionLogLoaded()]);
-		timeTemplates = loadTimeTemplates();
-		if (timeTemplates.length && !selectedTimePreset) {
-			selectedTimePreset = timeTemplates[0]?.value ?? '';
-		}
-	});
-
-	async function handleAddLock() {
-		if (lockType === 'course' && !lockCourseHash) return;
-		if (lockType === 'teacher' && !lockTeacherId.trim()) return;
-		const newLock: DesiredLock = {
+	async function addCourseLock() {
+		message = '';
+		if (!lockCourseHash) return;
+		const lock: DesiredLock = {
 			id: createId('lock'),
-			type: lockType,
+			type: 'course',
+			courseHash: lockCourseHash,
 			priority: lockPriority,
-			courseHash: lockType === 'course' ? lockCourseHash : undefined,
-			teacherId: lockType === 'teacher' ? lockTeacherId.trim() : undefined,
-			timeWindow:
-				lockType === 'time'
-					? {
-							day: lockDay,
-							startPeriod: lockStart,
-							endPeriod: Math.max(lockStart, lockEnd)
-					  }
-					: undefined,
 			note: lockNote || undefined
 		};
-		await addDesiredLock(newLock);
-		await appendActionLog({
-			action: 'constraint:add',
-			payload: {
-				kind: 'constraint',
-				scope: 'hard',
-				change: 'add',
-				lock: newLock,
-				rollback: { type: 'remove-lock', lockId: newLock.id }
-			}
-		});
+		const result = await dispatchTermAction({ type: 'SOLVER_ADD_LOCK', lock });
+		if (!result.ok) message = result.error.message;
 		lockNote = '';
 	}
 
-	async function handleRemoveLock(lock: DesiredLock) {
-		await removeDesiredLock(lock.id);
-		await appendActionLog({
-			action: 'constraint:remove',
-			payload: {
-				kind: 'constraint',
-				scope: 'hard',
-				change: 'remove',
-				lock,
-				rollback: { type: 'add-lock', lock }
-			}
-		});
+	async function removeLock(id: string) {
+		message = '';
+		const result = await dispatchTermAction({ type: 'SOLVER_REMOVE_LOCK', id });
+		if (!result.ok) message = result.error.message;
 	}
 
-	async function handleAddSoftConstraint() {
+	async function addSoftConstraint() {
+		message = '';
+		const params: Record<string, string | number | boolean> = {};
+		if (softType === 'avoid-campus' && softCampus) params.campus = softCampus;
 		const constraint: SoftConstraint = {
 			id: createId('soft'),
 			type: softType,
-			weight: Number.isFinite(softWeight) ? softWeight : 2,
-			params:
-				softType === 'avoid-campus' && softCampus
-					? { campus: softCampus }
-					: undefined,
+			weight: Math.max(1, Math.round(softWeight)),
+			params: Object.keys(params).length ? params : undefined,
 			note: softNote || undefined
 		};
-		await addSoftConstraint(constraint);
-		await appendActionLog({
-			action: 'soft-constraint:add',
-			payload: {
-				kind: 'constraint',
-				scope: 'soft',
-				change: 'add',
-				constraint,
-				rollback: { type: 'remove-soft', id: constraint.id }
-			}
-		});
+		const result = await dispatchTermAction({ type: 'SOLVER_ADD_SOFT', constraint });
+		if (!result.ok) message = result.error.message;
 		softNote = '';
 	}
 
-	async function handleRemoveSoft(constraint: SoftConstraint) {
-		await removeSoftConstraint(constraint.id);
-		await appendActionLog({
-			action: 'soft-constraint:remove',
-			payload: {
-				kind: 'constraint',
-				scope: 'soft',
-				change: 'remove',
-				constraint,
-				rollback: { type: 'add-soft', constraint }
-			}
-		});
-	}
-
-	async function handleConvertConstraint(item: ConstraintItem) {
-		if (item.kind !== 'lock') return;
-		const lock = $desiredStateStore?.locks.find((candidate) => candidate.id === item.id);
-		if (!lock) return;
-		const nextPriority = lock.priority === 'hard' ? 'soft' : 'hard';
-		if (nextPriority === 'soft') {
-			ensureWeightMemory(lock.id);
-		}
-		await updateDesiredLock(lock.id, (current) => ({ ...current, priority: nextPriority }));
+	async function removeSoft(id: string) {
+		message = '';
+		const result = await dispatchTermAction({ type: 'SOLVER_REMOVE_SOFT', id });
+		if (!result.ok) message = result.error.message;
 	}
 
 	async function runSolver() {
-		if ($intentSelection.size > 0) {
-			preSolveBlock = true;
-			return;
-		}
-		await ensureDesiredStateLoaded();
-		const desired = getDesiredStateSnapshot();
-		if (!desired) {
-			solverError = '尚未加载约束设置';
-			return;
-		}
-		solverError = null;
-		solverRecord = null;
-		solverPlan = [];
-		solving = true;
+		if (solving) return;
+		message = '';
 		try {
-			const selection = await loadSelectionMatrixState(DEFAULT_MATRIX_DIMENSIONS);
-			const { record, plan } = await solveDesiredWithPlan({
-				data: courseDataset,
-				desired,
-				selection,
-				runType: 'manual'
-			});
-			solverRecord = record;
-			solverPlan = plan;
-			if (record.status === 'unsat' && record.unsatCore?.length) {
-				diagnostics = {
-					title: '无解',
-					items: record.unsatCore.map(
-						(item, idx): DiagnosticItem => ({
-							id: `${idx}`,
-							label: '不可调冲突',
-							reason: item,
-							type: 'group'
-						})
-					)
-				};
-			} else if (record.diagnostics?.length) {
-				diagnostics = {
-					title: '软约束未满足',
-					items: record.diagnostics.map(
-						(diag, idx): DiagnosticItem => ({
-							id: `${idx}`,
-							label: normalizeDiagnosticLabel(diag.label),
-							reason: diag.reason ?? '未满足软约束',
-							type: 'soft'
-						})
-					)
-				};
-			} else {
-				diagnostics = null;
-			}
-			await appendActionLog({
-				action: 'solver:run',
-				payload: {
-					kind: 'solver-run',
-					status: record.status,
-					planLength: plan.length,
-					metrics: record.metrics,
-					resultId: record.id
+			solving = true;
+			const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'SOLVER_RUN', runType: 'manual' });
+			const dispatched = await result;
+			if (!dispatched.ok) {
+				if (dispatched.error.kind !== 'DIALOG_REQUIRED') {
+					message = dispatched.error.message;
 				}
-			});
+				return;
+			}
+			await effectsDone;
 		} catch (error) {
-			solverError =
-				error instanceof Error ? error.message : '求解过程中发生未知错误';
+			message = error instanceof Error ? error.message : String(error);
 		} finally {
 			solving = false;
 		}
 	}
 
-	function normalizeDiagnosticLabel(label: 'conflic' | 'impossible' | 'weak-impossible') {
-		if (label === 'conflic') return '可调冲突';
-		if (label === 'impossible') return '不可调冲突';
-		return '不可调冲突';
-	}
-
-	function renderPlanLabel(step: ManualUpdate) {
-		if (step.kind === 'upsert-section') {
-			const course = findCourse(step.courseHash, step.section?.sectionId);
-			return `添加 ${course?.title ?? step.courseCode ?? step.courseHash}`;
+	async function applyLatestResult() {
+		if (!latestResult || latestResult.status !== 'sat') return;
+		if (actionBusy) return;
+		message = '';
+		try {
+			actionBusy = true;
+			const result = await dispatchTermAction({
+				type: 'SOLVER_APPLY_RESULT',
+				resultId: latestResult.id,
+				mode: applyMode
+			});
+			if (!result.ok) message = result.error.message;
+		} catch (error) {
+			message = error instanceof Error ? error.message : String(error);
+		} finally {
+			actionBusy = false;
 		}
-		if (step.kind === 'remove-section') {
-			const course = findCourse(step.courseHash, step.sectionId);
-			return `移除 ${course?.title ?? step.courseCode ?? step.sectionId}`;
+	}
+
+	async function undoApplyLatest() {
+		if (actionBusy) return;
+		message = '';
+		try {
+			actionBusy = true;
+			const result = await dispatchTermAction({ type: 'SOLVER_UNDO_LAST_APPLY' });
+			if (!result.ok) message = result.error.message;
+		} catch (error) {
+			message = error instanceof Error ? error.message : String(error);
+		} finally {
+			actionBusy = false;
 		}
-		return step.kind === 'add-override' ? '新增排课调整' : '移除排课调整';
 	}
 
-	function handleRemoveLockById(id: string) {
-		const lock = $desiredStateStore?.locks.find((l) => l.id === id);
-		if (lock) handleRemoveLock(lock);
+	function closeInvalidDialog() {
+		clearTermStateAlert();
 	}
 
-	function handleRemoveSoftById(id: string) {
-		const softLock = $desiredStateStore?.locks.find((l) => l.id === id && l.priority === 'soft');
-		if (softLock) {
-			handleRemoveLock(softLock);
-			return;
+	async function deleteInvalidConstraints() {
+		const lockIds = new Set<string>();
+		const softIds = new Set<string>();
+		for (const issue of invalidIssues) {
+			if (issue.domain === 'lock') lockIds.add(issue.id);
+			if (issue.domain === 'soft') softIds.add(issue.id);
 		}
-		const soft = $desiredStateStore?.softConstraints.find((c) => c.id === id);
-		if (soft) handleRemoveSoft(soft);
+		for (const id of lockIds) await dispatchTermAction({ type: 'SOLVER_REMOVE_LOCK', id });
+		for (const id of softIds) await dispatchTermAction({ type: 'SOLVER_REMOVE_SOFT', id });
+		clearTermStateAlert();
 	}
 
-	function findCourse(courseHash?: string, sectionId?: string) {
-		if (!courseHash && !sectionId) return null;
-		return courseCatalog.find(
-			(entry) =>
-				(courseHash && entry.courseHash === courseHash) ||
-				(sectionId && entry.sectionId === sectionId)
-		);
-	}
-
-	function describeLock(lock: DesiredLock) {
-		switch (lock.type) {
-			case 'course': {
-				const course = courseCatalog.find((item) => item.courseHash === lock.courseHash);
-				return course ? `${course.title} (${course.teacher ?? ''})` : lock.courseHash ?? '课程';
-			}
-			case 'teacher':
-				return `教师 ${lock.teacherId ?? ''}`.trim();
-			case 'time':
-				if (!lock.timeWindow) return '时间段';
-				return `时间 周${lock.timeWindow.day + 1} 第${lock.timeWindow.startPeriod + 1}-${lock.timeWindow.endPeriod + 1}节`;
-			case 'section':
-				return `班次 ${lock.sectionId ?? ''}`.trim();
-			case 'group':
-				return `组合 (${lock.group?.courseHashes?.length ?? 0} 门)`;
-			default:
-				return lock.id;
-		}
+	function describeIssue(issue: (typeof invalidIssues)[number]) {
+		const reason = t(`dialogs.solverInvalid.reasons.${issue.code}`);
+		const label =
+			issue.domain === 'lock'
+				? t('dialogs.solverInvalid.lockLabel', { id: issue.id })
+				: t('dialogs.solverInvalid.softLabel', { id: issue.id });
+		return `${label} · ${reason}`;
 	}
 
 	function describeSoft(constraint: SoftConstraint) {
-		switch (constraint.type) {
-			case 'avoid-early':
-				return '避免早课';
-			case 'avoid-late':
-				return '避免晚课';
-			case 'avoid-campus':
-				return `避免校区 ${constraint.params?.campus ?? ''}`;
-			case 'limit-consecutive':
-				return '限制连续课程';
-			case 'max-per-day':
-				return '限制每日课程数';
-			default:
-				return '自定义';
+		const label = t(`panels.solver.softTypeOptions.${constraint.type}`);
+		if (constraint.type === 'avoid-campus') {
+			const campus = typeof constraint.params?.campus === 'string' ? constraint.params.campus : '';
+			return t('panels.solver.softDescriptions.avoid-campus', { campus: campus || '-' });
 		}
-	}
-
-	function createId(prefix: string) {
-		if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-			return crypto.randomUUID();
-		}
-		return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-	}
-
-	function buildCourseOptions(entries: CourseCatalogEntry[]) {
-		const map = new Map<string, CourseCatalogEntry>();
-		for (const entry of entries) {
-			if (!map.has(entry.courseHash)) {
-				map.set(entry.courseHash, entry);
-			}
-		}
-		return Array.from(map.values()).map((entry) => ({
-			hash: entry.courseHash,
-			label: `${entry.title} · ${entry.teacher ?? '教师待定'}`
-		}));
-	}
-
-	async function applySelectedIntents() {
-		if (!$intentSelection.size) return;
-		const grouped = new Map<
-			string,
-			{ include: string[]; exclude: string[]; course: CourseCatalogEntry }
-		>();
-		for (const [courseId, mark] of $intentSelection.entries()) {
-			const course = courseCatalogMap.get(courseId);
-			if (!course) continue;
-			const bucket = grouped.get(course.courseHash) ?? { include: [], exclude: [], course };
-			if (mark === 'include') bucket.include.push(course.sectionId);
-			if (mark === 'exclude') bucket.exclude.push(course.sectionId);
-			grouped.set(course.courseHash, bucket);
-		}
-		for (const { include, exclude, course } of grouped.values()) {
-			const lock: DesiredLock = {
-				id: createId('lock'),
-				type: 'group',
-				group: {
-					courseHashes: [course.courseHash],
-					minSelect: 1,
-					maxSelect: 1
-				},
-				includeSections: include.length ? include : undefined,
-				excludeSections: exclude.length ? exclude : undefined,
-				priority: intentPriority,
-				note: intentDirection === 'include' ? '必选组' : '排除组'
-			};
-			await addDesiredLock(lock);
-			if (intentPriority === 'soft') {
-				ensureWeightMemory(lock.id);
-			}
-		}
-		if (selectedTimePreset) {
-			const constraint: SoftConstraint = {
-				id: createId('soft'),
-				type: 'custom',
-				weight: 10,
-				note: selectedTimePreset
-			};
-			await addSoftConstraint(constraint);
-		}
-		clearIntentSelection();
-		preSolveBlock = false;
-	}
-
-	function clearSelectedIntents() {
-		clearIntentSelection();
-		preSolveBlock = false;
-	}
-
-	function togglePresetMenu() {
-		showPresetMenu = !showPresetMenu;
-	}
-
-	function choosePreset(preset: string) {
-		selectedTimePreset = preset;
-		showPresetMenu = false;
-	}
-
-	function applyTemplate(template: TimeTemplate) {
-		selectedTimePreset = template.value;
-		newTemplateValue = template.value;
-		newTemplateName = template.name;
-	}
-
-	function saveTemplate() {
-		const name = newTemplateName.trim();
-		const value = (newTemplateValue || selectedTimePreset).trim();
-		if (!name || !value) return;
-		timeTemplates = addTimeTemplate({ name, value });
-		newTemplateName = '';
-		newTemplateValue = '';
-	}
-
-	function deleteTemplate(id: string) {
-		timeTemplates = removeTimeTemplate(id);
-		if (selectedTimePreset && !timeTemplates.some((t) => t.value === selectedTimePreset)) {
-			selectedTimePreset = '';
-		}
+		return label;
 	}
 </script>
 
-<section class="panel">
-	<header>
-		<div>
-			<h3>求解器</h3>
-			<p>配置硬/软约束并执行求解。</p>
-		</div>
-		<div class="actions">
-			<button type="button" on:click={runSolver} disabled={solving}>
-				{solving ? '求解中…' : '运行求解器'}
-			</button>
-		</div>
-	</header>
+<DockPanelShell class="flex-1 min-h-0">
+	<ListSurface
+		title={t('panels.solver.title')}
+		subtitle={t('panels.solver.description')}
+		density="comfortable"
+		enableStickyToggle={true}
+	>
+		<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.solver.intro')}</p>
 
-	<div class="intent-controls">
-		<div class="intent-toggles">
-			<label>
-				<span>方向</span>
-				<div class="pill-group">
-					<button type="button" class:active={intentDirection === 'include'} on:click={() => (intentDirection = 'include')}>
-						包含
-					</button>
-					<button type="button" class:active={intentDirection === 'exclude'} on:click={() => (intentDirection = 'exclude')}>
-						排除
-					</button>
-				</div>
-			</label>
-			<label>
-				<span>优先级</span>
-				<div class="pill-group">
-					<button type="button" class:active={intentPriority === 'hard'} on:click={() => (intentPriority = 'hard')}>
-						硬
-					</button>
-					<button type="button" class:active={intentPriority === 'soft'} on:click={() => (intentPriority = 'soft')}>
-						软
-					</button>
-				</div>
-			</label>
-		</div>
-		<div class="intent-actions">
-			<span class="count">已选 {$intentSelection.size}</span>
-			<button type="button" class="ghost" on:click={clearSelectedIntents}>取消</button>
-			<button type="button" class="primary" on:click={applySelectedIntents} disabled={$intentSelection.size === 0}>添加</button>
-		</div>
-		<div class="time-preset">
-			<button type="button" class="ghost" on:click={togglePresetMenu}>
-				时间预设{selectedTimePreset ? ` · ${selectedTimePreset}` : ''}
-			</button>
-			{#if showPresetMenu}
-				<div class="preset-menu">
-					{#each presetOptions as preset}
-						<button type="button" on:click={() => choosePreset(preset)}>{preset}</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		<div class="template-bar">
-			<input
-				type="text"
-				placeholder="模板名称"
-				bind:value={newTemplateName}
-				aria-label="时间模板名称"
-			/>
-			<input
-				type="text"
-				placeholder="时间表达式或备注"
-				bind:value={newTemplateValue}
-				aria-label="时间模板内容"
-			/>
-			<button type="button" class="ghost" on:click={saveTemplate}>保存模板</button>
-		</div>
-		{#if timeTemplates.length}
-			<div class="template-list">
-				{#each timeTemplates as tmpl (tmpl.id)}
-					<div class="template-pill">
-						<button type="button" on:click={() => applyTemplate(tmpl)}>
-							{tmpl.name} · {tmpl.value}
-						</button>
-						<button type="button" class="ghost" on:click={() => deleteTemplate(tmpl.id)}>删除</button>
-					</div>
-				{/each}
-			</div>
+		{#if message}
+			<p class="mt-3 mb-0 rounded-[var(--app-radius-md)] border border-[color-mix(in_srgb,var(--app-color-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--app-color-danger)_12%,var(--app-color-bg))] px-4 py-3 text-[var(--app-text-sm)] text-[var(--app-color-danger)]">
+				{message}
+			</p>
 		{/if}
-	</div>
 
-	{#if solverError}
-		<div class="error-banner">{solverError}</div>
-	{/if}
-	{#if preSolveBlock}
-		<div class="warn">
-			<p>已选中课程尚未添加约束，请先添加为硬/软约束再求解。</p>
-			<div class="warn-actions">
-				<button type="button" class="primary" on:click={applySelectedIntents}>添加并继续</button>
-				<button type="button" class="ghost" on:click={() => (preSolveBlock = false)}>忽略</button>
-			</div>
-		</div>
-	{/if}
-
-	<div class="solver-grid">
-		<section class="card">
-			<h4>硬约束 / 锁</h4>
-			{#if !$desiredStateStore}
-				<p class="muted">正在加载锁列表...</p>
-			{:else}
-				<ConstraintList
-					title="硬约束"
-					items={hardItems}
-					onRemove={(item) => handleRemoveLockById(item.id)}
-					onConvert={handleConvertConstraint}
-					convertibleKinds={['lock']}
-				/>
-			{/if}
-			<form class="constraint-form" on:submit|preventDefault={handleAddLock}>
-				<div class="form-row">
-					<label>
-						<span>类型</span>
-						<select bind:value={lockType}>
-							<option value="course">课程</option>
-							<option value="teacher">教师</option>
-							<option value="time">时间段</option>
-						</select>
-					</label>
-					<label>
-						<span>优先级</span>
-						<select bind:value={lockPriority}>
-							<option value="hard">硬约束</option>
-							<option value="soft">软约束</option>
-						</select>
-					</label>
-				</div>
-				{#if lockType === 'course'}
-					<label>
-						<span>课程</span>
-						<select bind:value={lockCourseHash}>
-							{#each courseOptions as option}
-								<option value={option.hash}>{option.label}</option>
+		{#if !$termState}
+			<p class="mt-3 mb-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.solver.constraintsNotReady')}</p>
+		{:else}
+			<div class="mt-4 flex flex-wrap items-start gap-5 min-w-0">
+				<AppControlPanel
+					title={t('panels.solver.hardLocks')}
+					description={t('panels.solver.description')}
+					density="comfortable"
+					class="flex-[1_1_520px] min-w-[min(360px,100%)]"
+				>
+					{#if locks.length === 0}
+						<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.solver.constraintEmpty')}</p>
+					{:else}
+						<ul class="m-0 flex flex-col gap-2 pl-5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+							{#each locks as lock (lock.id)}
+								<li class="flex flex-wrap items-center justify-between gap-2">
+									<span class="min-w-0 break-words [overflow-wrap:anywhere]">
+										{t('panels.solver.lockTypeOptions.course')} · {lock.courseHash ?? '-'} · {lock.priority}
+									</span>
+									<AppButton variant="secondary" size="sm" on:click={() => removeLock(lock.id)}>
+										{t('panels.solver.removeConstraint')}
+									</AppButton>
+								</li>
 							{/each}
-						</select>
-					</label>
-				{:else if lockType === 'teacher'}
-					<label>
-						<span>教师号</span>
-						<input type="text" bind:value={lockTeacherId} placeholder="教师编号" />
-					</label>
-				{:else}
-					<div class="form-row">
-						<label>
-							<span>星期</span>
-							<input type="number" min="0" max="6" bind:value={lockDay} />
-						</label>
-						<label>
-							<span>开始节次</span>
-							<input type="number" min="0" max="11" bind:value={lockStart} />
-						</label>
-						<label>
-							<span>结束节次</span>
-							<input type="number" min="0" max="11" bind:value={lockEnd} />
-						</label>
-					</div>
-				{/if}
-				<label>
-					<span>备注</span>
-					<input type="text" bind:value={lockNote} placeholder="可选" />
-				</label>
-				<button type="submit">添加硬约束</button>
-			</form>
-		</section>
-
-		<section class="card">
-			<h4>软约束</h4>
-			{#if !$desiredStateStore}
-				<p class="muted">正在加载软约束...</p>
-			{:else}
-				<ConstraintList
-					title="软约束"
-					items={softItems}
-					onRemove={(item) => handleRemoveSoftById(item.id)}
-					onConvert={handleConvertConstraint}
-					convertibleKinds={['lock']}
-				/>
-			{/if}
-			<form class="constraint-form" on:submit|preventDefault={handleAddSoftConstraint}>
-				<div class="form-row">
-					<label>
-						<span>类型</span>
-						<select bind:value={softType}>
-							<option value="avoid-early">避免早课</option>
-							<option value="avoid-late">避免晚课</option>
-							<option value="avoid-campus">避免校区</option>
-							<option value="limit-consecutive">限制连续课</option>
-							<option value="max-per-day">限制每日课数</option>
-						</select>
-					</label>
-					<label>
-						<span>权重</span>
-						<input type="number" min="1" max="10" bind:value={softWeight} />
-					</label>
-				</div>
-				{#if softType === 'avoid-campus'}
-					<label>
-						<span>校区</span>
-						<select bind:value={softCampus}>
-							<option value="">请选择</option>
-							{#each campusOptions as campus}
-								<option value={campus}>{campus}</option>
-							{/each}
-						</select>
-					</label>
-				{/if}
-				<label>
-					<span>备注</span>
-					<input type="text" bind:value={softNote} placeholder="可选" />
-				</label>
-				<button type="submit">添加软约束</button>
-			</form>
-		</section>
-
-		<section class="card">
-			<h4>求解结果</h4>
-			{#if solving}
-				<p class="muted">求解中，请稍候...</p>
-			{:else if !solverRecord}
-				<p class="muted">点击“运行求解器”获取方案。</p>
-			{:else}
-				<div class="result-summary">
-					<strong>状态：{solverRecord.status === 'sat' ? '可行' : '无解'}</strong>
-					{#if solverRecord.metrics}
-						<ul>
-							<li>变量：{solverRecord.metrics.variables}</li>
-							<li>硬约束：{solverRecord.metrics.hard}</li>
-							<li>软约束：{solverRecord.metrics.soft}</li>
-							<li>耗时：{solverRecord.metrics.elapsedMs} ms</li>
 						</ul>
 					{/if}
-					{#if solverRecord.status === 'sat'}
-						<h5>建议操作 ({solverPlan.length})</h5>
-						{#if !solverPlan.length}
-							<p class="muted">无操作，当前选择已满足约束。</p>
-						{:else}
-							<ol class="plan-list">
-								{#each solverPlan as step, index}
-									<li>{index + 1}. {renderPlanLabel(step)}</li>
-								{/each}
-							</ol>
-						{/if}
-					{/if}
-					{#if diagnostics}
-						<div class="diag-block">
-							<DiagnosticsList title={diagnostics.title} items={diagnostics.items} />
+
+					<div class="mt-4 flex flex-col gap-3">
+						<AppControlRow>
+							<AppField label={t('panels.solver.lockCourseLabel')}>
+								<select class={inputClass} bind:value={lockCourseHash}>
+									{#each courseOptions as option (option.hash)}
+										<option value={option.hash}>{option.label}</option>
+									{/each}
+								</select>
+							</AppField>
+							<AppField label={t('panels.solver.lockPriority')}>
+								<select class={inputClass} bind:value={lockPriority}>
+									<option value="hard">{t('dropdowns.hard')}</option>
+									<option value="soft">{t('dropdowns.soft')}</option>
+								</select>
+							</AppField>
+						</AppControlRow>
+
+						<AppField label={t('panels.solver.lockNote')}>
+							<input class={inputClass} type="text" bind:value={lockNote} />
+						</AppField>
+
+						<div class="flex justify-end">
+							<AppButton variant="primary" size="sm" on:click={addCourseLock}>
+								{t('panels.solver.addLock')}
+							</AppButton>
 						</div>
+					</div>
+				</AppControlPanel>
+
+				<AppControlPanel
+					title={t('panels.solver.softLocks')}
+					description={t('panels.solver.description')}
+					density="comfortable"
+					class="flex-[1_1_520px] min-w-[min(360px,100%)]"
+				>
+					{#if softConstraints.length === 0}
+						<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.solver.constraintEmpty')}</p>
+					{:else}
+						<ul class="m-0 flex flex-col gap-2 pl-5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+							{#each softConstraints as constraint (constraint.id)}
+								<li class="flex flex-wrap items-center justify-between gap-2">
+									<span class="min-w-0 break-words [overflow-wrap:anywhere]">
+										{describeSoft(constraint)} · {constraint.weight}
+									</span>
+									<AppButton variant="secondary" size="sm" on:click={() => removeSoft(constraint.id)}>
+										{t('panels.solver.removeConstraint')}
+									</AppButton>
+								</li>
+							{/each}
+						</ul>
 					{/if}
-				</div>
-			{/if}
-		</section>
-	</div>
-</section>
 
-<style lang="scss">
-	@use "./SolverPanel.styles.scss" as *;
+					<div class="mt-4 flex flex-col gap-3">
+						<AppControlRow>
+							<AppField label={t('panels.solver.quickType')}>
+								<select class={inputClass} bind:value={softType}>
+									<option value="avoid-early">{t('panels.solver.softTypeOptions.avoid-early')}</option>
+									<option value="avoid-late">{t('panels.solver.softTypeOptions.avoid-late')}</option>
+									<option value="avoid-campus">{t('panels.solver.softTypeOptions.avoid-campus')}</option>
+									<option value="limit-consecutive">{t('panels.solver.softTypeOptions.limit-consecutive')}</option>
+									<option value="max-per-day">{t('panels.solver.softTypeOptions.max-per-day')}</option>
+									<option value="custom">{t('panels.solver.softTypeOptions.custom')}</option>
+								</select>
+							</AppField>
+							<AppField label={t('panels.solver.quickWeight')}>
+								<input class={inputClass} type="number" min="1" bind:value={softWeight} />
+							</AppField>
+						</AppControlRow>
 
-	.solver-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1rem;
-	}
+						{#if softType === 'avoid-campus'}
+							<AppField label={t('panels.solver.softCampusLabel')}>
+								<select class={inputClass} bind:value={softCampus}>
+									{#each filterOptions.campuses as campus (campus)}
+										<option value={campus}>{campus}</option>
+									{/each}
+								</select>
+							</AppField>
+						{/if}
 
-	.card {
-		background: #fff;
-		border-radius: 0.75rem;
-		padding: 0.9rem;
-		box-shadow: inset 0 0 0 1px rgba(15, 18, 35, 0.05);
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
+						<AppField label={t('panels.solver.quickNote')}>
+							<input class={inputClass} type="text" bind:value={softNote} />
+						</AppField>
 
-	.constraint-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.6rem;
-	}
+						<div class="flex justify-end">
+							<AppButton variant="primary" size="sm" on:click={addSoftConstraint}>
+								{t('panels.solver.addSoft')}
+							</AppButton>
+						</div>
+					</div>
+				</AppControlPanel>
 
-	.constraint-form label {
-		display: flex;
-		flex-direction: column;
-		font-size: 0.85rem;
-		gap: 0.25rem;
-	}
+				<AppControlPanel
+					title={t('panels.solver.solverResultTitle')}
+					description={t('panels.solver.solverResultHint')}
+					density="comfortable"
+					class="flex-[1_1_520px] min-w-[min(360px,100%)]"
+				>
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<AppButton variant="primary" size="sm" on:click={runSolver} disabled={solving}>
+							{solving ? t('panels.solver.solving') : t('panels.solver.run')}
+						</AppButton>
+						{#if latestResult?.status === 'sat'}
+							<div class="flex flex-wrap items-center gap-2">
+								<select class={inputClass} bind:value={applyMode} disabled={actionBusy || solving}>
+									<option value="merge">{t('panels.actionLog.override.merge')}</option>
+									<option value="replace-all">{t('panels.actionLog.override.replace-all')}</option>
+								</select>
+								<AppButton variant="secondary" size="sm" on:click={applyLatestResult} disabled={actionBusy || solving || !latestResult.plan.length}>
+									{t('panels.solver.apply')}
+								</AppButton>
+								<AppButton variant="secondary" size="sm" on:click={undoApplyLatest} disabled={actionBusy || solving || !canUndoApply}>
+									{t('panels.solver.undoApply')}
+								</AppButton>
+							</div>
+						{/if}
+					</div>
 
-	.constraint-form input,
-	.constraint-form select {
-		border-radius: 0.45rem;
-		border: 1px solid rgba(15, 18, 35, 0.15);
-		padding: 0.35rem 0.5rem;
-	}
+					{#if solving}
+						<p class="mt-3 mb-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+							{t('panels.solver.solverResultSolving')}
+						</p>
+					{:else if latestResult}
+						<div class="mt-3 flex flex-col gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+							<p class="m-0">
+								{t('panels.solver.solverResultStatusLabel')}
+								{latestResult.status === 'sat'
+									? t('panels.solver.solverResultStatusFeasible')
+									: t('panels.solver.solverResultStatusInfeasible')}
+							</p>
+							<p class="m-0">
+								{t('panels.solver.solverResultMetricsElapsed')}: {latestResult.metrics.elapsedMs}ms
+							</p>
+							<p class="m-0">
+								{t('panels.solver.solverPlanTitle', { count: latestResult.plan.length })}
+							</p>
+							{#if latestResult.plan.length === 0}
+								<p class="m-0 text-[var(--app-color-fg-muted)]">{t('panels.solver.solverPlanEmpty')}</p>
+							{:else}
+								<ul class="m-0 flex flex-col gap-2 pl-5 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+									{#each latestResult.plan as step, index (index)}
+										<li class="break-words [overflow-wrap:anywhere]">{step.kind}</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{:else}
+						<p class="mt-3 mb-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+							{t('panels.solver.solverResultHint')}
+						</p>
+					{/if}
+				</AppControlPanel>
+			</div>
+		{/if}
+	</ListSurface>
+</DockPanelShell>
 
-	.constraint-form button {
-		align-self: flex-end;
-		border: none;
-		border-radius: 0.5rem;
-		padding: 0.4rem 1rem;
-		background: rgba(59, 130, 246, 0.2);
-		color: #1e3a8a;
-		cursor: pointer;
-	}
+<AppDialog open={invalidDialogOpen} title={t('dialogs.solverInvalid.title')} on:close={closeInvalidDialog}>
+	<p class="m-0">
+		{t('dialogs.solverInvalid.summary', { count: invalidIssues.length })}
+	</p>
+	{#if invalidIssues.length}
+		<ul class="m-0 flex flex-col gap-1 pl-5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+			{#each invalidIssues as issue (issue.domain + issue.id + issue.code)}
+				<li class="break-words [overflow-wrap:anywhere]">{describeIssue(issue)}</li>
+			{/each}
+		</ul>
+	{/if}
 
-	.form-row {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-		gap: 0.5rem;
-	}
-
-	.plan-list {
-		padding-left: 1.2rem;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		font-size: 0.9rem;
-	}
-
-	.error-banner {
-		background: rgba(239, 68, 68, 0.15);
-		color: #7f1d1d;
-		border-radius: 0.65rem;
-		padding: 0.6rem 0.9rem;
-		margin-bottom: 0.9rem;
-	}
-
-	.warn {
-		background: rgba(245, 158, 11, 0.15);
-		border-radius: 0.5rem;
-		padding: 0.5rem;
-	}
-
-	.muted {
-		color: #7a7d90;
-		font-size: 0.9rem;
-	}
-
-	.actions button {
-		border: none;
-		border-radius: 0.6rem;
-		padding: 0.45rem 1rem;
-		background: rgba(15, 18, 35, 0.85);
-		color: #fff;
-		cursor: pointer;
-	}
-
-	.intent-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.intent-actions .count {
-		color: #4b5563;
-		font-size: 0.85rem;
-	}
-
-	.time-preset {
-		position: relative;
-	}
-
-	.preset-menu {
-		position: absolute;
-		top: 110%;
-		right: 0;
-		background: #fff;
-		border: 1px solid rgba(15, 18, 35, 0.12);
-		border-radius: 0.6rem;
-		box-shadow: 0 10px 30px rgba(15, 18, 35, 0.12);
-		padding: 0.4rem;
-		display: grid;
-		gap: 0.25rem;
-		z-index: 5;
-	}
-
-	.preset-menu button {
-		border: none;
-		background: transparent;
-		text-align: left;
-		padding: 0.35rem 0.6rem;
-		border-radius: 0.45rem;
-		cursor: pointer;
-	}
-
-	.preset-menu button:hover {
-		background: rgba(15, 18, 35, 0.05);
-	}
-
-	.template-bar {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 0.4rem;
-		align-items: center;
-	}
-
-	.template-bar input {
-		border-radius: 0.5rem;
-		border: 1px solid rgba(15, 18, 35, 0.12);
-		padding: 0.35rem 0.5rem;
-	}
-
-	.template-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-	}
-
-	.template-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		background: rgba(15, 18, 35, 0.05);
-		border-radius: 999px;
-		padding: 0.2rem 0.35rem 0.2rem 0.6rem;
-	}
-
-	.template-pill button {
-		border: none;
-		background: transparent;
-		cursor: pointer;
-	}
-</style>
+	<svelte:fragment slot="actions">
+		<AppButton variant="secondary" size="sm" on:click={closeInvalidDialog}>
+			{t('dialogs.solverInvalid.close')}
+		</AppButton>
+		<AppButton variant="danger" size="sm" on:click={deleteInvalidConstraints} disabled={!invalidIssues.length}>
+			{t('dialogs.solverInvalid.autoDelete')}
+		</AppButton>
+	</svelte:fragment>
+</AppDialog>

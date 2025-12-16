@@ -1,0 +1,271 @@
+/**
+ * Fluent 2 Theme Mapping
+ *
+ * Maps Fluent2-specific design tokens to abstract token layer.
+ * Activated when data-theme="fluent" is set on root element.
+ *
+ * Reference: https://fluent2.microsoft.design/
+ */
+
+:root[data-theme="fluent"] {
+  /* ============================================
+   * COLOR TOKENS - Fluent2 Mapping
+   * ============================================ */
+
+  /* Primary Colors - Fluent2 Brand Palette */
+  --token-color-primary: var(--colorBrandBackground, #0078d4);
+  --token-color-primary-hover: var(--colorBrandBackgroundHover, #106ebe);
+  --token-color-primary-pressed: var(--colorBrandBackgroundPressed, #005a9e);
+  --token-color-on-primary: var(--colorNeutralForegroundOnBrand, #ffffff);
+  --token-color-primary-container: var(--colorBrandBackground2, #cfe4fa);
+  --token-color-on-primary-container: var(--colorBrandForeground1, #004578);
+
+  /* Secondary Colors - Fluent2 Neutral Palette */
+  --token-color-secondary: var(--colorNeutralForeground2, #616161);
+  --token-color-secondary-hover: var(--colorNeutralForeground2Hover, #525252);
+  --token-color-secondary-pressed: var(--colorNeutralForeground2Pressed, #424242);
+  --token-color-on-secondary: #ffffff;
+  --token-color-secondary-container: var(--colorNeutralBackground3, #f5f5f5);
+  --token-color-on-secondary-container: var(--colorNeutralForeground1, #242424);
+
+  /* Tertiary Colors - Fluent2 Purple Tones */
+  --token-color-tertiary: #8764b8;
+  --token-color-tertiary-hover: #7555a8;
+  --token-color-tertiary-pressed: #634698;
+  --token-color-on-tertiary: #ffffff;
+  --token-color-tertiary-container: #e8dff5;
+  --token-color-on-tertiary-container: #4a3768;
+
+  /* Error Colors - Fluent2 Danger Palette */
+  --token-color-error: var(--colorPaletteRedBackground3, #d13438);
+  --token-color-error-hover: var(--colorPaletteRedBorderActive, #b32428);
+  --token-color-error-pressed: var(--colorPaletteRedForeground1, #9b1418);
+  --token-color-on-error: #ffffff;
+  --token-color-error-container: var(--colorPaletteRedBackground1, #fde7e9);
+  --token-color-on-error-container: var(--colorPaletteRedForeground3, #751418);
+
+  /* Warning Colors - Fluent2 Warning Palette */
+  --token-color-warning: var(--colorPaletteYellowBackground3, #f7b500);
+  --token-color-warning-hover: var(--colorPaletteYellowBorderActive, #d99f00);
+  --token-color-warning-pressed: var(--colorPaletteYellowForeground1, #bb8900);
+  --token-color-on-warning: #242424;
+  --token-color-warning-container: var(--colorPaletteYellowBackground1, #fef7e0);
+  --token-color-on-warning-container: var(--colorPaletteYellowForeground3, #8d6900);
+
+  /* Success Colors - Fluent2 Success Palette */
+  --token-color-success: var(--colorPaletteGreenBackground3, #0e7c0e);
+  --token-color-success-hover: var(--colorPaletteGreenBorderActive, #0c6c0c);
+  --token-color-success-pressed: var(--colorPaletteGreenForeground1, #0a5c0a);
+  --token-color-on-success: #ffffff;
+  --token-color-success-container: var(--colorPaletteGreenBackground1, #dff6dd);
+  --token-color-on-success-container: var(--colorPaletteGreenForeground3, #084c08);
+
+  /* Info Colors - Fluent2 Info Palette (using blue tones) */
+  --token-color-info: var(--colorPaletteLightBlueBackground3, #0078d4);
+  --token-color-info-hover: var(--colorPaletteLightBlueBorderActive, #106ebe);
+  --token-color-info-pressed: var(--colorPaletteLightBlueForeground1, #005a9e);
+  --token-color-on-info: #ffffff;
+  --token-color-info-container: var(--colorPaletteLightBlueBackground1, #cfe4fa);
+  --token-color-on-info-container: var(--colorPaletteLightBlueForeground3, #004578);
+
+  /* Surface Colors - Fluent2 Background System */
+  --token-color-surface: var(--colorNeutralBackground1, #ffffff);
+  --token-color-surface-variant: var(--colorNeutralBackground2, #fafafa);
+  --token-color-surface-container: var(--colorNeutralBackground3, #f5f5f5);
+  --token-color-surface-container-low: var(--colorNeutralBackground4, #f0f0f0);
+  --token-color-surface-container-high: var(--colorNeutralBackground5, #ebebeb);
+  --token-color-surface-container-highest: var(--colorNeutralBackground6, #e0e0e0);
+  --token-color-on-surface: var(--colorNeutralForeground1, #242424);
+  --token-color-on-surface-variant: var(--colorNeutralForeground2, #616161);
+
+  /* Background Colors */
+  --token-color-background: var(--colorNeutralBackground1, #ffffff);
+  --token-color-on-background: var(--colorNeutralForeground1, #242424);
+
+  /* Outline Colors - Fluent2 Stroke System */
+  --token-color-outline: var(--colorNeutralStroke1, #d1d1d1);
+  --token-color-outline-variant: var(--colorNeutralStroke2, #e0e0e0);
+
+  /* Inverse Colors */
+  --token-color-inverse-surface: var(--colorNeutralBackgroundInverted, #292929);
+  --token-color-inverse-on-surface: var(--colorNeutralForegroundInverted, #ffffff);
+  --token-color-inverse-primary: var(--colorBrandForegroundInverted, #6cb8f6);
+
+  /* Scrim */
+  --token-color-scrim: rgba(0, 0, 0, 0.4);
+
+  /* ============================================
+   * ELEVATION TOKENS - Fluent2 Shadow System
+   * ============================================ */
+
+  /* Fluent2 uses subtle shadows with emphasis on strokes */
+  --token-elevation-0: none;
+  --token-elevation-1: var(--shadow2, 0 0 2px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.14));
+  --token-elevation-2: var(--shadow4, 0 0 2px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.14));
+  --token-elevation-3: var(--shadow8, 0 0 2px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.14));
+  --token-elevation-4: var(--shadow16, 0 0 8px rgba(0, 0, 0, 0.12), 0 8px 16px rgba(0, 0, 0, 0.14));
+  --token-elevation-5: var(--shadow28, 0 0 8px rgba(0, 0, 0, 0.12), 0 14px 28px rgba(0, 0, 0, 0.14));
+
+  /* ============================================
+   * SHAPE TOKENS - Fluent2 Border Radius
+   * ============================================ */
+
+  /* Fluent2 uses more subtle corner radii */
+  --token-radius-none: var(--borderRadiusNone, 0);
+  --token-radius-xs: var(--borderRadiusSmall, 0.125rem);
+  --token-radius-sm: var(--borderRadiusMedium, 0.25rem);
+  --token-radius-md: var(--borderRadiusLarge, 0.375rem);
+  --token-radius-lg: var(--borderRadiusXLarge, 0.5rem);
+  --token-radius-xl: 0.75rem;
+  --token-radius-2xl: 1rem;
+  --token-radius-full: var(--borderRadiusCircular, 9999px);
+
+  /* ============================================
+   * STATE TOKENS - Fluent2 Interaction States
+   * ============================================ */
+
+  /* Fluent2 uses more subtle state changes */
+  --token-state-hover-opacity: 0.06;
+  --token-state-focus-opacity: 0.10;
+  --token-state-pressed-opacity: 0.08;
+  --token-state-dragged-opacity: 0.12;
+  --token-state-disabled-opacity: 0.40;
+  --token-state-disabled-container-opacity: 0.10;
+
+  /* State layer colors */
+  --token-state-hover-layer: rgba(0, 0, 0, 0.06);
+  --token-state-focus-layer: rgba(0, 0, 0, 0.10);
+  --token-state-pressed-layer: rgba(0, 0, 0, 0.08);
+
+  /* ============================================
+   * TYPOGRAPHY TOKENS - Fluent2 Type Ramp
+   * ============================================ */
+
+  /* Fluent2 uses Segoe UI as default */
+  --token-font-family-base: var(--fontFamilyBase, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  --token-font-family-display: var(--fontFamilyBase, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  --token-font-family-mono: var(--fontFamilyMonospace, 'Cascadia Code', 'Consolas', 'Courier New', monospace);
+
+  /* Display Scale - Fluent2 Hero/Title sizes */
+  --token-font-display-large-size: var(--fontSizeHero1000, 4rem);
+  --token-font-display-large-weight: var(--fontWeightSemibold, 600);
+  --token-font-display-large-line-height: var(--lineHeightHero1000, 4.5rem);
+  --token-font-display-large-letter-spacing: -0.02em;
+
+  --token-font-display-medium-size: var(--fontSizeHero900, 3rem);
+  --token-font-display-medium-weight: var(--fontWeightSemibold, 600);
+  --token-font-display-medium-line-height: var(--lineHeightHero900, 3.5rem);
+  --token-font-display-medium-letter-spacing: -0.015em;
+
+  --token-font-display-small-size: var(--fontSizeHero800, 2.5rem);
+  --token-font-display-small-weight: var(--fontWeightSemibold, 600);
+  --token-font-display-small-line-height: var(--lineHeightHero800, 3rem);
+  --token-font-display-small-letter-spacing: -0.01em;
+
+  /* Headline Scale */
+  --token-font-headline-large-size: var(--fontSizeBase600, 2rem);
+  --token-font-headline-large-weight: var(--fontWeightSemibold, 600);
+  --token-font-headline-large-line-height: var(--lineHeightBase600, 2.5rem);
+  --token-font-headline-large-letter-spacing: 0;
+
+  --token-font-headline-medium-size: var(--fontSizeBase500, 1.75rem);
+  --token-font-headline-medium-weight: var(--fontWeightSemibold, 600);
+  --token-font-headline-medium-line-height: var(--lineHeightBase500, 2.25rem);
+  --token-font-headline-medium-letter-spacing: 0;
+
+  --token-font-headline-small-size: var(--fontSizeBase400, 1.5rem);
+  --token-font-headline-small-weight: var(--fontWeightSemibold, 600);
+  --token-font-headline-small-line-height: var(--lineHeightBase400, 2rem);
+  --token-font-headline-small-letter-spacing: 0;
+
+  /* Title Scale */
+  --token-font-title-large-size: var(--fontSizeBase300, 1.25rem);
+  --token-font-title-large-weight: var(--fontWeightSemibold, 600);
+  --token-font-title-large-line-height: var(--lineHeightBase300, 1.75rem);
+  --token-font-title-large-letter-spacing: 0;
+
+  --token-font-title-medium-size: var(--fontSizeBase200, 1rem);
+  --token-font-title-medium-weight: var(--fontWeightSemibold, 600);
+  --token-font-title-medium-line-height: var(--lineHeightBase200, 1.5rem);
+  --token-font-title-medium-letter-spacing: 0;
+
+  --token-font-title-small-size: var(--fontSizeBase100, 0.875rem);
+  --token-font-title-small-weight: var(--fontWeightSemibold, 600);
+  --token-font-title-small-line-height: var(--lineHeightBase100, 1.25rem);
+  --token-font-title-small-letter-spacing: 0;
+
+  /* Body Scale */
+  --token-font-body-large-size: var(--fontSizeBase300, 1rem);
+  --token-font-body-large-weight: var(--fontWeightRegular, 400);
+  --token-font-body-large-line-height: var(--lineHeightBase300, 1.5rem);
+  --token-font-body-large-letter-spacing: 0;
+
+  --token-font-body-medium-size: var(--fontSizeBase200, 0.875rem);
+  --token-font-body-medium-weight: var(--fontWeightRegular, 400);
+  --token-font-body-medium-line-height: var(--lineHeightBase200, 1.25rem);
+  --token-font-body-medium-letter-spacing: 0;
+
+  --token-font-body-small-size: var(--fontSizeBase100, 0.75rem);
+  --token-font-body-small-weight: var(--fontWeightRegular, 400);
+  --token-font-body-small-line-height: var(--lineHeightBase100, 1rem);
+  --token-font-body-small-letter-spacing: 0;
+
+  /* Label Scale */
+  --token-font-label-large-size: var(--fontSizeBase200, 0.875rem);
+  --token-font-label-large-weight: var(--fontWeightSemibold, 600);
+  --token-font-label-large-line-height: var(--lineHeightBase200, 1.25rem);
+  --token-font-label-large-letter-spacing: 0;
+
+  --token-font-label-medium-size: var(--fontSizeBase100, 0.75rem);
+  --token-font-label-medium-weight: var(--fontWeightSemibold, 600);
+  --token-font-label-medium-line-height: var(--lineHeightBase100, 1rem);
+  --token-font-label-medium-letter-spacing: 0;
+
+  --token-font-label-small-size: 0.6875rem;
+  --token-font-label-small-weight: var(--fontWeightSemibold, 600);
+  --token-font-label-small-line-height: 1rem;
+  --token-font-label-small-letter-spacing: 0;
+
+  /* ============================================
+   * SPACING TOKENS - Fluent2 uses 4px base unit
+   * ============================================ */
+
+  --token-space-0: var(--spacingHorizontalNone, 0);
+  --token-space-1: var(--spacingHorizontalXXS, 0.125rem);  /* 2px */
+  --token-space-2: var(--spacingHorizontalXS, 0.25rem);    /* 4px */
+  --token-space-3: var(--spacingHorizontalSNudge, 0.375rem); /* 6px */
+  --token-space-4: var(--spacingHorizontalS, 0.5rem);      /* 8px */
+  --token-space-5: var(--spacingHorizontalMNudge, 0.625rem); /* 10px */
+  --token-space-6: var(--spacingHorizontalM, 0.75rem);     /* 12px */
+  --token-space-8: var(--spacingHorizontalL, 1rem);        /* 16px */
+  --token-space-10: var(--spacingHorizontalXL, 1.25rem);   /* 20px */
+  --token-space-12: var(--spacingHorizontalXXL, 1.5rem);   /* 24px */
+  --token-space-16: var(--spacingHorizontalXXXL, 2rem);    /* 32px */
+  --token-space-20: 2.5rem;  /* 40px */
+  --token-space-24: 3rem;    /* 48px */
+
+  /* ============================================
+   * TRANSITION TOKENS - Fluent2 Duration Tokens
+   * ============================================ */
+
+  --token-transition-duration-short: var(--durationFaster, 50ms);
+  --token-transition-duration-medium: var(--durationNormal, 200ms);
+  --token-transition-duration-long: var(--durationSlow, 300ms);
+  --token-transition-duration-extra-long: var(--durationSlower, 500ms);
+
+  --token-transition-easing-standard: var(--curveEasyEase, cubic-bezier(0.33, 0, 0.67, 1));
+  --token-transition-easing-emphasized: var(--curveAccelerateMax, cubic-bezier(1, 0, 1, 1));
+  --token-transition-easing-decelerated: var(--curveDecelerateMax, cubic-bezier(0, 0, 0, 1));
+
+  /* ============================================
+   * Z-INDEX TOKENS
+   * ============================================ */
+
+  --token-z-index-dropdown: 1000;
+  --token-z-index-sticky: 1020;
+  --token-z-index-fixed: 1030;
+  --token-z-index-modal-backdrop: 1040;
+  --token-z-index-modal: 1050;
+  --token-z-index-popover: 1060;
+  --token-z-index-tooltip: 1070;
+}

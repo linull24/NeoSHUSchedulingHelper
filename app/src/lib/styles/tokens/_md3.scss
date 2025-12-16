@@ -1,0 +1,273 @@
+/**
+ * Material Design 3 Theme Mapping
+ *
+ * Maps MD3-specific design tokens to abstract token layer.
+ * This is the default theme when no data-theme attribute is set.
+ *
+ * Reference: https://m3.material.io/
+ */
+
+/* Default theme (MD3) - applies when no data-theme attribute is set */
+:root:not([data-theme]),
+:root[data-theme="material"] {
+  /* ============================================
+   * COLOR TOKENS - MD3 Mapping
+   * ============================================ */
+
+  /* Primary Colors - MD3 Primary Palette */
+  --token-color-primary: var(--md-sys-color-primary, #1e3a8a);
+  --token-color-primary-hover: color-mix(in srgb, var(--md-sys-color-primary, #1e3a8a) 90%, black);
+  --token-color-primary-pressed: color-mix(in srgb, var(--md-sys-color-primary, #1e3a8a) 80%, black);
+  --token-color-on-primary: var(--md-sys-color-on-primary, #ffffff);
+  --token-color-primary-container: var(--md-sys-color-primary-container, #dbeafe);
+  --token-color-on-primary-container: var(--md-sys-color-on-primary-container, #1e3a8a);
+
+  /* Secondary Colors - MD3 Secondary Palette */
+  --token-color-secondary: var(--md-sys-color-secondary, #64748b);
+  --token-color-secondary-hover: color-mix(in srgb, var(--md-sys-color-secondary, #64748b) 90%, black);
+  --token-color-secondary-pressed: color-mix(in srgb, var(--md-sys-color-secondary, #64748b) 80%, black);
+  --token-color-on-secondary: var(--md-sys-color-on-secondary, #ffffff);
+  --token-color-secondary-container: var(--md-sys-color-secondary-container, #e2e8f0);
+  --token-color-on-secondary-container: var(--md-sys-color-on-secondary-container, #334155);
+
+  /* Tertiary Colors - MD3 Tertiary Palette */
+  --token-color-tertiary: var(--md-sys-color-tertiary, #7c3aed);
+  --token-color-tertiary-hover: color-mix(in srgb, var(--md-sys-color-tertiary, #7c3aed) 90%, black);
+  --token-color-tertiary-pressed: color-mix(in srgb, var(--md-sys-color-tertiary, #7c3aed) 80%, black);
+  --token-color-on-tertiary: var(--md-sys-color-on-tertiary, #ffffff);
+  --token-color-tertiary-container: var(--md-sys-color-tertiary-container, #ede9fe);
+  --token-color-on-tertiary-container: var(--md-sys-color-on-tertiary-container, #5b21b6);
+
+  /* Error Colors - MD3 Error Palette */
+  --token-color-error: var(--md-sys-color-error, #dc2626);
+  --token-color-error-hover: color-mix(in srgb, var(--md-sys-color-error, #dc2626) 90%, black);
+  --token-color-error-pressed: color-mix(in srgb, var(--md-sys-color-error, #dc2626) 80%, black);
+  --token-color-on-error: var(--md-sys-color-on-error, #ffffff);
+  --token-color-error-container: var(--md-sys-color-error-container, #fee2e2);
+  --token-color-on-error-container: var(--md-sys-color-on-error-container, #991b1b);
+
+  /* Warning Colors - Custom (MD3 doesn't have warning, map to tertiary) */
+  --token-color-warning: #f59e0b;
+  --token-color-warning-hover: #d97706;
+  --token-color-warning-pressed: #b45309;
+  --token-color-on-warning: #ffffff;
+  --token-color-warning-container: #fef3c7;
+  --token-color-on-warning-container: #b45309;
+
+  /* Success Colors - Custom (MD3 doesn't have success, use green tones) */
+  --token-color-success: #16a34a;
+  --token-color-success-hover: #15803d;
+  --token-color-success-pressed: #166534;
+  --token-color-on-success: #ffffff;
+  --token-color-success-container: #dcfce7;
+  --token-color-on-success-container: #166534;
+
+  /* Info Colors - Custom (MD3 doesn't have info, use blue tones) */
+  --token-color-info: #0284c7;
+  --token-color-info-hover: #0369a1;
+  --token-color-info-pressed: #075985;
+  --token-color-on-info: #ffffff;
+  --token-color-info-container: #e0f2fe;
+  --token-color-on-info-container: #075985;
+
+  /* Surface Colors - MD3 Surface System */
+  --token-color-surface: var(--md-sys-color-surface, #ffffff);
+  --token-color-surface-variant: var(--md-sys-color-surface-variant, #f5f5f7);
+  --token-color-surface-container: var(--md-sys-color-surface-container, #f8f9fb);
+  --token-color-surface-container-low: var(--md-sys-color-surface-container-low, #fafbfc);
+  --token-color-surface-container-high: var(--md-sys-color-surface-container-high, #f0f1f3);
+  --token-color-surface-container-highest: var(--md-sys-color-surface-container-highest, #e8e9eb);
+  --token-color-on-surface: var(--md-sys-color-on-surface, #0f1223);
+  --token-color-on-surface-variant: var(--md-sys-color-on-surface-variant, #6b7280);
+
+  /* Background Colors - MD3 Background */
+  --token-color-background: var(--md-sys-color-background, #ffffff);
+  --token-color-on-background: var(--md-sys-color-on-background, #0f1223);
+
+  /* Outline Colors - MD3 Outline System */
+  --token-color-outline: var(--md-sys-color-outline, rgba(15, 18, 35, 0.2));
+  --token-color-outline-variant: var(--md-sys-color-outline-variant, rgba(15, 18, 35, 0.12));
+
+  /* Inverse Colors - MD3 Inverse Surface */
+  --token-color-inverse-surface: var(--md-sys-color-inverse-surface, #1f2937);
+  --token-color-inverse-on-surface: var(--md-sys-color-inverse-on-surface, #f9fafb);
+  --token-color-inverse-primary: var(--md-sys-color-inverse-primary, #60a5fa);
+
+  /* Scrim - MD3 Scrim */
+  --token-color-scrim: var(--md-sys-color-scrim, rgba(0, 0, 0, 0.32));
+
+  /* ============================================
+   * ELEVATION TOKENS - MD3 Elevation System
+   * ============================================ */
+
+  /* MD3 uses tonal elevation with shadows */
+  --token-elevation-0: none;
+  --token-elevation-1: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --token-elevation-2: 0 2px 8px 0 rgba(0, 0, 0, 0.08);
+  --token-elevation-3: 0 4px 16px 0 rgba(0, 0, 0, 0.12);
+  --token-elevation-4: 0 8px 24px 0 rgba(0, 0, 0, 0.16);
+  --token-elevation-5: 0 16px 32px 0 rgba(0, 0, 0, 0.20);
+
+  /* ============================================
+   * SHAPE TOKENS - MD3 Shape System
+   * ============================================ */
+
+  /* MD3 uses corner radius with small/medium/large variants */
+  --token-radius-none: 0;
+  --token-radius-xs: var(--md-sys-shape-corner-extra-small, 0.25rem);
+  --token-radius-sm: var(--md-sys-shape-corner-small, 0.5rem);
+  --token-radius-md: var(--md-sys-shape-corner-medium, 0.75rem);
+  --token-radius-lg: var(--md-sys-shape-corner-large, 1rem);
+  --token-radius-xl: var(--md-sys-shape-corner-extra-large, 1.75rem);
+  --token-radius-2xl: 2rem;
+  --token-radius-full: 9999px;
+
+  /* ============================================
+   * STATE TOKENS - MD3 State Layers
+   * ============================================ */
+
+  /* MD3 uses state layer overlays with specific opacities */
+  --token-state-hover-opacity: 0.08;
+  --token-state-focus-opacity: 0.12;
+  --token-state-pressed-opacity: 0.12;
+  --token-state-dragged-opacity: 0.16;
+  --token-state-disabled-opacity: 0.38;
+  --token-state-disabled-container-opacity: 0.12;
+
+  /* State layer colors */
+  --token-state-hover-layer: rgba(0, 0, 0, 0.08);
+  --token-state-focus-layer: rgba(0, 0, 0, 0.12);
+  --token-state-pressed-layer: rgba(0, 0, 0, 0.12);
+
+  /* ============================================
+   * TYPOGRAPHY TOKENS - MD3 Type Scale
+   * ============================================ */
+
+  /* MD3 uses Roboto as default, but we allow system fonts */
+  --token-font-family-base: var(--md-sys-typescale-body-font, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  --token-font-family-display: var(--md-sys-typescale-display-font, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  --token-font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+
+  /* Display Scale */
+  --token-font-display-large-size: var(--md-sys-typescale-display-large-size, 3.5625rem);
+  --token-font-display-large-weight: var(--md-sys-typescale-display-large-weight, 400);
+  --token-font-display-large-line-height: var(--md-sys-typescale-display-large-line-height, 4rem);
+  --token-font-display-large-letter-spacing: var(--md-sys-typescale-display-large-tracking, -0.015625rem);
+
+  --token-font-display-medium-size: var(--md-sys-typescale-display-medium-size, 2.8125rem);
+  --token-font-display-medium-weight: var(--md-sys-typescale-display-medium-weight, 400);
+  --token-font-display-medium-line-height: var(--md-sys-typescale-display-medium-line-height, 3.25rem);
+  --token-font-display-medium-letter-spacing: var(--md-sys-typescale-display-medium-tracking, 0);
+
+  --token-font-display-small-size: var(--md-sys-typescale-display-small-size, 2.25rem);
+  --token-font-display-small-weight: var(--md-sys-typescale-display-small-weight, 400);
+  --token-font-display-small-line-height: var(--md-sys-typescale-display-small-line-height, 2.75rem);
+  --token-font-display-small-letter-spacing: var(--md-sys-typescale-display-small-tracking, 0);
+
+  /* Headline Scale */
+  --token-font-headline-large-size: var(--md-sys-typescale-headline-large-size, 2rem);
+  --token-font-headline-large-weight: var(--md-sys-typescale-headline-large-weight, 400);
+  --token-font-headline-large-line-height: var(--md-sys-typescale-headline-large-line-height, 2.5rem);
+  --token-font-headline-large-letter-spacing: var(--md-sys-typescale-headline-large-tracking, 0);
+
+  --token-font-headline-medium-size: var(--md-sys-typescale-headline-medium-size, 1.75rem);
+  --token-font-headline-medium-weight: var(--md-sys-typescale-headline-medium-weight, 400);
+  --token-font-headline-medium-line-height: var(--md-sys-typescale-headline-medium-line-height, 2.25rem);
+  --token-font-headline-medium-letter-spacing: var(--md-sys-typescale-headline-medium-tracking, 0);
+
+  --token-font-headline-small-size: var(--md-sys-typescale-headline-small-size, 1.5rem);
+  --token-font-headline-small-weight: var(--md-sys-typescale-headline-small-weight, 400);
+  --token-font-headline-small-line-height: var(--md-sys-typescale-headline-small-line-height, 2rem);
+  --token-font-headline-small-letter-spacing: var(--md-sys-typescale-headline-small-tracking, 0);
+
+  /* Title Scale */
+  --token-font-title-large-size: var(--md-sys-typescale-title-large-size, 1.375rem);
+  --token-font-title-large-weight: var(--md-sys-typescale-title-large-weight, 400);
+  --token-font-title-large-line-height: var(--md-sys-typescale-title-large-line-height, 1.75rem);
+  --token-font-title-large-letter-spacing: var(--md-sys-typescale-title-large-tracking, 0);
+
+  --token-font-title-medium-size: var(--md-sys-typescale-title-medium-size, 1rem);
+  --token-font-title-medium-weight: var(--md-sys-typescale-title-medium-weight, 500);
+  --token-font-title-medium-line-height: var(--md-sys-typescale-title-medium-line-height, 1.5rem);
+  --token-font-title-medium-letter-spacing: var(--md-sys-typescale-title-medium-tracking, 0.009375rem);
+
+  --token-font-title-small-size: var(--md-sys-typescale-title-small-size, 0.875rem);
+  --token-font-title-small-weight: var(--md-sys-typescale-title-small-weight, 500);
+  --token-font-title-small-line-height: var(--md-sys-typescale-title-small-line-height, 1.25rem);
+  --token-font-title-small-letter-spacing: var(--md-sys-typescale-title-small-tracking, 0.00625rem);
+
+  /* Body Scale */
+  --token-font-body-large-size: var(--md-sys-typescale-body-large-size, 1rem);
+  --token-font-body-large-weight: var(--md-sys-typescale-body-large-weight, 400);
+  --token-font-body-large-line-height: var(--md-sys-typescale-body-large-line-height, 1.5rem);
+  --token-font-body-large-letter-spacing: var(--md-sys-typescale-body-large-tracking, 0.03125rem);
+
+  --token-font-body-medium-size: var(--md-sys-typescale-body-medium-size, 0.875rem);
+  --token-font-body-medium-weight: var(--md-sys-typescale-body-medium-weight, 400);
+  --token-font-body-medium-line-height: var(--md-sys-typescale-body-medium-line-height, 1.25rem);
+  --token-font-body-medium-letter-spacing: var(--md-sys-typescale-body-medium-tracking, 0.015625rem);
+
+  --token-font-body-small-size: var(--md-sys-typescale-body-small-size, 0.75rem);
+  --token-font-body-small-weight: var(--md-sys-typescale-body-small-weight, 400);
+  --token-font-body-small-line-height: var(--md-sys-typescale-body-small-line-height, 1rem);
+  --token-font-body-small-letter-spacing: var(--md-sys-typescale-body-small-tracking, 0.025rem);
+
+  /* Label Scale */
+  --token-font-label-large-size: var(--md-sys-typescale-label-large-size, 0.875rem);
+  --token-font-label-large-weight: var(--md-sys-typescale-label-large-weight, 500);
+  --token-font-label-large-line-height: var(--md-sys-typescale-label-large-line-height, 1.25rem);
+  --token-font-label-large-letter-spacing: var(--md-sys-typescale-label-large-tracking, 0.00625rem);
+
+  --token-font-label-medium-size: var(--md-sys-typescale-label-medium-size, 0.75rem);
+  --token-font-label-medium-weight: var(--md-sys-typescale-label-medium-weight, 500);
+  --token-font-label-medium-line-height: var(--md-sys-typescale-label-medium-line-height, 1rem);
+  --token-font-label-medium-letter-spacing: var(--md-sys-typescale-label-medium-tracking, 0.03125rem);
+
+  --token-font-label-small-size: var(--md-sys-typescale-label-small-size, 0.6875rem);
+  --token-font-label-small-weight: var(--md-sys-typescale-label-small-weight, 500);
+  --token-font-label-small-line-height: var(--md-sys-typescale-label-small-line-height, 1rem);
+  --token-font-label-small-letter-spacing: var(--md-sys-typescale-label-small-tracking, 0.03125rem);
+
+  /* ============================================
+   * SPACING TOKENS - MD3 uses 4px base unit
+   * ============================================ */
+
+  --token-space-0: 0;
+  --token-space-1: 0.25rem;  /* 4px */
+  --token-space-2: 0.5rem;   /* 8px */
+  --token-space-3: 0.75rem;  /* 12px */
+  --token-space-4: 1rem;     /* 16px */
+  --token-space-5: 1.25rem;  /* 20px */
+  --token-space-6: 1.5rem;   /* 24px */
+  --token-space-8: 2rem;     /* 32px */
+  --token-space-10: 2.5rem;  /* 40px */
+  --token-space-12: 3rem;    /* 48px */
+  --token-space-16: 4rem;    /* 64px */
+  --token-space-20: 5rem;    /* 80px */
+  --token-space-24: 6rem;    /* 96px */
+
+  /* ============================================
+   * TRANSITION TOKENS - MD3 Motion System
+   * ============================================ */
+
+  --token-transition-duration-short: 100ms;
+  --token-transition-duration-medium: 200ms;
+  --token-transition-duration-long: 300ms;
+  --token-transition-duration-extra-long: 500ms;
+
+  --token-transition-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --token-transition-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --token-transition-easing-decelerated: cubic-bezier(0, 0, 0, 1);
+
+  /* ============================================
+   * Z-INDEX TOKENS
+   * ============================================ */
+
+  --token-z-index-dropdown: 1000;
+  --token-z-index-sticky: 1020;
+  --token-z-index-fixed: 1030;
+  --token-z-index-modal-backdrop: 1040;
+  --token-z-index-modal: 1050;
+  --token-z-index-popover: 1060;
+  --token-z-index-tooltip: 1070;
+}

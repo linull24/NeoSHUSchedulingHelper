@@ -1,0 +1,214 @@
+/**
+ * Design Token System - Main Entry Point
+ *
+ * This file provides a single import point for the entire token system.
+ * Import this file in your components to access all design tokens.
+ *
+ * Usage:
+ * @use '$lib/styles/tokens' as *;
+ *
+ * or with namespace:
+ * @use '$lib/styles/tokens';
+ * .component { background: var(--token-color-surface); }
+ *
+ * Architecture:
+ * 1. Abstract Layer (_abstract.scss) - Theme-agnostic token definitions
+ * 2. Theme Layers (_md3.scss, _fluent2.scss) - Theme-specific mappings
+ * 3. Legacy Shims (_legacy-shims.scss) - Backward compatibility
+ *
+ * Theme Switching:
+ * Set data-theme attribute on root element:
+ * - <html data-theme="md3"> (default)
+ * - <html data-theme="fluent2">
+ */
+
+/* ============================================
+ * ABSTRACT TOKEN LAYER
+ * ============================================ */
+/* Defines all theme-agnostic tokens that components consume */
+@forward '_abstract';
+
+/* ============================================
+ * THEME MAPPINGS
+ * ============================================ */
+/* Material Design 3 theme (default) */
+@forward '_md3';
+
+/* Fluent 2 theme (alternative) */
+@forward '_fluent2';
+
+/* ============================================
+ * LEGACY COMPATIBILITY
+ * ============================================ */
+/* Maps old --ui-* tokens to new --token-* tokens */
+/* DEPRECATED: Will be removed in future version */
+@forward '_legacy-shims';
+
+/* ============================================
+ * USAGE EXAMPLES
+ * ============================================ */
+
+/**
+ * Example 1: Basic Component
+ *
+ * @use '$lib/styles/tokens' as *;
+ *
+ * .card {
+ *   background: var(--token-color-surface);
+ *   border: 1px solid var(--token-color-outline-variant);
+ *   border-radius: var(--token-radius-lg);
+ *   padding: var(--token-space-4);
+ *   box-shadow: var(--token-elevation-2);
+ * }
+ */
+
+/**
+ * Example 2: Typography
+ *
+ * .heading {
+ *   font-family: var(--token-font-family-base);
+ *   font-size: var(--token-font-headline-large-size);
+ *   font-weight: var(--token-font-headline-large-weight);
+ *   line-height: var(--token-font-headline-large-line-height);
+ *   color: var(--token-color-on-surface);
+ * }
+ */
+
+/**
+ * Example 3: Interactive States
+ *
+ * .button {
+ *   background: var(--token-color-primary);
+ *   color: var(--token-color-on-primary);
+ *   border-radius: var(--token-radius-md);
+ *   padding: var(--token-space-2) var(--token-space-4);
+ *   transition: background var(--token-transition-duration-medium) var(--token-transition-easing-standard);
+ *
+ *   &:hover {
+ *     background: var(--token-color-primary-hover);
+ *   }
+ *
+ *   &:active {
+ *     background: var(--token-color-primary-pressed);
+ *   }
+ *
+ *   &:disabled {
+ *     opacity: var(--token-state-disabled-opacity);
+ *   }
+ * }
+ */
+
+/**
+ * Example 4: Theme-Aware Component
+ *
+ * .theme-switcher {
+ *   // This component will automatically adapt to the active theme
+ *   background: var(--token-color-surface-container);
+ *   border: 1px solid var(--token-color-outline);
+ *
+ *   // No need for theme-specific selectors!
+ *   // The token system handles theme switching automatically
+ * }
+ */
+
+/**
+ * Example 5: Legacy Component (during migration)
+ *
+ * // Old code still works thanks to legacy shims:
+ * .legacy-card {
+ *   background: var(--ui-surface);        // Maps to --token-color-surface
+ *   border: 1px solid var(--ui-border);   // Maps to --token-color-outline-variant
+ *   padding: var(--ui-space-4);           // Maps to --token-space-4
+ *   border-radius: var(--ui-radius-lg);   // Maps to --token-radius-lg
+ * }
+ *
+ * // Gradually migrate to new tokens:
+ * .modern-card {
+ *   background: var(--token-color-surface);
+ *   border: 1px solid var(--token-color-outline-variant);
+ *   padding: var(--token-space-4);
+ *   border-radius: var(--token-radius-lg);
+ * }
+ */
+
+/* ============================================
+ * THEME SWITCHING GUIDE
+ * ============================================ */
+
+/**
+ * To switch themes at runtime:
+ *
+ * JavaScript:
+ * document.documentElement.setAttribute('data-theme', 'fluent2');
+ * document.documentElement.setAttribute('data-theme', 'md3');
+ *
+ * Svelte:
+ * <script>
+ *   import { onMount } from 'svelte';
+ *   let theme = 'md3';
+ *
+ *   function setTheme(newTheme) {
+ *     theme = newTheme;
+ *     document.documentElement.setAttribute('data-theme', theme);
+ *   }
+ * </script>
+ *
+ * <button on:click={() => setTheme('md3')}>Material Design 3</button>
+ * <button on:click={() => setTheme('fluent2')}>Fluent 2</button>
+ */
+
+/**
+ * To persist theme preference:
+ *
+ * // Save to localStorage
+ * localStorage.setItem('theme', 'fluent2');
+ *
+ * // Load on app init
+ * const savedTheme = localStorage.getItem('theme') || 'md3';
+ * document.documentElement.setAttribute('data-theme', savedTheme);
+ */
+
+/* ============================================
+ * BEST PRACTICES
+ * ============================================ */
+
+/**
+ * DO:
+ * ✓ Use --token-* variables in all new code
+ * ✓ Test components in both MD3 and Fluent2 themes
+ * ✓ Use semantic token names (--token-color-primary, not --token-color-blue)
+ * ✓ Leverage state tokens for interactive elements
+ * ✓ Use spacing scale consistently (--token-space-*)
+ *
+ * DON'T:
+ * ✗ Use hard-coded colors, sizes, or spacing values
+ * ✗ Reference theme-specific tokens directly (--md-sys-*, --colorNeutral*)
+ * ✗ Create custom tokens without adding them to _abstract.scss
+ * ✗ Use --ui-* tokens in new code (they're deprecated)
+ * ✗ Override token values in components (use theme files instead)
+ */
+
+/* ============================================
+ * TROUBLESHOOTING
+ * ============================================ */
+
+/**
+ * Q: My component looks different in Fluent2 theme
+ * A: Check if you're using semantic tokens correctly. Avoid hard-coded values.
+ *
+ * Q: Legacy --ui-* tokens not working
+ * A: Ensure _legacy-shims.scss is imported after theme files.
+ *
+ * Q: How do I add a new token?
+ * A: 1. Add to _abstract.scss
+ *    2. Map in _md3.scss
+ *    3. Map in _fluent2.scss
+ *    4. Document in README.md
+ *
+ * Q: Can I use both --ui-* and --token-* in the same component?
+ * A: Yes, but migrate to --token-* as soon as possible.
+ *
+ * Q: Theme not switching?
+ * A: Check that data-theme attribute is set on <html> element.
+ *    Verify token files are imported in correct order.
+ */

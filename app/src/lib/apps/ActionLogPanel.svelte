@@ -1,207 +1,103 @@
+<svelte:options runes={false} />
+
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { ActionLogEntry } from '$lib/data/actionLog';
-	import { actionLogEntriesStore, ensureActionLogLoaded, appendActionLog } from '$lib/stores/actionLogStore';
-	import type { DesiredLock, SoftConstraint } from '$lib/data/desired/types';
-	import { addDesiredLock, removeDesiredLock, addSoftConstraint, removeSoftConstraint, ensureDesiredStateLoaded } from '$lib/stores/desiredStateStore';
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
+	import ListSurface from '$lib/components/ListSurface.svelte';
+	import AppListCard from '$lib/components/AppListCard.svelte';
+	import CardActionBar from '$lib/components/CardActionBar.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import { translator, type TranslateFn } from '$lib/i18n';
+	import { dispatchTermAction, ensureTermStateLoaded, termState } from '$lib/stores/termStateStore';
+	import type { ActionEntryV1 } from '$lib/data/termState/types';
 
-	let rollbacking = false;
+	let t: TranslateFn = (key) => key;
+	$: t = $translator;
+
+	let busy = false;
 	let message = '';
 
-	onMount(async () => {
-		await Promise.all([ensureActionLogLoaded(), ensureDesiredStateLoaded()]);
-	});
+	const metaClass = 'meta flex flex-wrap gap-3 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]';
+	const errorBannerClass =
+		'error-banner mb-3 rounded-[var(--app-radius-lg)] border border-[color-mix(in_srgb,var(--app-color-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--app-color-danger)_12%,var(--app-color-bg))] px-4 py-3 text-[var(--app-color-danger)]';
+	const logListClass = 'log-list flex flex-col gap-3';
 
-	function extractRollback(entry: ActionLogEntry) {
-		const payload = entry.payload as ConstraintPayload | undefined;
-		if (!payload || payload.kind !== 'constraint') return null;
-		return payload.rollback ?? null;
+	onMount(() => void ensureTermStateLoaded());
+
+	$: entries = $termState?.history.entries ?? [];
+	$: cursor = $termState?.history.cursor ?? -1;
+
+	function describeType(type: ActionEntryV1['type']) {
+		if (type === 'selection') return t('panels.selected.title');
+		if (type === 'jwxt') return t('panels.jwxt.title');
+		if (type === 'sync') return t('panels.sync.title');
+		if (type === 'solver') return t('panels.solver.title');
+		if (type === 'settings') return t('layout.tabs.settings');
+		if (type === 'history') return t('panels.actionLog.title');
+		return type;
 	}
 
-	async function handleRollback(entry: ActionLogEntry) {
-		if (rollbacking) return;
-		const rollback = extractRollback(entry);
-		if (!rollback) return;
-		rollbacking = true;
+	async function toggleTo(index: number) {
+		if (busy) return;
+		busy = true;
 		message = '';
 		try {
-			switch (rollback.type) {
-				case 'remove-lock':
-					if (typeof rollback.lockId === 'string') {
-						await removeDesiredLock(rollback.lockId);
-						await appendActionLog({
-							action: 'constraint:rollback',
-							payload: { kind: 'rollback', scope: 'hard', target: rollback.lockId }
-						});
-					}
-					break;
-				case 'add-lock':
-					if (rollback.lock) {
-						await addDesiredLock(rollback.lock as DesiredLock);
-						await appendActionLog({
-							action: 'constraint:rollback',
-							payload: { kind: 'rollback', scope: 'hard', target: rollback.lock.id }
-						});
-					}
-					break;
-				case 'remove-soft':
-					if (typeof rollback.id === 'string') {
-						await removeSoftConstraint(rollback.id);
-						await appendActionLog({
-							action: 'constraint:rollback',
-							payload: { kind: 'rollback', scope: 'soft', target: rollback.id }
-						});
-					}
-					break;
-				case 'add-soft':
-					if (rollback.constraint) {
-						await addSoftConstraint(rollback.constraint as SoftConstraint);
-						await appendActionLog({
-							action: 'constraint:rollback',
-							payload: { kind: 'rollback', scope: 'soft', target: rollback.constraint.id }
-						});
-					}
-					break;
-			}
+			const result = await dispatchTermAction({ type: 'HIST_TOGGLE_TO_INDEX', index });
+			if (!result.ok) throw new Error(result.error.message);
 		} catch (error) {
-			message = error instanceof Error ? error.message : '回滚失败';
+			message = error instanceof Error ? error.message : String(error);
 		} finally {
-			rollbacking = false;
+			busy = false;
 		}
 	}
-
-	function canRollback(entry: ActionLogEntry) {
-		return Boolean(extractRollback(entry));
-	}
-
-	function describeEntry(entry: ActionLogEntry) {
-		const payload = entry.payload as ConstraintPayload | undefined;
-		if (!payload) return entry.action;
-		if (payload.kind === 'constraint') {
-			const scope = payload.scope === 'hard' ? '硬约束' : '软约束';
-			const action = payload.change === 'add' ? '新增' : '移除';
-			if (payload.lock) {
-				return `${scope} ${action} ${payload.lock.type === 'course' ? payload.lock.courseHash : payload.lock.type}`;
-			}
-			if (payload.constraint) {
-				return `${scope} ${action} ${payload.constraint.type}`;
-			}
-			return `${scope} ${action}`;
-		}
-		if (payload.kind === 'solver-run') {
-			return `求解 ${payload.status === 'sat' ? '成功' : '无解'} · plan ${payload.planLength ?? 0}`;
-		}
-		if (payload.kind === 'rollback') {
-			return `回滚 ${payload.scope === 'hard' ? '硬约束' : '软约束'}`;
-		}
-		return entry.action;
-	}
-
-	type ConstraintRollback =
-		| { type: 'remove-lock'; lockId?: string }
-		| { type: 'add-lock'; lock?: DesiredLock }
-		| { type: 'remove-soft'; id?: string }
-		| { type: 'add-soft'; constraint?: SoftConstraint };
-
-	type ConstraintPayload =
-		| {
-				kind: 'constraint';
-				scope: 'hard' | 'soft';
-				change: 'add' | 'remove';
-				lock?: DesiredLock;
-				constraint?: SoftConstraint;
-				rollback?: ConstraintRollback;
-		  }
-		| {
-				kind: 'solver-run';
-				status: string;
-				planLength?: number;
-				resultId?: string;
-			}
-		| {
-				kind: 'rollback';
-				scope: 'hard' | 'soft';
-				target?: string;
-			};
 </script>
 
-<section class="panel">
-	<header>
-		<div>
-			<h3>操作日志</h3>
-			<p>记录约束修改与求解行为，可对部分记录进行回滚。</p>
-		</div>
-	</header>
-	{#if message}
-		<div class="error-banner">{message}</div>
-	{/if}
-	<div class="log-list">
-		{#if !$actionLogEntriesStore.length}
-			<p class="muted">尚无日志记录。</p>
-		{:else}
-			{#each $actionLogEntriesStore.slice().reverse() as entry (entry.id)}
-				<div class="log-entry">
-					<div>
-						<strong>{describeEntry(entry)}</strong>
-						<div class="meta">
-							<span>{new Date(entry.timestamp).toLocaleString()}</span>
-							<span>{entry.action}</span>
-						</div>
-					</div>
-					{#if canRollback(entry)}
-						<button type="button" on:click={() => handleRollback(entry)} disabled={rollbacking}>
-							回滚
-						</button>
-					{/if}
-				</div>
-			{/each}
+<DockPanelShell class="flex-1 min-h-0">
+	<ListSurface
+		title={t('panels.actionLog.title')}
+		subtitle={t('panels.actionLog.description')}
+		count={entries.length}
+		density="comfortable"
+		enableStickyToggle={true}
+	>
+		{#if message}
+			<div class={errorBannerClass}>{message}</div>
 		{/if}
-	</div>
-</section>
 
-<style lang="scss">
-	@use "./ActionLogPanel.styles.scss" as *;
+		<div class={logListClass}>
+			{#if entries.length === 0}
+				<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.actionLog.empty')}</p>
+			{:else}
+				{#each entries.slice().reverse() as entry, reverseIndex (entry.id)}
+					{@const index = entries.length - 1 - reverseIndex}
+					{@const isCurrent = index === cursor}
+					{@const isRedo = index > cursor}
+					{@const cardClass = `${isRedo ? 'opacity-70' : ''} ${isCurrent ? 'border-[color:var(--app-color-primary)]' : ''}`}
+					<AppListCard title={entry.label} class={`bg-[var(--app-color-bg-elevated)] ${cardClass}`}>
+						<svelte:fragment slot="meta">
+							<div class={metaClass}>
+								<span>{new Date(entry.at).toLocaleString()}</span>
+								<span>{describeType(entry.type)}</span>
+								<span>#{index}</span>
+							</div>
+						</svelte:fragment>
 
-	.log-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.6rem;
-	}
-
-	.log-entry {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.5rem 0.6rem;
-		border-radius: 0.6rem;
-		background: #fff;
-		box-shadow: inset 0 0 0 1px rgba(15, 18, 35, 0.05);
-	}
-
-	.log-entry button {
-		border: none;
-		border-radius: 0.5rem;
-		padding: 0.3rem 0.8rem;
-		background: rgba(15, 18, 35, 0.08);
-		cursor: pointer;
-	}
-
-	.meta {
-		font-size: 0.78rem;
-		color: #7a7d90;
-		display: flex;
-		gap: 0.6rem;
-	}
-
-	.muted {
-		color: #7a7d90;
-	}
-
-	.error-banner {
-		background: rgba(239, 68, 68, 0.15);
-		color: #7f1d1d;
-		border-radius: 0.65rem;
-		padding: 0.6rem 0.9rem;
-		margin-bottom: 0.9rem;
-	}
-</style>
+						{#if index < cursor}
+							<CardActionBar slot="actions" class="justify-end">
+								<AppButton variant="secondary" size="sm" on:click={() => toggleTo(index)} disabled={busy}>
+									{t('panels.actionLog.rollback')}
+								</AppButton>
+							</CardActionBar>
+						{:else if isRedo}
+							<CardActionBar slot="actions" class="justify-end">
+								<AppButton variant="secondary" size="sm" disabled={true}>
+									{t('panels.actionLog.undo')}
+								</AppButton>
+							</CardActionBar>
+						{/if}
+					</AppListCard>
+				{/each}
+			{/if}
+		</div>
+	</ListSurface>
+</DockPanelShell>

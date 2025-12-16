@@ -1,70 +1,51 @@
+<svelte:options runes={false} />
+
 <script lang="ts">
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
+	import ListSurface from '$lib/components/ListSurface.svelte';
 	import { datasetMeta } from '$lib/data/catalog/courseCatalog';
-	import { encodeSelectionSnapshotBase64, importSelectionSnapshotBase64 } from '$lib/utils/selectionPersistence';
-	import { loadStateBundle } from '$lib/data/termState';
-	import { syncStateBundle } from '$lib/data/github/stateSync';
+	import { termState, ensureTermStateLoaded, dispatchTermActionWithEffects } from '$lib/stores/termStateStore';
 	import { githubToken, clearGithubToken } from '$lib/stores/githubAuth';
+	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
+	import AppField from '$lib/primitives/AppField.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import AppDialog from '$lib/primitives/AppDialog.svelte';
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
+	import { translator } from '$lib/i18n';
+	import type { TranslateFn } from '$lib/i18n';
+	import { storageState, type StoragePreferencesSnapshot } from '$lib/stores/storageState';
 
-	let exportStatus = '';
-	let importStatus = '';
-	let selectionBusy = false;
-	let snapshotBase64 = '';
-	let importBase64 = '';
 	let gistId = '';
 	let gistNote = '';
 	let gistPublic = false;
 	let gistStatus = '';
 	let gistBusy = false;
+	let storageSnapshot: StoragePreferencesSnapshot | null = null;
+	let confirmOpen = false;
+	let confirmBusy = false;
+	let confirmError = '';
 
-const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
+	let t: TranslateFn = (key) => key;
+	$: t = $translator;
+	$: storageSnapshot = $storageState;
 
-	async function generateSnapshot() {
-		try {
-			selectionBusy = true;
-			snapshotBase64 = encodeSelectionSnapshotBase64();
-			exportStatus = '已生成 Base64 快照，可复制保存或贴到 Issue/Gist。';
-		} catch (error) {
-			exportStatus = `导出失败：${error instanceof Error ? error.message : String(error)}`;
-		} finally {
-			selectionBusy = false;
-		}
-	}
-
-	function copySnapshot() {
-		if (!snapshotBase64) return;
-		navigator.clipboard?.writeText(snapshotBase64).then(
-			() => {
-				exportStatus = '已复制到剪贴板';
-			},
-			() => {
-				exportStatus = '复制失败，请手动复制';
-			}
+	const format = (key: string, values?: Record<string, string | number>) => {
+		let template = t(key);
+		if (!values) return template;
+		return Object.entries(values).reduce(
+			(acc, [placeholder, value]) => acc.replace(`{${placeholder}}`, String(value)),
+			template
 		);
-	}
+	};
 
-	async function handleImport() {
-		if (!importBase64.trim()) {
-			importStatus = '请输入 Base64 快照内容';
-			return;
-		}
-		try {
-			selectionBusy = true;
-			const result = importSelectionSnapshotBase64(importBase64);
-			importStatus = `导入成功：已选 ${result.selectedApplied} 条，待选 ${result.wishlistApplied} 条${
-				result.ignored.length ? `，忽略 ${result.ignored.length} 条` : ''
-			}`;
-		} catch (error) {
-			importStatus = `导入失败：${error instanceof Error ? error.message : String(error)}`;
-		} finally {
-			selectionBusy = false;
-		}
-	}
+	const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
+
+	$: void ensureTermStateLoaded();
 
 	function startGithubLogin() {
 		if (!hasGithubConfig) {
-			gistStatus = '未配置 GitHub Client ID，无法登录';
+			gistStatus = t('panels.sync.githubMissing');
 			return;
 		}
 		const width = 520;
@@ -83,7 +64,7 @@ const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
 			if (event.origin !== window.location.origin) return;
 			if (event.data?.type === 'github-token' && event.data.token) {
 				githubToken.set(event.data.token);
-				gistStatus = 'GitHub 登录成功';
+				gistStatus = t('panels.sync.statuses.githubLoginSuccess');
 			}
 		}
 		window.addEventListener('message', handleMessage);
@@ -93,7 +74,7 @@ const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
 	function requireGithubToken() {
 		const token = get(githubToken);
 		if (!token) {
-			gistStatus = '请先登录 GitHub';
+			gistStatus = t('panels.sync.statuses.requireLogin');
 		}
 		return token;
 	}
@@ -103,114 +84,239 @@ const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
 		if (!token) return;
 		try {
 			gistBusy = true;
-			gistStatus = '正在生成快照并同步...';
-			const bundle = await loadStateBundle();
-			const result = await syncStateBundle(bundle, {
+			gistStatus = t('panels.sync.statuses.syncing');
+			const state = $termState;
+			if (!state) {
+				gistStatus = t('panels.sync.statuses.termStateMissing');
+				return;
+			}
+
+			const { result, effectsDone } = dispatchTermActionWithEffects({
+				type: 'SYNC_GIST_EXPORT',
 				token,
 				gistId: gistId.trim() || undefined,
 				note: gistNote.trim() || undefined,
 				public: gistPublic
 			});
-			gistStatus = `同步成功：${result.url}`;
-			if (!gistId.trim()) {
-				gistId = result.id;
+			const dispatchResult = await result;
+			if (!dispatchResult.ok) {
+				gistStatus = format('panels.sync.statuses.syncFailed', { error: dispatchResult.error.message });
+				return;
 			}
+			await effectsDone;
+			const after = get(termState);
+			const last = after?.history.entries
+				.slice()
+				.reverse()
+				.find((entry) => entry.type === 'sync' && entry.id.startsWith('sync:export-'));
+			const details = last?.details as Record<string, unknown> | undefined;
+			if (last?.id.startsWith('sync:export-ok:') && details && typeof details.url === 'string') {
+				gistStatus = format('panels.sync.statuses.syncSuccess', { url: details.url });
+				if (!gistId.trim() && typeof details.gistId === 'string') gistId = details.gistId;
+				return;
+			}
+			if (last?.id.startsWith('sync:export-err:') && details && typeof details.error === 'string') {
+				gistStatus = format('panels.sync.statuses.syncFailed', { error: details.error });
+				return;
+			}
+			gistStatus = t('panels.sync.statuses.syncDone');
 		} catch (error) {
-			gistStatus = `同步失败：${error instanceof Error ? error.message : String(error)}`;
+			gistStatus = format('panels.sync.statuses.syncFailed', {
+				error: error instanceof Error ? error.message : String(error)
+			});
 		} finally {
 			gistBusy = false;
 		}
 	}
+
+	async function handleGistImportConfirm() {
+		const token = requireGithubToken();
+		if (!token) return;
+		const trimmed = gistId.trim();
+		if (!trimmed) {
+			gistStatus = t('panels.sync.statuses.gistIdRequired');
+			return;
+		}
+
+		try {
+			confirmBusy = true;
+			confirmError = '';
+			gistStatus = t('panels.sync.statuses.gistImporting');
+			const { result, effectsDone } = dispatchTermActionWithEffects({
+				type: 'SYNC_GIST_IMPORT_REPLACE',
+				token,
+				gistId: trimmed
+			});
+			const dispatchResult = await result;
+			if (!dispatchResult.ok) {
+				confirmError = dispatchResult.error.message;
+				gistStatus = format('panels.sync.statuses.importFailed', { error: dispatchResult.error.message });
+				return;
+			}
+			await effectsDone;
+			const after = get(termState);
+			const last = after?.history.entries
+				.slice()
+				.reverse()
+				.find((entry) => entry.type === 'sync' && entry.id.startsWith('sync:import-'));
+			const details = last?.details as Record<string, unknown> | undefined;
+			if (last?.id.startsWith('sync:import-ok:')) {
+				gistStatus = t('panels.sync.statuses.gistImportSuccess');
+				confirmOpen = false;
+				return;
+			}
+			if (last?.id.startsWith('sync:import-err:') && details && typeof details.error === 'string') {
+				confirmError = details.error;
+				gistStatus = format('panels.sync.statuses.importFailed', { error: details.error });
+				return;
+			}
+			gistStatus = t('panels.sync.statuses.gistImportDone');
+			confirmOpen = false;
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			confirmError = msg;
+			gistStatus = format('panels.sync.statuses.importFailed', { error: msg });
+		} finally {
+			confirmBusy = false;
+		}
+	}
 </script>
 
-<section class="panel">
-	<header>
-		<h3>导入 / 导出 & 同步</h3>
-		<p>当前学期：{datasetMeta.semester}</p>
-	</header>
-	<div class="content">
-		<div class="sync-grid">
-			<div class="card">
-				<h4>导出选课状态</h4>
-				<p>生成 Base64 快照（包含学期/版本），方便复制或贴到 Issue/Gist。</p>
-				<div class="stack">
-					<textarea readonly placeholder="点击下方按钮生成 Base64" value={snapshotBase64} rows="5"></textarea>
-					<div class="actions">
-						<button class="primary" on:click={generateSnapshot} disabled={selectionBusy}>
-							生成 Base64
-						</button>
-						<button class="secondary" on:click={copySnapshot} disabled={!snapshotBase64}>
-							复制
-						</button>
-					</div>
-				</div>
-				{#if exportStatus}
-					<p class="status">{exportStatus}</p>
-				{/if}
-			</div>
-			<div class="card">
-				<h4>导入选课状态</h4>
-				<p>粘贴 Base64 快照，恢复“已选 / 待选”列表。</p>
-				<div class="stack">
-					<textarea placeholder="粘贴 Base64 字符串" bind:value={importBase64} rows="5"></textarea>
-					<button class="primary" on:click={handleImport} disabled={selectionBusy}>
-						导入 Base64
-					</button>
-				</div>
-				{#if importStatus}
-					<p class="status">{importStatus}</p>
-				{/if}
-			</div>
-			<div class="card gist-card">
-				<h4>同步到 GitHub Gist</h4>
-				<p>打包愿望/选课/操作日志等状态，上传到私有 Gist 作为云备份。</p>
-				<form class="gist-form" on:submit|preventDefault={handleGistSync}>
-				{#if $githubToken}
-					<div class="login-state">
-						<span>已登录 GitHub</span>
-						<button type="button" class="secondary" on:click={clearGithubToken}>
-								退出
-							</button>
+<DockPanelShell class="flex-1 min-h-0">
+	<ListSurface
+		title={t('panels.sync.title')}
+		subtitle={format('panels.sync.currentTerm', { term: datasetMeta.semester ?? '' })}
+		density="comfortable"
+		enableStickyToggle={true}
+	>
+		<div class="flex flex-wrap items-start gap-5 min-w-0">
+			{#if storageSnapshot}
+				<section class="flex-[1_1_520px] min-w-[min(360px,100%)] rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg-elevated)] p-4 shadow-[var(--app-shadow-soft)]">
+					<h4 class="text-[var(--app-text-md)] font-semibold text-[var(--app-color-fg)]">{t('panels.sync.storageTitle')}</h4>
+					<p class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.sync.storageDescription')}</p>
+					<ul class="mt-3 list-disc pl-5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+						<li>{t('panels.sync.storageLanguage', { locale: storageSnapshot.locale })}</li>
+						<li>{t('panels.sync.storageTheme', { theme: storageSnapshot.themeId })}</li>
+						<li>
+							{t('panels.sync.storagePagination', {
+								mode:
+									storageSnapshot.pagination.mode === 'paged' ? t('settings.paged') : t('settings.continuous'),
+								size: storageSnapshot.pagination.pageSize,
+								neighbors: storageSnapshot.pagination.pageNeighbors
+							})}
+						</li>
+						<li>
+							{t('panels.sync.storageSelectionMode', {
+								mode:
+									storageSnapshot.selectionMode === 'allowOverflowMode'
+										? t('settings.allowOverflowMode')
+										: t('settings.overflowSpeedRaceMode')
+							})}
+						</li>
+						<li>
+							{t('panels.sync.storageCrossCampus', {
+								value: storageSnapshot.crossCampusAllowed ? t('dropdowns.enabled') : t('dropdowns.disabled')
+							})}
+						</li>
+						<li>
+							{t('panels.sync.storageCollapse', {
+								value: storageSnapshot.collapseCoursesByName ? t('dropdowns.enabled') : t('dropdowns.disabled')
+							})}
+						</li>
+						<li>
+							{t('panels.sync.storageTimeTemplates', {
+								count: storageSnapshot.timeTemplates.length
+							})}
+						</li>
+					</ul>
+				</section>
+			{/if}
+
+			<AppControlPanel
+				title={t('panels.sync.gistTitle')}
+				description={t('panels.sync.gistDescription')}
+				density="comfortable"
+				class="flex-[1_1_520px] min-w-[min(360px,100%)]"
+			>
+				<form class="flex flex-col gap-3" on:submit|preventDefault={handleGistSync}>
+					{#if $githubToken}
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)] min-w-0">
+							<span class="min-w-0 break-words [overflow-wrap:anywhere]">{t('panels.sync.gistLoggedIn')}</span>
+							<AppButton variant="secondary" size="sm" on:click={clearGithubToken}>
+								{t('panels.sync.logoutGithub')}
+							</AppButton>
 						</div>
 					{:else}
-						<button type="button" class="primary" on:click={startGithubLogin}>
-							登录 GitHub
-						</button>
+						<AppButton type="button" variant="primary" size="sm" on:click={startGithubLogin}>
+							{t('panels.sync.loginGithub')}
+						</AppButton>
 					{/if}
-					<label class="form-group">
-						<span>Gist ID（可选）</span>
+					<AppField label={t('panels.sync.gistIdLabel')}>
 						<input
+							class="w-full min-w-0 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
 							type="text"
-							placeholder="已存在的 Gist ID，用于增量更新"
+							placeholder={t('panels.sync.gistIdPlaceholder')}
 							bind:value={gistId}
 						/>
-					</label>
-					<label class="form-group">
-						<span>备注 / Note</span>
+					</AppField>
+					<AppField label={t('panels.sync.noteLabel')}>
 						<input
+							class="w-full min-w-0 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
 							type="text"
-							placeholder="描述此次同步，如 2025 春测试"
+							placeholder={t('panels.sync.notePlaceholder')}
 							bind:value={gistNote}
 						/>
-					</label>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={gistPublic} />
-						<span>公开 Gist（默认私有）</span>
-					</label>
-					<button class="primary" type="submit" disabled={gistBusy || !hasGithubConfig}>
-						{gistBusy ? '同步中...' : '上传到 Gist'}
-					</button>
+					</AppField>
+					<AppField label={t('panels.sync.publicLabel')}>
+						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+							<input type="checkbox" bind:checked={gistPublic} />
+							<span>{t('panels.sync.publicLabel')}</span>
+						</label>
+					</AppField>
+					<AppButton type="submit" variant="primary" size="sm" disabled={gistBusy || !hasGithubConfig}>
+						{gistBusy ? t('panels.sync.statuses.syncing') : t('panels.sync.uploadButton')}
+					</AppButton>
+					<AppButton
+						type="button"
+						variant="danger"
+						size="sm"
+						disabled={gistBusy || !hasGithubConfig || !$githubToken}
+						on:click={() => (confirmOpen = true)}
+					>
+						{t('panels.sync.importReplaceButton')}
+					</AppButton>
 				</form>
 				{#if gistStatus}
-					<p class="status">{gistStatus}</p>
+					<p class="mt-2 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{gistStatus}</p>
 				{:else if !hasGithubConfig}
-					<p class="status">未配置 GitHub Client ID，无法发起 GitHub 登录。</p>
+					<p class="mt-2 text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{t('panels.sync.githubMissing')}</p>
 				{/if}
-			</div>
+			</AppControlPanel>
 		</div>
-	</div>
-</section>
 
-<style lang="scss">
-	@use "./SyncPanel.styles.scss" as *;
-</style>
+		<AppDialog
+			open={confirmOpen}
+			title={t('panels.sync.confirm.importTitle')}
+			on:close={() => {
+				if (confirmBusy) return;
+				confirmOpen = false;
+				confirmError = '';
+			}}
+		>
+			<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+				{format('panels.sync.confirm.importBody', { gistId: gistId.trim() || '-' })}
+			</p>
+			{#if confirmError}
+				<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{confirmError}</p>
+			{/if}
+			<div slot="actions" class="flex flex-wrap items-center justify-end gap-2">
+				<AppButton variant="secondary" size="sm" on:click={() => (confirmOpen = false)} disabled={confirmBusy}>
+					{t('panels.sync.confirm.cancel')}
+				</AppButton>
+				<AppButton variant="danger" size="sm" on:click={handleGistImportConfirm} loading={confirmBusy}>
+					{t('panels.sync.confirm.importConfirm')}
+				</AppButton>
+			</div>
+		</AppDialog>
+	</ListSurface>
+</DockPanelShell>

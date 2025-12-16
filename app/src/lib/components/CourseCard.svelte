@@ -1,43 +1,75 @@
+<svelte:options runes={false} />
+
 <script context="module" lang="ts">
-	export type CapacityState = 'green' | 'yellow' | 'orange' | 'red';
+	export type CapacityState = 'healthy' | 'warning' | 'critical' | 'empty';
+	import type { Actionable, Collapsible, Hoverable, MetaDisplay } from '$lib/ui/traits';
+
+	export type CourseCardContract = Hoverable &
+		Collapsible &
+		MetaDisplay &
+		Actionable & {
+			id: string;
+			title: string;
+			time: string;
+			courseCode?: string;
+			credit?: number | null;
+			showTime?: boolean;
+		};
 </script>
 
 <script lang="ts">
 	import { colorFromHash, adjustHslColor } from '$lib/utils/color';
+	import { translator } from '$lib/i18n';
+	import { hoveredCourse } from '$lib/stores/courseHover';
+import { formatConflictLabel } from '$lib/utils/diagnosticLabels';
+import { browser } from '$app/environment';
 
 	export let id: string;
 	export let title: string;
-	export let teacher: string;
+	export let teacher: string | null = null;
 	export let teacherId: string | undefined = undefined;
 	export let time: string;
-	export let campus: string;
-	export let crossCampusEnabled = false;
+	export let courseCode: string | undefined = undefined;
+	export let credit: number | null = null;
+	export let showTime = true;
 	export let capacity = 0;
 	export let vacancy = 0;
 	export let collapsed = false;
 	export let colorSeed: string;
-	export let specialInfo: string | undefined = undefined;
-export let specialTags: string[] = [];
-export let status: 'limited' | 'full' | 'hot' | undefined = undefined;
-export let hoverable = true;
-export let onHover: (() => void) | undefined;
-export let onLeave: (() => void) | undefined;
-export let toneIndex = 0;
-export let selectable = false;
-export let selectState: 'include' | 'exclude' | null = null;
-export let onToggleSelect: (() => void) | undefined = undefined;
+	export let specialTags: string[] = [];
+	export let status: 'limited' | 'full' | undefined = undefined;
+	export let hoverable = true;
+	export let onHover: (() => void) | undefined;
+	export let onLeave: (() => void) | undefined;
+	export let toneIndex = 0;
+	export let selectable = false;
+	export let selectState: 'include' | 'exclude' | null = null;
+	export let onToggleSelect: (() => void) | undefined = undefined;
+	export let showConflictBadge: boolean | undefined = undefined;
+	export let conflictDetails: Array<{ label: string; value?: string }> | null = null;
+
+	// Bidirectional hover highlighting - P2-8b
+	$: isHighlighted = $hoveredCourse?.id === id && $hoveredCourse?.source !== 'list';
 
 	const CAPACITY_THRESHOLDS = {
-		yellowOccupancy: 0.75,
-		orangeOccupancy: 0.8,
-		yellowRemaining: 10,
-		orangeRemaining: 5
+		warningOccupancy: 0.75,
+		criticalOccupancy: 0.8,
+		warningRemaining: 10,
+		criticalRemaining: 5
+	} as const;
+
+	const RING_COLORS: Record<CapacityState, string> = {
+		healthy: 'var(--app-color-ring-healthy)',
+		warning: 'var(--app-color-ring-warning)',
+		critical: 'var(--app-color-ring-critical)',
+		empty: 'var(--app-color-ring-empty)'
 	};
 
 	$: remaining = Math.max(vacancy, 0);
 	$: occupancy = capacity > 0 ? Math.min(1, (capacity - remaining) / capacity) : 1;
 	$: overflow = vacancy < 0;
 	$: ringState = computeCapacityState({ occupancy, remaining, overflow });
+	$: ringColorToken = RING_COLORS[ringState];
 	$: showRing = !collapsed;
 	$: baseColor = colorFromHash(colorSeed, { saturation: 60, lightness: 55 });
 	$: markerColor = adjustForContrast(baseColor, toneIndex);
@@ -51,14 +83,20 @@ export let onToggleSelect: (() => void) | undefined = undefined;
 		remaining: number;
 		overflow: boolean;
 	}): CapacityState {
-		if (remaining <= 0 || overflow) return 'red';
-		if (occupancy >= CAPACITY_THRESHOLDS.orangeOccupancy || remaining <= CAPACITY_THRESHOLDS.orangeRemaining) {
-			return 'orange';
+		if (remaining <= 0 || overflow) return 'empty';
+		if (
+			occupancy >= CAPACITY_THRESHOLDS.criticalOccupancy ||
+			remaining <= CAPACITY_THRESHOLDS.criticalRemaining
+		) {
+			return 'critical';
 		}
-		if (occupancy >= CAPACITY_THRESHOLDS.yellowOccupancy || remaining <= CAPACITY_THRESHOLDS.yellowRemaining) {
-			return 'yellow';
+		if (
+			occupancy >= CAPACITY_THRESHOLDS.warningOccupancy ||
+			remaining <= CAPACITY_THRESHOLDS.warningRemaining
+		) {
+			return 'warning';
 		}
-		return 'green';
+		return 'healthy';
 	}
 
 	function adjustForContrast(color: string, index: number) {
@@ -67,104 +105,146 @@ export let onToggleSelect: (() => void) | undefined = undefined;
 		return adjustHslColor(color, { lightnessDelta: delta });
 	}
 
-	function ringStyle(state: CapacityState) {
-		switch (state) {
-			case 'green':
-				return '#22c55e';
-			case 'yellow':
-				return '#facc15';
-			case 'orange':
-				return '#f97316';
-			case 'red':
-			default:
-				return '#ef4444';
+let t = (key: string) => key;
+$: t = $translator;
+$: includeLabel = t('courseCard.includeShort');
+$: excludeLabel = t('courseCard.excludeShort');
+$: noneLabel = t('courseCard.noneShort');
+	$: conflictLabel = t('courseCard.conflict');
+
+	let titleElement: HTMLDivElement | null = null;
+	let truncatedTitleTooltip: string | null = null;
+
+	$: {
+		if (browser && titleElement) {
+			const overflowX = titleElement.scrollWidth - titleElement.clientWidth > 1;
+			const overflowY = titleElement.scrollHeight - titleElement.clientHeight > 1;
+			truncatedTitleTooltip = overflowX || overflowY ? title : null;
+		} else if (!titleElement) {
+			truncatedTitleTooltip = null;
 		}
 	}
 </script>
 
 <article
-	class={`course-card ${collapsed ? 'collapsed' : ''} ${hoverable ? 'hoverable' : ''}`}
+	class={`course-card ${collapsed ? 'collapsed' : ''} ${hoverable ? 'hoverable' : ''} ${isHighlighted ? 'highlighted' : ''}`}
 	on:mouseenter={onHover}
 	on:mouseleave={onLeave}
+	on:focus={onHover}
+	on:blur={onLeave}
 	data-id={id}
+	data-status={status ?? undefined}
+	aria-label={`${title} - ${(teacher ?? teacherId) ?? ''} - ${time}`}
 >
 	<div class="color-marker" style={`background:${markerColor};`}></div>
-	{#if selectable}
-		<div class="select-col">
-			<button
-				type="button"
-				class={`intent-toggle ${selectState ?? 'neutral'}`}
-				on:click={onToggleSelect}
-				aria-label="标记必选/排除"
-			>
-				{selectState === 'include' ? '必' : selectState === 'exclude' ? '排' : '□'}
-			</button>
-		</div>
-	{/if}
-	{#if showRing}
-		<div class="capacity-col left">
-			<div class="ring" style={`--ring-color:${ringStyle(ringState)};`}>
-				<svg viewBox="0 0 36 36">
-					<path
-						class="track"
-						d="M18 2.0845
-						a 15.9155 15.9155 0 0 1 0 31.831
-						a 15.9155 15.9155 0 0 1 0 -31.831"
-					/>
-					<path
-						class="progress"
-						d="M18 2.0845
-						a 15.9155 15.9155 0 0 1 0 31.831
-						a 15.9155 15.9155 0 0 1 0 -31.831"
-						style={`stroke-dasharray:${Math.min(100, occupancy * 100)} 100;`}
+	<div class="meta-column">
+		{#if showRing}
+			<div class="capacity-col">
+				<div class="ring" style={`--ring-color:${ringColorToken};`}>
+					<svg viewBox="0 0 36 36">
+						<path
+							class="track"
+							d="M18 2.0845
+							a 15.9155 15.9155 0 0 1 0 31.831
+							a 15.9155 15.9155 0 0 1 0 -31.831"
+						/>
+						<path
+							class="progress"
+							d="M18 2.0845
+							a 15.9155 15.9155 0 0 1 0 31.831
+							a 15.9155 15.9155 0 0 1 0 -31.831"
+							style={`stroke-dasharray:${Math.min(100, occupancy * 100)} 100;`}
 					/>
 				</svg>
 				<div class="ring-text">{remaining}</div>
 			</div>
-		</div>
-	{/if}
+			</div>
+		{/if}
+		{#if selectable}
+			<button
+				type="button"
+				class={`intent-toggle ${selectState ?? 'neutral'}`}
+				on:click={onToggleSelect}
+				aria-label={t('courseCard.markSelection')}
+			>
+				{selectState === 'include' ? includeLabel : selectState === 'exclude' ? excludeLabel : noneLabel}
+			</button>
+		{/if}
+		<slot name="meta-controls" />
+	</div>
 	<div class="card-body">
 		<div class="column title-col">
 			<div class="title-row">
-				<div class="title">{title}</div>
+				<div class="title-main">
+					<div
+						class="title"
+						bind:this={titleElement}
+						title={truncatedTitleTooltip ?? undefined}
+						aria-label={truncatedTitleTooltip ?? undefined}
+					>
+						{title}
+					</div>
+					{#if showConflictBadge}
+						<button type="button" class="conflict-indicator" aria-label={conflictLabel}>
+							<span aria-hidden="true">!</span>
+							{#if conflictDetails && conflictDetails.length}
+								<div class="conflict-popover">
+									<ul>
+										{#each conflictDetails as detail, idx (idx)}
+											{@const localizedLabel = formatConflictLabel(detail.label, t)}
+											<li>{localizedLabel}{detail.value ? `：${detail.value}` : ''}</li>
+										{/each}
+									</ul>
+								</div>
+							{:else}
+								<div class="conflict-popover empty">{t('courseCard.conflictNone')}</div>
+							{/if}
+						</button>
+					{/if}
+				</div>
 				{#if specialTags.length}
 					<div class="tags">
-						{#each specialTags as tag}
+						{#each specialTags as tag, idx (idx)}
 							<span class="tag">{tag}</span>
 						{/each}
 					</div>
 				{/if}
-				{#if status}
+				<!-- UI-RECKON-1: Removed status badge per Rule6 - capacity ring is primary indicator -->
+				<!-- {#if status}
 					<span class={`status ${status}`}>
-						{status === 'hot' ? '热门' : status === 'limited' ? '余量紧张' : '已满'}
+						{status === 'limited' ? t('courseCard.statusLimited') : t('courseCard.statusFull')}
 					</span>
-				{/if}
+				{/if} -->
 			</div>
-			{#if !collapsed}
-				<div class="subtext">
-					<span>{teacher || '教师待定'}</span>
-					{#if teacherId}
-						<span class="divider">·</span>
-						<span>{teacherId}</span>
-					{/if}
-				</div>
-			{/if}
 		</div>
-		<div class="column time-col">
-			<div class="label">时间</div>
-			<div class="value">{time || '暂无时间'}</div>
-		</div>
+		{#if showTime}
+			<div class="column time-col">
+				<div class="label">{t('courseCard.timeLabel')}</div>
+				<div class="value">{time || t('courseCard.noTime')}</div>
+			</div>
+		{/if}
 		<div class="column info-col">
-			<div class="label">信息</div>
-			<div class="value">
-				{#if !collapsed}
-					{specialInfo ?? ''}
-					{#if crossCampusEnabled}
-						{#if specialInfo} · {/if}{campus}
-					{/if}
-				{:else}
-					—
-				{/if}
+			<div class="info-grid">
+				<div>
+					<div class="label">{t('courseCard.courseCodeLabel')}</div>
+					<div class="value info-block">
+						{#if courseCode}
+							<span class="info-primary">{courseCode}</span>
+						{:else}
+							<span class="info-muted">{t('courseCard.courseCodePending')}</span>
+						{/if}
+					</div>
+				</div>
+				<div>
+					<div class="label">{t('courseCard.creditLabel')}</div>
+					<div class="value info-block">
+						{#if typeof credit === 'number'}
+							<span>{t('courseCard.creditValue').replace('{value}', credit.toString())}</span>
+						{:else}
+							<span class="info-muted">{t('courseCard.creditPending')}</span>
+						{/if}
+					</div>
+				</div>
 			</div>
 		</div>
 		<div class="actions">
@@ -172,224 +252,415 @@ export let onToggleSelect: (() => void) | undefined = undefined;
 		</div>
 	</div>
 </article>
-
 <style>
-.course-card {
-	display: grid;
-	grid-template-columns: 6px auto auto 1fr;
-	background: #fff;
-	box-shadow: inset 0 0 0 1px rgba(15, 18, 35, 0.05);
-	border-radius: 0.9rem;
-	overflow: hidden;
-	transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
-}
+	.course-card {
+		position: relative;
+		display: flex;
+		align-items: flex-start;
+		gap: var(--app-space-4);
+		padding: var(--app-space-4) var(--app-space-5);
+		border-radius: var(--app-radius-lg);
+		border: 1px solid var(--app-color-border-subtle);
+		background: var(--app-color-bg);
+		min-width: 0;
+		color: var(--app-color-fg);
+		transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+	}
 
-.course-card.hoverable:hover {
-	background: rgba(15, 18, 35, 0.02);
-	box-shadow: 0 10px 30px rgba(15, 18, 35, 0.12);
-	transform: translateY(-1px);
-}
-
-	.course-card.collapsed .capacity-col .ring {
-		display: none;
+	.course-card.hoverable:hover,
+	.course-card.hoverable:focus-within {
+		border-color: color-mix(in srgb, var(--app-color-primary) 55%, var(--app-color-border-subtle));
+		box-shadow: 0 10px 28px color-mix(in srgb, var(--app-color-primary) 25%, transparent);
 	}
 
 	.color-marker {
-		width: 6px;
+		width: 4px;
+		flex: 0 0 4px;
+		border-radius: var(--app-radius-lg);
+		align-self: stretch;
+		background: color-mix(in srgb, var(--app-color-primary) 85%, transparent);
 	}
 
-.card-body {
-	display: grid;
-	grid-template-columns: 2fr 1.2fr 1fr auto;
-	gap: 0.75rem;
-	padding: 0.7rem 0.9rem;
-	align-items: center;
-}
-
-.select-col {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 0 0.45rem;
-}
-
-.intent-toggle {
-	width: 32px;
-	height: 32px;
-	border-radius: 0.45rem;
-	border: 1px solid rgba(15, 18, 35, 0.2);
-	background: #fff;
-	font-size: 0.85rem;
-	cursor: pointer;
-	transition: all 0.12s ease;
-}
-
-.intent-toggle.include {
-	border-color: rgba(34, 197, 94, 0.7);
-	background: rgba(34, 197, 94, 0.08);
-	color: #166534;
-}
-
-.intent-toggle.exclude {
-	border-color: rgba(239, 68, 68, 0.7);
-	background: rgba(239, 68, 68, 0.08);
-	color: #7f1d1d;
-}
-
-.intent-toggle.neutral {
-	color: #4b5563;
-}
-
-	.column {
-		min-width: 0;
-	}
-
-.title-row {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	flex-wrap: wrap;
-}
-
-.title {
-	font-weight: 700;
-	font-size: 0.95rem;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	max-width: 100%;
-}
-
-	.subtext {
+	.meta-column {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 0.35rem;
-		color: #5d6071;
-		font-size: 0.82rem;
-		margin-top: 0.2rem;
+		gap: var(--app-space-3);
+		flex: 0 0 auto;
+		min-width: 72px;
 	}
-
-	.divider {
-		opacity: 0.6;
-	}
-
-	.label {
-		font-size: 0.76rem;
-		color: #7c8090;
-	}
-
-	.value {
-		font-size: 0.88rem;
-	color: #1e2432;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.tags {
-	display: inline-flex;
-	gap: 0.25rem;
-	flex-wrap: wrap;
-}
-
-.tag {
-	background: rgba(17, 21, 31, 0.06);
-	color: #0f1520;
-	border-radius: 999px;
-	padding: 0.1rem 0.5rem;
-	font-size: 0.75rem;
-}
 
 	.capacity-col {
 		display: flex;
-		justify-content: flex-end;
-	}
-
-	.capacity-col.left {
-		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0 0.45rem;
+		width: 100%;
 	}
 
 	.ring {
 		position: relative;
-		width: 54px;
-		height: 54px;
+		width: 60px;
+		height: 60px;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
 	}
 
-	svg {
-		transform: rotate(-90deg);
+	.ring::after {
+		content: '';
+		position: absolute;
+		inset: -6px;
+		border-radius: inherit;
+		border: 1px solid color-mix(in srgb, var(--ring-color) 65%, transparent);
+		opacity: 0.6;
+		animation: ring-pulse 2.4s ease-in-out infinite;
+	}
+
+	.ring svg {
 		width: 100%;
 		height: 100%;
+		transform: rotate(-90deg);
 	}
 
-	.track {
+	.ring .track {
 		fill: none;
-		stroke: #e5e7eb;
-		stroke-width: 3;
+		stroke: color-mix(in srgb, var(--app-color-fg) 20%, transparent);
+		stroke-width: 4;
 	}
 
-	.progress {
+	.ring .progress {
 		fill: none;
-		stroke: var(--ring-color, #22c55e);
-		stroke-width: 3;
+		stroke: var(--ring-color);
+		stroke-width: 4;
 		stroke-linecap: round;
-		transition: stroke 0.2s ease, stroke-dasharray 0.2s ease;
 	}
 
 	.ring-text {
 		position: absolute;
-		inset: 0;
+		font-size: var(--app-text-sm);
+		font-weight: 600;
+		color: var(--app-color-fg);
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+		letter-spacing: 0.02em;
+		text-shadow: 0 0 6px color-mix(in srgb, var(--app-color-bg) 75%, transparent);
+	}
+
+	.intent-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 38px;
+		height: 38px;
+		border-radius: var(--app-radius-md);
+		border: 1px solid var(--app-color-border-subtle);
+		background: var(--app-color-bg-elevated);
+		font-size: var(--app-text-xs);
+		color: var(--app-color-fg);
+		cursor: pointer;
+		transition: background 120ms ease, border-color 120ms ease;
+	}
+
+	.intent-toggle.include {
+		background: color-mix(in srgb, var(--app-color-primary) 20%, transparent);
+		color: var(--app-color-primary);
+	}
+
+	.intent-toggle.exclude {
+		background: color-mix(in srgb, var(--app-color-danger) 18%, transparent);
+		color: var(--app-color-danger);
+	}
+
+	.card-body {
+		display: flex;
+		flex: 1 1 auto;
+		min-width: 0;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: var(--app-space-4);
+	}
+
+	.column {
+		display: flex;
+		flex-direction: column;
+		gap: var(--app-space-2);
+		flex: 1 1 clamp(12rem, 30%, 20rem);
+		min-width: min(12rem, 100%);
+		min-height: 0;
+	}
+
+	.title-col {
+		flex: 2 1 clamp(16rem, 45%, 28rem);
+		min-width: min(14rem, 100%);
+	}
+
+	.title-row {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--app-space-3);
+		flex-wrap: wrap;
+		min-width: 0;
+	}
+
+	.title-main {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--app-space-2);
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.title {
+		font-size: var(--app-text-lg);
+		font-weight: 600;
+		line-height: 1.3;
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		word-break: auto-phrase;
+		overflow-wrap: break-word;
+		white-space: normal;
+	}
+
+	.label {
+		font-size: var(--app-text-sm);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--app-color-fg-muted);
+	}
+
+	.value {
+		font-size: var(--app-text-md);
+		font-weight: 500;
+		word-break: break-word;
+		overflow-wrap: anywhere;
+		color: var(--app-color-fg);
+	}
+
+	.info-col .info-campus {
+		color: color-mix(in srgb, var(--app-color-fg) 70%, transparent);
+	}
+
+	.info-grid {
 		display: grid;
-		place-items: center;
-		font-weight: 700;
-		color: #1e2432;
-		font-size: 0.9rem;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: var(--app-space-3);
 	}
 
-	.status {
-		font-size: 0.75rem;
-		padding: 0.1rem 0.45rem;
-		border-radius: 999px;
-		background: rgba(0, 0, 0, 0.08);
-		color: #1f2937;
+	.info-block {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--app-space-2);
+		min-height: 0;
 	}
 
-	.status.hot {
-		background: rgba(239, 68, 68, 0.15);
-		color: #b91c1c;
+	.info-muted {
+		color: color-mix(in srgb, var(--app-color-fg) 45%, transparent);
 	}
 
-	.status.limited {
-		background: rgba(250, 204, 21, 0.18);
-		color: #a16207;
-	}
-
-	.status.full {
-		background: rgba(107, 114, 128, 0.15);
-		color: #374151;
+	.info-col .divider {
+		color: color-mix(in srgb, var(--app-color-fg) 20%, transparent);
 	}
 
 	.actions {
 		display: flex;
-		gap: 0.4rem;
+		flex: 0 0 auto;
+		min-width: 0;
 		justify-content: flex-end;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--app-space-2);
+		margin-left: auto;
 	}
 
-	.actions :global(button) {
-		border-radius: 0.6rem;
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--app-space-2);
 	}
 
-	@media (max-width: 1100px) {
+	.tag {
+		display: inline-flex;
+		align-items: center;
+		padding: var(--app-space-1) var(--app-space-2);
+		border-radius: var(--app-radius-sm);
+		background: color-mix(in srgb, var(--app-color-primary) 12%, transparent);
+		color: var(--app-color-primary);
+		font-size: var(--app-text-sm);
+		font-weight: 500;
+	}
+
+	.conflict-indicator {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 999px;
+		border: none;
+		background: color-mix(in srgb, var(--app-color-danger) 22%, transparent);
+		color: var(--app-color-danger);
+		font-weight: 700;
+		cursor: help;
+		padding: 0;
+	}
+
+	.conflict-indicator:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--app-color-danger) 55%, transparent);
+		outline-offset: 2px;
+	}
+
+	.conflict-popover {
+		position: absolute;
+		top: calc(100% + var(--app-space-2));
+		right: 0;
+		min-width: min(240px, 70vw);
+		padding: var(--app-space-3);
+		border-radius: var(--app-radius-md);
+		border: 1px solid var(--app-color-border-subtle);
+		background: var(--app-color-bg-elevated);
+		box-shadow: 0 10px 30px color-mix(in srgb, var(--app-color-bg) 60%, black);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 120ms ease;
+		z-index: 40;
+	}
+
+	.conflict-popover ul {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		display: flex;
+		flex-direction: column;
+		gap: var(--app-space-2);
+		font-size: var(--app-text-sm);
+	}
+
+	.conflict-indicator:hover .conflict-popover,
+	.conflict-indicator:focus-within .conflict-popover {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.actions :global(*) {
+		min-width: 0;
+	}
+
+	.course-card.highlighted {
+		outline: 2px solid var(--app-color-primary);
+		outline-offset: 2px;
+		z-index: 10;
+		box-shadow: 0 12px 32px color-mix(in srgb, var(--app-color-primary) 35%, transparent);
+		transform: translateY(-2px);
+	}
+
+	@container panel-shell (max-width: 960px) {
 		.card-body {
-			grid-template-columns: 2fr 1.2fr 1fr;
-			grid-template-rows: auto auto;
-			grid-auto-flow: row;
+			gap: var(--app-space-3);
 		}
+
 		.actions {
-			grid-column: 1 / -1;
 			justify-content: flex-start;
+		}
+	}
+
+	@container panel-shell (max-width: 720px) {
+		.course-card {
+			flex-wrap: wrap;
+			padding: var(--app-space-4);
+		}
+
+		.card-body {
+			width: 100%;
+		}
+
+		.actions {
+			width: 100%;
+		}
+	}
+
+	@container panel-shell (max-width: 560px) {
+		.column,
+		.actions {
+			flex-basis: 100%;
+			min-width: 100%;
+		}
+
+		.actions {
+			justify-content: flex-start;
+		}
+	}
+
+	@container panel-shell (max-width: 420px) {
+		.course-card {
+			gap: var(--app-space-3);
+			padding: var(--app-space-3);
+		}
+
+		.title {
+			font-size: var(--app-text-md);
+		}
+	}
+
+	@container panel-shell (max-width: 360px) {
+		.meta-column {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.capacity-col .ring {
+			width: auto;
+			height: auto;
+			padding: var(--app-space-1) var(--app-space-2);
+			border: 1px solid color-mix(in srgb, var(--ring-color) 35%, transparent);
+			border-radius: var(--app-radius-md);
+		}
+
+		.capacity-col .ring::after,
+		.capacity-col .ring svg {
+			display: none;
+		}
+
+		.ring-text {
+			position: static;
+			text-shadow: none;
+		}
+	}
+
+	@supports not (container-type: inline-size) {
+		@media (max-width: 640px) {
+			.column,
+			.actions {
+				flex-basis: 100%;
+			}
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.ring::after {
+			animation: none;
+			opacity: 0.2;
+		}
+	}
+
+	@keyframes ring-pulse {
+		0% {
+			opacity: 0.2;
+			transform: scale(0.95);
+		}
+
+		50% {
+			opacity: 0.5;
+			transform: scale(1.05);
+		}
+
+		100% {
+			opacity: 0.2;
+			transform: scale(0.95);
 		}
 	}
 </style>

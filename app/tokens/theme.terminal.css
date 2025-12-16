@@ -1,0 +1,23 @@
+:root[data-theme='terminal'] {
+  --app-color-bg: #050608;
+  --app-color-bg-elevated: #0a0d12;
+  --app-color-bg-muted: #0f141c;
+  --app-color-panel: #101623;
+
+  --app-color-fg: #f5ffee;
+  --app-color-fg-muted: #72ffb4;
+  --app-color-border-subtle: rgba(0, 255, 153, 0.24);
+  --app-color-border-strong: rgba(0, 255, 153, 0.45);
+
+  --app-color-primary: #00ff99;
+  --app-color-primary-hover: color-mix(in srgb, #00ff99 90%, #00180c);
+  --app-color-primary-active: color-mix(in srgb, #00ff99 75%, #00180c);
+  --app-color-on-primary: #02130a;
+
+  --app-color-success: #00ff99;
+  --app-color-warning: #f7c948;
+  --app-color-danger: #ff5c8a;
+
+  --app-shadow-soft: 0 0 20px rgba(0, 255, 153, 0.18);
+  --app-shadow-hard: 0 0 30px rgba(0, 255, 153, 0.32);
+}

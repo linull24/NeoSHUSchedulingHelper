@@ -5,3 +5,6 @@
 crawler/.secrets.json
 crawler/.secrets.yaml
 crawler/.secrets.yml
+
+# Agent temporary files
+agentTemps/

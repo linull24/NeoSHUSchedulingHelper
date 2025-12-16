@@ -3,6 +3,11 @@ import type { WeekParity, WeekSpan } from '$lib/data/InsaneCourseData';
 
 export type HoverSource = 'calendar' | 'candidate' | 'selected' | 'list';
 
+export interface HoverExtraEntry {
+	labelKey: string;
+	value: string | number;
+}
+
 export interface HoverCourseInfo {
 	id: string;
 	title: string;
@@ -11,7 +16,7 @@ export interface HoverCourseInfo {
 	weekSpan?: WeekSpan;
 	weekParity?: WeekParity;
 	source: HoverSource;
-	extra?: Record<string, string | number | undefined>;
+	extra?: HoverExtraEntry[];
 }
 
 export const hoveredCourse = writable<HoverCourseInfo | null>(null);

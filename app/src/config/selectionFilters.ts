@@ -1,3 +1,5 @@
+import { t } from '../lib/i18n';
+
 export type RegexTargetField = 'title' | 'teacher' | 'note';
 
 export interface RegexFilterConfig {
@@ -54,66 +56,66 @@ const DEFAULT_SELECTION_FILTERS: SelectionFiltersConfig = {
 	},
 	limitRules: {
 		capacityFull: {
-			label: '人数已满',
-			description: '限制是否显示已满课程',
+			label: t('config.limitRules.capacityFull'),
+			description: t('config.limitRules.capacityFullDesc'),
 			defaultMode: 'default',
 			availableModes: DEFAULT_LIMIT_MODES
 		},
 		selectionForbidden: {
-			label: '禁止选课',
-			description: '排除或仅保留禁止选课的课程',
-			defaultMode: 'default',
+			label: t('config.limitRules.selectionForbidden'),
+			description: t('config.limitRules.selectionForbiddenDesc'),
+			defaultMode: 'exclude',
 			availableModes: DEFAULT_LIMIT_MODES
 		},
 		dropForbidden: {
-			label: '禁止退课',
-			description: '处理不可退课的教学班',
+			label: t('config.limitRules.dropForbidden'),
+			description: t('config.limitRules.dropForbiddenDesc'),
 			defaultMode: 'default',
 			availableModes: DEFAULT_LIMIT_MODES
 		},
 		locationClosed: {
-			label: '地点不开',
-			description: '筛选地点暂未开放的课程',
-			defaultMode: 'default',
+			label: t('config.limitRules.locationClosed'),
+			description: t('config.limitRules.locationClosedDesc'),
+			defaultMode: 'exclude',
 			availableModes: DEFAULT_LIMIT_MODES
 		},
 		classClosed: {
-			label: '停开/关闭',
-			description: '默认隐藏标记停开的教学班',
+			label: t('config.limitRules.classClosed'),
+			description: t('config.limitRules.classClosedDesc'),
 			defaultMode: 'exclude',
 			availableModes: DEFAULT_LIMIT_MODES
 		}
 	},
 	capacityThresholds: [0, 5, 10, 20, 50],
 	displayOptions: [
-		{ id: 'all', label: '全部' },
-		{ id: 'unselected', label: '只显示未待选' },
-		{ id: 'selected', label: '只显示已待选' }
+		{ id: 'all', label: t('config.displayOptions.all') },
+		{ id: 'unselected', label: t('config.displayOptions.unselected') },
+		{ id: 'selected', label: t('config.displayOptions.selected') }
 	],
 	sortOptions: [
 	{
 		id: 'courseCode',
-		label: '课程号',
+		label: t('config.sortOptions.courseCode'),
 		fields: [{ field: 'courseCode', direction: 'asc' }]
 	},
 		{
 			id: 'credit',
-			label: '学分',
+			label: t('config.sortOptions.credit'),
 			fields: [{ field: 'credit', direction: 'desc' }]
 		},
 		{
 			id: 'remainingCapacity',
-			label: '容量剩余',
+			label: t('config.sortOptions.remainingCapacity'),
 			fields: [{ field: 'remainingCapacity', direction: 'desc' }]
 		},
 		{
 			id: 'time',
-			label: '上课时间',
+			label: t('config.sortOptions.time'),
 			fields: [{ field: 'time', direction: 'asc' }]
 		},
 		{
 			id: 'teacherName',
-			label: '教师',
+			label: t('config.sortOptions.teacherName'),
 			fields: [{ field: 'teacherName', direction: 'asc' }]
 		}
 	]

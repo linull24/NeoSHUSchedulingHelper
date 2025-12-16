@@ -1,4 +1,5 @@
 import { writable, type Writable } from 'svelte/store';
+import { t } from '../i18n';
 import {
 	getSelectionFiltersConfig,
 	type DisplayOptionId,
@@ -9,7 +10,7 @@ import {
 import { courseCatalog } from '../data/catalog/courseCatalog';
 import { getTaxonomyOptions } from '../data/taxonomy/taxonomyRegistry';
 
-export type ConflictFilterMode = 'any' | 'no-conflict' | 'no-conflic' | 'no-weak-impossible' | 'no-impossible';
+export type ConflictFilterMode = 'any' | 'no-conflict' | 'no-time-conflict' | 'no-hard-conflict' | 'no-impossible';
 
 export interface CourseFilterState {
 	keyword: string;
@@ -23,9 +24,8 @@ export interface CourseFilterState {
 	maxCredit: number | null;
 	capacityMin: number | null;
 	teachingLanguage: string[];
-	teachingMode: string[];
-	teachingModeOther: string;
 	specialFilter: 'all' | 'sports-only' | 'exclude-sports';
+	specialTags: string[];
 	weekSpanFilter: 'any' | 'upper' | 'lower' | 'full';
 	weekParityFilter: 'any' | 'odd' | 'even' | 'all';
 	displayOption: DisplayOptionId;
@@ -48,9 +48,8 @@ const DEFAULT_FILTER_STATE: CourseFilterState = {
 	maxCredit: null,
 	capacityMin: null,
 	teachingLanguage: [],
-	teachingMode: [],
-	teachingModeOther: '',
 	specialFilter: 'all',
+	specialTags: [],
 	weekSpanFilter: 'any',
 	weekParityFilter: 'any',
 	displayOption: selectionFiltersConfig.displayOptions[0]?.id ?? 'all',
@@ -68,7 +67,7 @@ export interface CourseFilterOptions {
 	sortOptions: SelectionFiltersConfig['sortOptions'];
 	regexTargets: string[];
 	teachingLanguages: string[];
-	teachingModes: string[];
+	specialTags: string[];
 }
 
 const taxonomyOptions = getTaxonomyOptions();
@@ -83,8 +82,13 @@ export const filterOptions: CourseFilterOptions = {
 	limitRules: selectionFiltersConfig.limitRules,
 	sortOptions: selectionFiltersConfig.sortOptions,
 	regexTargets: selectionFiltersConfig.regex.targets,
-	teachingLanguages: ['中文', '全英', '双语', '未指定'],
-	teachingModes: Array.from(new Set(courseCatalog.map((c) => c.teachingMode ?? '').filter(Boolean)))
+	teachingLanguages: [
+		t('config.teachingLanguages.chinese'),
+		t('config.teachingLanguages.english'),
+		t('config.teachingLanguages.bilingual'),
+		t('config.teachingLanguages.unspecified')
+	],
+	specialTags: collectOptionsByFrequency(courseCatalog.flatMap((entry) => entry.specialFilterTags ?? []))
 };
 
 export function createCourseFilterStore(initial?: Partial<CourseFilterState>): Writable<CourseFilterState> {
@@ -96,4 +100,18 @@ export function createCourseFilterStore(initial?: Partial<CourseFilterState>): W
 
 function collectOptions(values: string[]) {
 	return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+function collectOptionsByFrequency(values: string[], minCount = 2) {
+	const counts = new Map<string, number>();
+	values
+		.map((value) => value?.trim())
+		.filter(Boolean)
+		.forEach((value) => {
+			counts.set(value, (counts.get(value) ?? 0) + 1);
+		});
+	return Array.from(counts.entries())
+		.filter(([, count]) => count >= minCount)
+		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+		.map(([value]) => value);
 }

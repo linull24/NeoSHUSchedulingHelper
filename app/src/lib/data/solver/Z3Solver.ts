@@ -5,6 +5,26 @@ import type { Context } from 'z3-solver';
 
 type Z3Api = Awaited<ReturnType<typeof init>>;
 let z3Promise: Promise<Z3Api> | null = null;
+let initZ3Promise: Promise<void> | null = null;
+
+async function ensureBrowserInitZ3Loaded() {
+	if (typeof window === 'undefined') return;
+
+	const root = globalThis as unknown as { initZ3?: unknown };
+	if (root.initZ3) return;
+
+	if (!initZ3Promise) {
+		initZ3Promise = import('z3-solver/build/z3-built.js').then((module) => {
+			const initZ3 = (module as unknown as { default?: unknown }).default;
+			if (typeof initZ3 !== 'function') {
+				throw new Error('Z3 initZ3 模块加载失败（未找到默认导出）');
+			}
+			(root as { initZ3?: unknown }).initZ3 = initZ3;
+		});
+	}
+
+	await initZ3Promise;
+}
 
 export class Z3Solver extends ConstraintSolver {
 	private api: Z3Api | null = null;
@@ -13,6 +33,7 @@ export class Z3Solver extends ConstraintSolver {
 	async init() {
 		if (this.ctx) return;
 		if (!z3Promise) {
+			await ensureBrowserInitZ3Loaded();
 			z3Promise = init();
 		}
 		this.api = await z3Promise;

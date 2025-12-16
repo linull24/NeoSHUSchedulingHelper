@@ -9,13 +9,15 @@ declare global {
 		// interface Platform {}
 	}
 
-	interface ImportMetaEnv {
+interface ImportMetaEnv {
 		readonly PUBLIC_GITHUB_CLIENT_ID?: string;
 	}
 
 	interface ImportMeta {
 		readonly env: ImportMetaEnv;
 	}
+
+	declare module '*.scss';
 }
 
 export {};

@@ -1,34 +1,45 @@
 <!-- OPENSPEC:START -->
-# Plan Helper Guide (Speckit-lite)
+# Layered Agent Contract (UI Reboot Edition)
 
-Generated from `.specify/templates/openspec-agent-template.md` via `.specify/scripts/bash/generate-openspec-agent.sh`. Re-run the generator after `openspec update` to restore this file.
+Generated from the UI reboot mandate. Keep this file in sync with repo-root `AGENTS.md`.
 
-Use this guide to keep planning consistent while staying in OpenSpec-native changes. Borrow the Speckit plan template, but avoid git/branch dependencies unless explicitly requested.
+## When to use
+- Any request touching plan/spec/proposal/change.
+- UI work (tokens, Dockview panels, UnoCSS layouts, runtime theme switching).
+- Need reminders about memory MCP, change-id binding, or i18n checks.
 
-## When to read this
-- Requests mention plan/spec/proposal/change or sound ambiguous
-- Need a plan for an existing OpenSpec change
-- Want a quick implementation plan without switching workflows
+## Layered architecture (must memorize)
+1. **Runtime Design Tokens**: Fluent + mdui runtime engines compute their own `--accent-*` / `--md-sys-*`.
+2. **Virtual Theme Layer**: our only semantic token source (`--app-color-*`, `--app-radius-*`, `--app-text-*`); defined in `tokens/_base.css` + `tokens/theme.<brand>.css`.
+3. **UnoCSS Utility Layer**: layout/spacing/typography classes only; no brand colors.
+4. **Dockview Shell**: manages IDE-style layout, sticky headers, scroll containment; no token logic.
+5. **App Primitives**: `<AppButton>`, `<ListSurface>`, `<FilterBar>`, etc. consume only `--app-*`.
+6. **Panels/Business Views**: All/Selected/Candidate/Solver/Settings/Calendar panels built from primitives; no direct Fluent/MD3 references.
 
 ## Core rules
-- Stay in the current change (`openspec/changes/<id>` or similar); no forced migration to `specs/###-*` unless asked.
-- Use `.specify/templates/plan-template.md` as the plan skeleton; place it next to the change (e.g., `openspec/changes/<id>/plan.md`).
-- Prefer the git-free helper script; Speckit scripts are helpers, not blockers.
+- Bind every implementation to an active change (`openspec/changes/<id>`). For the reboot, default to `UI-REBOOT-2025`.
+- Before coding, pull memory summaries: `spec://core-contract#chunk-*`, relevant cluster chunks, and change chunks. Cite URIs.
+- Plans live beside the change (`openspec/changes/<id>/plan.md`) using `.specify/templates/plan-template.md` (copy manually or via script).
+- Update tasks tables as work progresses; note testing + i18n status.
+- UI/I18n touchpoints require running `python3 scripts/check_i18n.py all` and recording the result.
+- If touching selection/desired/solver/action-log/sync logic, maintain an explicit state machine + invariants and keep OpenSpec docs updated (see repo-root `AGENTS.md` “Contract SM”; TermState runtime contract lives in `docs/STATE.md`).
 
-## Plan usage
-- Option A (git-free): run `.specify/scripts/bash/setup-plan-lite.sh --target openspec/changes/<id>/plan.md` to copy the template.
-- Option B (Speckit): run `.specify/scripts/bash/setup-plan.sh` if you are already on a `###-*` branch and want full Speckit flow.
-- Option C (manual): copy `.specify/templates/plan-template.md` yourself.
-- Keep plan sections concise: Summary, Technical Context (deps/storage/testing/platform), constraints, structure, and any complexity justification.
-- For tasks, you may reference `.specify/templates/tasks-template.md`, but do not block on `/speckit.tasks`.
+## Workflow checklist
+1. Read `AGENTS.md` (repo root) + this file.
+2. Locate/confirm change folder (e.g., `openspec/changes/UI-REBOOT-2025/`).
+3. Fetch memory chunks (Core → Cluster → Change) before design/coding.
+4. Draft/update plan + tasks; keep scope tied to Virtual Theme architecture.
+5. Implement (tokens → primitives → Dock panels) using UnoCSS + `--app-*`.
+6. Validate (`npm run check`, `scripts/check_i18n.py all`, MCP UI review).
+7. Update memory MCP with new/changed chunks; log results in `apply.md`.
 
-## Minimal workflow
-1) Read the proposal/spec/tasks for the change.  
-2) Copy the plan template (Option A/B/C) into the change folder and fill it using current specs.  
-3) Implement according to the plan; update tasks as you go.  
-4) Re-run the generator after `openspec update` so this guidance stays intact.
+## Tools & references
+- Dock layout: `dockview-core`.
+- Styling: UnoCSS (presetUno/presetWind). Avoid ad-hoc SCSS; only shared CSS/animations when necessary.
+- i18n: `app/src/lib/i18n/**`; never hardcode strings.
+- Memory MCP: treat scoped queries (`spec://...`); cite `spec://core-mcp#chunk-01` when referencing the constraint.
 
-## Legacy OpenSpec
-- `openspec/` remains valid for historical changes; add plans and tasks alongside existing files when needed.
-- Only create Speckit feature directories if migration is explicitly requested.
+## Legacy notes
+- Historical specs remain under `openspec/changes/archive/**` for reference but must not drive new work.
+- Re-run `openspec update` tooling cautiously; ensure this file keeps the layered summary afterward.
 <!-- OPENSPEC:END -->

@@ -1,49 +1,74 @@
 <script lang="ts">
- import CourseFiltersToolbar from '$lib/components/CourseFiltersToolbar.svelte';
- import CourseCard from '$lib/components/CourseCard.svelte';
- import SelectionModePrompt from '$lib/components/SelectionModePrompt.svelte';
- import { crossCampusAllowed, selectionModeNeedsPrompt } from '$lib/stores/coursePreferences';
- import { filterOptions } from '$lib/stores/courseFilters';
- import { paginationMode, pageSize, pageNeighbors } from '$lib/stores/paginationSettings';
- import { groupCoursesByName } from '$lib/utils/courseHelpers';
-import {
-	collapseByName,
-	filteredCourses,
-	wishlistSet,
-	selectedSet,
-	activeId,
-	expandedGroups,
-	filters,
-	filterMeta,
-	handleHover,
-	handleLeave,
-	toggleGroup,
-	addCourse,
-	computeStateLabel,
-	addGroupToWishlist,
-	removeGroupFromWishlist,
-	reselectCourseFromList,
-	toggleIntentSelection,
-	setIntentSelection
+	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
+	import ListSurface from '$lib/components/ListSurface.svelte';
+	import CourseFiltersToolbar from '$lib/components/CourseFiltersToolbar.svelte';
+	import CourseCard from '$lib/components/CourseCard.svelte';
+	import CardActionBar from '$lib/components/CardActionBar.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import SelectionModePrompt from '$lib/components/SelectionModePrompt.svelte';
+		import AppPagination from '$lib/primitives/AppPagination.svelte';
+		import { selectionModeNeedsPrompt } from '$lib/stores/coursePreferences';
+		import { filterOptions } from '$lib/stores/courseFilters';
+		import { paginationMode, pageSize, pageNeighbors } from '$lib/stores/paginationSettings';
+		import { translator } from '$lib/i18n';
+		import { getAvailabilityHint } from '$lib/utils/availabilityHints';
+		import {
+			activeId,
+			addCourse,
+			addGroupToWishlist,
+			canAddToWishlist,
+			collapseByName,
+			computeStateLabel,
+			getAvailability,
+			expandedGroups,
+			filteredCourses,
+			filterMeta,
+			filters,
+			groupedEntries,
+		handleHover,
+		handleLeave,
+		reselectCourseFromList,
+		removeGroupFromWishlist,
+		selectedSet,
+		toggleGroup,
+		wishlistSet
 	} from './AllCoursesPanel.state';
-import { intentSelection } from '$lib/stores/intentSelection';
+	import type { WishlistActionState } from './AllCoursesPanel.state';
 
 let showModePrompt = false;
-$: showModePrompt = $selectionModeNeedsPrompt;
+let promptDismissed = false;
+
+$: if (!$selectionModeNeedsPrompt) {
+	promptDismissed = false;
+}
+$: showModePrompt = $selectionModeNeedsPrompt && !promptDismissed;
+
+let t = (key: string) => key;
+$: t = $translator;
+
+const formatVariantCount = (count: number) =>
+	t('panels.allCourses.variantCountLabel').replace('{count}', String(count));
+
+	const resolveStateLabel = (state: WishlistActionState) =>
+		t(`panels.allCourses.stateLabels.${state}`);
 
 let currentPage = 1;
 let loadedCount = 0;
-let listEl: HTMLDivElement | null = null;
 let lastMode: 'paged' | 'continuous' | null = null;
 let contentSignature = '';
+let showPaginationFooter = false;
+
+const actionBarClass = 'flex flex-wrap items-center gap-2 justify-end';
 
 $: pageSizeValue = Math.max(1, $pageSize || 1);
-$: totalItems = $filteredCourses.length;
-$: totalPages = Math.max(1, Math.ceil(totalItems / pageSizeValue));
+$: courseCount = $filteredCourses.length;
+$: groupCount = $groupedEntries.length;
+$: totalItems = $collapseByName ? groupCount : courseCount;
+$: totalPages = Math.max(1, Math.ceil(Math.max(1, totalItems) / pageSizeValue));
+$: showPaginationFooter = $paginationMode === 'paged' && totalPages > 1;
 
 $: {
-	// reset on content change
-	const sig = `${totalItems}`;
+	const sig = `${$collapseByName ? 'group' : 'course'}:${totalItems}`;
 	if (sig !== contentSignature) {
 		contentSignature = sig;
 		currentPage = 1;
@@ -60,13 +85,8 @@ $: if ($paginationMode !== lastMode) {
 	lastMode = $paginationMode;
 }
 
- $: visibleCourses = $paginationMode === 'paged'
-	? $filteredCourses.slice((currentPage - 1) * pageSizeValue, currentPage * pageSizeValue)
-	: $filteredCourses.slice(0, Math.min(totalItems, loadedCount));
-
- $: grouped = $collapseByName
-	? Array.from(groupCoursesByName(visibleCourses).entries()).sort((a, b) => a[0].localeCompare(b[0]))
-	: [];
+$: visibleCourses = $collapseByName ? [] : sliceCollection($filteredCourses);
+$: visibleGroups = $collapseByName ? sliceCollection($groupedEntries) : [];
 
  function handlePageChange(page: number) {
 	currentPage = Math.max(1, Math.min(totalPages, page));
@@ -81,202 +101,259 @@ $: if ($paginationMode !== lastMode) {
 	}
  }
 
- $: neighborRange = (() => {
-	const count = Math.max(1, $pageNeighbors);
-	const start = Math.max(1, currentPage - count);
-	const end = Math.min(totalPages, currentPage + count);
-	return { start, end };
- })();
+ function handleModePromptClose() {
+	promptDismissed = true;
+ }
+
+function sliceCollection<T>(collection: T[]): T[] {
+	if ($paginationMode === 'paged') {
+		const start = (currentPage - 1) * pageSizeValue;
+		const end = start + pageSizeValue;
+		return collection.slice(start, end);
+	}
+	const limit = Math.min(collection.length, loadedCount);
+	return collection.slice(0, limit);
+}
+
 </script>
 
-<section class="panel">
-	<header>
-		<div>
-			<h3>全部课程</h3>
-			<p>展示所有候选课程，可快速加入待选。</p>
-		</div>
-	</header>
-	<CourseFiltersToolbar {filters} options={filterOptions} />
+<DockPanelShell class="flex-1 min-h-0">
+<ListSurface
+	title={t('panels.allCourses.title')}
+	subtitle={t('panels.allCourses.description')}
+	count={courseCount}
+	density="comfortable"
+	enableStickyToggle={true}
+	bodyScrollable={true}
+	on:scroll={handleScroll}
+>
+	<svelte:fragment slot="filters">
+		<CourseFiltersToolbar {filters} options={filterOptions} mode="all" />
+	</svelte:fragment>
 
-	<div class="course-list" bind:this={listEl} on:scroll={handleScroll}>
-		{#if $collapseByName}
-			{#if grouped.length === 0}
-				<p class="empty">暂无课程</p>
-			{:else}
-				{#each grouped as [groupKey, courses], groupIndex (groupKey)}
-					{@const primary = courses[0]}
-					<div class="course-group" class:expanded={$expandedGroups.has(groupKey)}>
-						<button type="button" class="group-header" on:click={() => toggleGroup(groupKey)}>
-							<div class="group-info">
-								<strong>{groupKey}</strong>
-									<small>{primary?.slot ?? '暂无时间'} · {courses.length} 个班次</small>
-								</div>
-								<span aria-hidden="true">{$expandedGroups.has(groupKey) ? '▲' : '▼'}</span>
-							</button>
-							<div class="group-toolbar">
-								<button
-									type="button"
-									on:click={() => ($wishlistSet.has(courses[0].id) ? removeGroupFromWishlist(courses, $wishlistSet) : addGroupToWishlist(courses, $wishlistSet))}
+	<div class="flex flex-col min-h-[240px] rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)]">
+			{#if $collapseByName}
+				{#if courseCount === 0}
+					<p class="px-6 py-10 text-center text-[var(--app-text-md)] text-[var(--app-color-fg-muted)]">
+						{t('panels.allCourses.empty')}
+					</p>
+				{:else}
+					<div class="flex flex-col divide-y divide-[color:var(--app-color-border-subtle)]">
+						{#each visibleGroups as [groupKey, courses], groupIndex (groupKey)}
+							{@const primary = courses[0]}
+							{@const expanded = $expandedGroups.has(groupKey)}
+							{@const meta = $filterMeta.get(primary.id)}
+							{@const conflictItems =
+								meta?.diagnostics?.length
+									? meta.diagnostics.map((d) => ({ label: d.label ?? 'conflict' }))
+									: meta?.conflict && meta.conflict !== 'none'
+										? [{ label: meta.conflict }]
+										: null}
+							{@const canAddAny =
+								courses.some(
+									(course) =>
+										!$wishlistSet.has(course.id) && !$selectedSet.has(course.id) && canAddToWishlist(course.id)
+								)}
+							{@const groupDisabled = !$wishlistSet.has(primary.id) && !canAddAny}
+							<div class="flex flex-col gap-3 px-3 py-3">
+								<CourseCard
+									id={primary.id}
+									title={groupKey}
+									time={primary.slot ?? t('courseCard.noTime')}
+									courseCode={primary.courseCode}
+									credit={primary.credit ?? null}
+									colorSeed={primary.id}
+									showTime={false}
+									hoverable={courses.length === 1}
+									onHover={courses.length === 1 ? () => handleHover(primary) : undefined}
+									onLeave={courses.length === 1 ? handleLeave : undefined}
+									toneIndex={groupIndex}
+									showConflictBadge={Boolean(conflictItems)}
+									conflictDetails={conflictItems}
 								>
-									{$wishlistSet.has(courses[0].id) ? '取消待选' : '加入待选'}
-								</button>
-							</div>
-							{#if $expandedGroups.has(groupKey)}
-								<div class="group-variants">
-									{#each courses as course, variantIndex (course.id)}
-										{@const inWishlist = $wishlistSet.has(course.id)}
-										{@const inSelected = $selectedSet.has(course.id)}
-										<CourseCard
-						id={course.id}
-						title={course.title}
-						teacher={course.teacher}
-						teacherId={course.teacherId}
-						time={course.slot ?? '暂无时间'}
-						campus={course.campus}
-						status={course.status}
-						crossCampusEnabled={$crossCampusAllowed}
-						capacity={course.capacity}
-						vacancy={course.vacancy}
-						colorSeed={course.id}
-						specialTags={course.specialTags}
-						onHover={() => handleHover(course)}
-						onLeave={handleLeave}
-						toneIndex={groupIndex + variantIndex}
-						selectable={true}
-						selectState={$intentSelection.get(course.id) ?? null}
-						onToggleSelect={() => toggleIntentSelection(course.id)}
-					>
-											<div slot="actions" class="actions-slot">
-												<button
-													type="button"
-													class="variant-action"
-													on:click={() =>
-														inSelected
-															? reselectCourseFromList(course.id)
-															: inWishlist
-																? removeGroupFromWishlist([course], $wishlistSet)
-																: addCourse(course.id, inWishlist, inSelected)}
-													disabled={inWishlist && !inSelected}
-												>
-													{#if inSelected}
-														重选
-													{:else if inWishlist}
-														取消待选
-													{:else}
-														{computeStateLabel(inWishlist, inSelected)}
-													{/if}
-												</button>
-												<div class="intent-actions">
-													<button type="button" on:click={() => setIntentSelection(course.id, 'include')}>必</button>
-													<button type="button" on:click={() => setIntentSelection(course.id, 'exclude')}>不选</button>
-												</div>
-											</div>
-										</CourseCard>
-					{/each}
+										<CardActionBar slot="actions" class={actionBarClass}>
+											<span class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+												{formatVariantCount(courses.length)}
+											</span>
+											<AppButton variant="secondary" size="sm" on:click={() => toggleGroup(groupKey)}>
+											{expanded ? t('panels.candidates.toggleMore.collapse') : t('panels.candidates.toggleMore.expand')}
+										</AppButton>
+										<AppButton
+											variant="secondary"
+											size="sm"
+												on:click={() =>
+													($wishlistSet.has(primary.id)
+														? removeGroupFromWishlist(courses, $wishlistSet)
+														: addGroupToWishlist(courses, $wishlistSet))}
+												disabled={groupDisabled}
+											>
+												{$wishlistSet.has(primary.id)
+													? t('panels.allCourses.removeGroup')
+													: t('panels.allCourses.addGroup')}
+											</AppButton>
+											{#if groupDisabled}
+												<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+													{t('panels.common.availability.groupNoSelectable')}
+												</span>
+											{/if}
+										</CardActionBar>
+									</CourseCard>
+									{#if expanded}
+										<div class="flex flex-col gap-3 border-t border-[color:var(--app-color-border-subtle)] pt-3">
+											{#each courses as course, variantIndex (course.id)}
+												{@const inWishlist = $wishlistSet.has(course.id)}
+												{@const inSelected = $selectedSet.has(course.id)}
+												{@const actionState = computeStateLabel(inWishlist, inSelected)}
+												{@const canAdd = actionState === 'add' ? canAddToWishlist(course.id) : true}
+												{@const availability = actionState === 'add' ? getAvailability(course.id) : null}
+												{@const availabilityHint =
+													availability && availability.availability !== 'OK_NO_RESCHEDULE'
+														? getAvailabilityHint(availability, t)
+														: null}
+												{@const meta = $filterMeta.get(course.id)}
+												{@const conflictItems =
+													meta?.diagnostics?.length
+														? meta.diagnostics.map((d) => ({ label: d.label ?? 'conflict' }))
+														: meta?.conflict && meta.conflict !== 'none'
+															? [{ label: meta.conflict }]
+															: null}
+											<CourseCard
+												id={course.id}
+												title={course.title}
+												time={course.slot ?? t('courseCard.noTime')}
+												courseCode={course.courseCode}
+												credit={course.credit ?? null}
+												capacity={course.capacity}
+												vacancy={course.vacancy}
+												colorSeed={course.id}
+												specialTags={course.specialTags}
+												onHover={() => handleHover(course)}
+												onLeave={handleLeave}
+												toneIndex={groupIndex + variantIndex}
+												showConflictBadge={Boolean(conflictItems)}
+												conflictDetails={conflictItems}
+											>
+	                                                <CardActionBar slot="actions" class={actionBarClass}>
+	                                                    <AppButton
+	                                                        variant="secondary"
+	                                                        size="sm"
+	                                                        class="rounded-[var(--app-radius-pill)]"
+                                                        on:click={() =>
+                                                            inSelected
+                                                                ? reselectCourseFromList(course.id)
+                                                                : inWishlist
+                                                                    ? removeGroupFromWishlist([course], $wishlistSet)
+                                                                    : addCourse(course.id, inWishlist, inSelected)}
+	                                                        disabled={!canAdd}
+	                                                    >
+	                                                        {#if inSelected}
+	                                                            {t('panels.selected.reselect')}
+	                                                        {:else if inWishlist}
+	                                                            {t('panels.allCourses.removeGroup')}
+	                                                        {:else}
+	                                                            {resolveStateLabel(actionState)}
+	                                                        {/if}
+	                                                    </AppButton>
+														{#if availabilityHint}
+															<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+																{availabilityHint}
+															</span>
+														{/if}
+	                                                </CardActionBar>
+	                                            </CourseCard>
+											{/each}
+										</div>
+									{/if}
+								</div>
+						{/each}
+					</div>
+				{/if}
+			{:else}
+				{#if courseCount === 0}
+					<p class="px-6 py-10 text-center text-[var(--app-text-md)] text-[var(--app-color-fg-muted)]">
+						{t('panels.allCourses.empty')}
+					</p>
+				{:else}
+					<div class="flex flex-col divide-y divide-[color:var(--app-color-border-subtle)]">
+						{#each visibleCourses as course, index (course.id)}
+								{@const inWishlist = $wishlistSet.has(course.id)}
+								{@const inSelected = $selectedSet.has(course.id)}
+								{@const actionState = computeStateLabel(inWishlist, inSelected)}
+								{@const canAdd = actionState === 'add' ? canAddToWishlist(course.id) : true}
+								{@const availability = actionState === 'add' ? getAvailability(course.id) : null}
+								{@const availabilityHint =
+									availability && availability.availability !== 'OK_NO_RESCHEDULE'
+										? getAvailabilityHint(availability, t)
+										: null}
+								{@const meta = $filterMeta.get(course.id)}
+								{@const conflictItems =
+									meta?.diagnostics?.length
+										? meta.diagnostics.map((d) => ({ label: d.label ?? 'conflict' }))
+										: meta?.conflict && meta.conflict !== 'none'
+											? [{ label: meta.conflict }]
+											: null}
+							<CourseCard
+								id={course.id}
+								title={course.title}
+								time={course.slot ?? t('courseCard.noTime')}
+								courseCode={course.courseCode}
+								credit={course.credit ?? null}
+								status={course.status}
+								capacity={course.capacity}
+								vacancy={course.vacancy}
+								colorSeed={course.id}
+								specialTags={course.specialTags}
+								onHover={() => handleHover(course)}
+								onLeave={handleLeave}
+								toneIndex={index}
+								showConflictBadge={Boolean(conflictItems)}
+								conflictDetails={conflictItems}
+							>
+									<CardActionBar slot="actions" class="justify-start">
+										<AppButton
+											variant={inSelected || inWishlist ? 'secondary' : 'primary'}
+											size="sm"
+											class="rounded-[var(--app-radius-pill)]"
+										on:click={() =>
+											inSelected
+												? reselectCourseFromList(course.id)
+												: inWishlist
+													? removeGroupFromWishlist([course], $wishlistSet)
+													: addCourse(course.id, inWishlist, inSelected)}
+											disabled={!canAdd}
+										>
+											{#if inSelected}
+												{t('panels.selected.reselect')}
+											{:else if inWishlist}
+												{t('panels.allCourses.removeGroup')}
+											{:else}
+												{resolveStateLabel(actionState)}
+											{/if}
+										</AppButton>
+										{#if availabilityHint}
+											<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+												{availabilityHint}
+											</span>
+										{/if}
+									</CardActionBar>
+								</CourseCard>
+							{/each}
+						</div>
+					{/if}
+			{/if}
+
+			{#if showPaginationFooter}
+				<div class="mt-auto border-t border-[color:var(--app-color-border-subtle)] px-3 py-1">
+					<AppPagination
+						currentPage={currentPage}
+						totalPages={totalPages}
+						pageNeighbors={$pageNeighbors}
+						onPageChange={handlePageChange}
+					/>
 				</div>
 			{/if}
-					</div>
-				{/each}
-			{/if}
-		{:else}
-			{#if visibleCourses.length === 0}
-				<p class="empty">暂无课程</p>
-			{:else}
-				{#each visibleCourses as course, index (course.id)}
-					{@const inWishlist = $wishlistSet.has(course.id)}
-					{@const inSelected = $selectedSet.has(course.id)}
-				<CourseCard
-					id={course.id}
-					title={course.title}
-					teacher={course.teacher}
-					teacherId={course.teacherId}
-					time={course.slot ?? '暂无时间'}
-					campus={course.campus}
-					status={course.status}
-					crossCampusEnabled={$crossCampusAllowed}
-					capacity={course.capacity}
-					vacancy={course.vacancy}
-					colorSeed={course.id}
-					specialTags={course.specialTags}
-					onHover={() => handleHover(course)}
-					onLeave={handleLeave}
-					toneIndex={index}
-					selectable={true}
-					selectState={$intentSelection.get(course.id) ?? null}
-					onToggleSelect={() => toggleIntentSelection(course.id)}
-				>
-						<div slot="actions" class="actions-slot">
-							<button
-								type="button"
-								class="action-btn"
-								on:click={() =>
-									inSelected
-										? reselectCourseFromList(course.id)
-										: inWishlist
-											? removeGroupFromWishlist([course], $wishlistSet)
-											: addCourse(course.id, inWishlist, inSelected)}
-								disabled={inWishlist && !inSelected}
-							>
-								{#if inSelected}
-									重选
-								{:else if inWishlist}
-									取消待选
-								{:else}
-									{computeStateLabel(inWishlist, inSelected)}
-								{/if}
-							</button>
-							<div class="intent-actions">
-								<button type="button" on:click={() => setIntentSelection(course.id, 'include')}>必</button>
-								<button type="button" on:click={() => setIntentSelection(course.id, 'exclude')}>不选</button>
-							</div>
-						</div>
-					</CourseCard>
-				{/each}
-			{/if}
-		{/if}
 	</div>
+</ListSurface>
+</DockPanelShell>
 
-	{#if $paginationMode === 'paged' && totalPages > 1}
-		<div class="pager">
-			<button type="button" on:click={() => handlePageChange(currentPage - 1)} disabled={currentPage <= 1}>上一页</button>
-			{#each Array.from({ length: neighborRange.end - neighborRange.start + 1 }, (_, i) => neighborRange.start + i) as page}
-				<button type="button" class:active={page === currentPage} on:click={() => handlePageChange(page)}>
-					{page}
-				</button>
-			{/each}
-			<button type="button" on:click={() => handlePageChange(currentPage + 1)} disabled={currentPage >= totalPages}>下一页</button>
-			<label class="jump">
-				<span>跳转</span>
-				<input
-					type="number"
-					min="1"
-					max={totalPages}
-					value={currentPage}
-					on:change={(e) => handlePageChange(Number((e.currentTarget as HTMLInputElement).value))}
-				/>
-			</label>
-			<span class="total">共 {totalPages} 页</span>
-		</div>
-	{/if}
-</section>
-
-<SelectionModePrompt open={showModePrompt} onClose={() => (showModePrompt = false)} />
-
-<style lang="scss">
-	@use "./AllCoursesPanel.styles.scss" as *;
-
-	.intent-actions {
-		display: inline-flex;
-		gap: 0.25rem;
-		margin-left: 0.35rem;
-	}
-
-	.intent-actions button {
-		border: 1px solid rgba(15, 18, 35, 0.12);
-		border-radius: 6px;
-		background: #fff;
-		font-size: 0.8rem;
-		padding: 0.2rem 0.45rem;
-		cursor: pointer;
-	}
-</style>
+<SelectionModePrompt open={showModePrompt} onClose={handleModePromptClose} />

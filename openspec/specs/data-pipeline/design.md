@@ -64,7 +64,7 @@ Hot 层可将 `InsaneCourseData` 序列化为二进制 (例如 msgpack)，初次
    - Node/CLI：使用原生 DuckDB 或 SQLite（同一 schema）。
    - 浏览器：使用 IndexedDB + SQL.js（或自建轻量索引）完成查询。`getDuckDB()` 需捕捉错误并返回 fallback handle。
 
-### Solver Result 存储
+### Solver Result & Action Log 存储
 
 - DuckDB/SQL.js 中除了课程查询，还要长期存放运行态表：
   ```sql
@@ -83,7 +83,9 @@ Hot 层可将 `InsaneCourseData` 序列化为二进制 (例如 msgpack)，初次
   ```
 - `solver_result` 写入流程：solver 完成 → 按 assignment 生成“华容道”操作 plan → 将 metrics/assignments/plan encode(base64) 存在表里。UI 若需要展示候选方案，可直接从表中拉取最新记录，无需重新求解。
 - gist 同步 (`syncStateBundle`) 会在下一阶段新增 `solver-result.jsonl`，用于跨设备恢复 solver 历史；数据量可控制在最近 N 条（例如 5 条）。
-- Apply/Undo：用户点击“一键应用”会把 `plan` 提交给 `applyManualUpdatesWithLog`，将 `resultId` 写到 Action Log payload；撤销时根据 log 中的 `undo` 字段逆序执行，实现 solver result 的可回滚。
+- Apply/Undo：用户点击“一键应用”会把 `plan` 提交给 `applyManualUpdatesWithLog`，将 `solverResultId` 写到 Action Log payload；撤销时根据 log 中的 `undo` 字段逆序执行，实现 solver result 的可回滚。
+- Action Log 持久化：`action_log` 表必须包含 `dock_session`、`selection_snapshot`、`solver_result_id`、`default_target`、`override_mode`、`reverted_entry_id` 等列，并在写入时同步 `term` 字段，保证 gist / DuckDB 热加载后仍可按 session 回放。
+- selection snapshot 数据沿用 `selectionPersistence` schema，在入库/同步前统一 gzip + base64，避免 GitHub bundle 膨胀。
 
 ## 6. 流程串联
 
@@ -132,9 +134,10 @@ Hot 层可将 `InsaneCourseData` 序列化为二进制 (例如 msgpack)，初次
 | **全部课程** | 权威数据源供筛选/搜索 | `InsaneCourseData.courses[]`（只读列表） | 不重复写入 DB，引用 parser 结果即可；筛选器只记录过滤条件或课程 hash，不复制整条记录。 |
 | **我的待选** | 用户自建候选池 | `wishlistCourseIds: string[]` | 仅存课程 hash/sectionId 数组，需要详情时再去 `InsaneCourseData` 查；与 matrix 一并持久化，便于多端恢复。 |
 | **求解结果 plan** | SAT 求解后的“华容道”操作 | `ManualUpdate[]`（顺序列表） | 作为 solver result 的一部分存进 `solver_result.plan`，apply/undo 时直接复用。 |
-| **操作日志** | 记录手动和自动调整 | `ActionLogEntry[]`（append-only 列表） | 日志条目里携带 `undo: ManualUpdate[]` 以便撤销，payload 中记录关联课程/planId 等元信息。 |
+| **操作日志** | 记录手动和自动调整 | `ActionLogEntry[]`（append-only 列表） | 日志条目里携带 `undo: ManualUpdate[]`、dock session id、`selectionSnapshotBase64`（对覆盖操作），payload 中记录 `solverResultId`/plan/overrideMode 等元信息，支持在 UI 中恢复“求解→预览→覆盖/撤销”状态。 |
 | **愿望/锁/软约束** | 求解输入 | `DesiredCourse[]` / `DesiredLock[]` / `SoftConstraint[]` | 都是直接罗列的 JSON 列表，字段在 `openspec/specs/desired-system/design.md`、`src/lib/data/desired/types.ts` 定义。 |
 | **求解历史** | 回放/审计 solver | `solver_result` 表（列表） | 每次求解写一行，包含 metrics、assignment base64、plan base64。 |
+| **JWXT 云端快照/操作** | 云端一致性与审计 | `jwxt_remote_snapshot`（可选）+ Action Log 的 `jwxt:*` entries | 不存储账号/密码/cookie/token；仅存 `{kch_id,jxb_id}` 列表、获取时间、以及 push diff/执行结果/补偿计划（best-effort undo）。 |
 
 - 当用户做 CRUD 操作时：
   1. 更新 matrix（已选）并生成新的 `versionBase64`；
@@ -154,10 +157,13 @@ Hot 层可将 `InsaneCourseData` 序列化为二进制 (例如 msgpack)，初次
   OAuth 回调固定为 `/api/github/callback`，授权页由 `/api/github/login` 根据 `request.url.origin` 拼装，兼容 127.0.0.1 / 线上域名。
 - **同步流程**：
   1. 本地 DB 每次变化 -> 写入 `action_log` + `selected_matrix` 表。
-  2. 触发 `scheduleSync()`：将 termId/desired/selection/actionLog/solverResults 打包成 JSON，base64 编码后写入 Gist (`state-bundle.base64`)。
-  3. 拉取最新云端数据时，解码 base64，再比较版本号，不一致则提示用户合并/覆盖。
+  2. 触发 `scheduleSync()`：将 termId/desired/selection/actionLog/solverResults（以及可选的 JWXT 云端快照元信息）打包成 JSON，base64 编码后写入 Gist (`state-bundle.base64`)。Action Log JSON 需要包含 `dockSessionId`、`solverResultId`、`defaultTarget`、`overrideMode`、`selectionSnapshotBase64` 等字段（以及 `jwxt:*` 的 diff/结果/补偿信息），供远端重现覆盖与云端副作用链路。
+  3. 拉取最新云端数据时，解码 base64，先执行 `validateTermStateBundle()`（不变量 + 引用完整性 + 签名策略）。校验失败必须拒绝写入（no partial writes），并返回冲突信息或进入显式 merge 流程。
+  4. 校验通过后再比较版本号/签名，不一致则提示用户合并/覆盖。
 - **离线模式**：未登录 GitHub 时，所有数据保存在本地 DB；登录后再执行一次全量同步。
 - **实现提示**：`src/lib/data/github/gistSync.ts` 负责 Gist 创建/更新 + token 认证，`syncStateBundle()` 已将 state bundle 封装为 base64 文件；未来若要“从 Gist 还原”，直接读取 `state-bundle.base64` 即可。
+
+状态机合同入口（Selection/Solver/ActionLog/Sync/Cloud）见 `openspec/changes/UNDO-SM-1/design.md`。
 
 ## 12. Term 一等公民
 

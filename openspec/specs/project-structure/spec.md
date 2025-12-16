@@ -18,3 +18,10 @@ The documentation index MUST be updated whenever specs are added, removed, or re
 #### Scenario: Updating docs after migrations
 - **WHEN** documentation moves or new specs appear
 - **THEN** the index lists the new paths and summaries to keep future contributors oriented.
+
+### Requirement: Shared i18n home documents UI copy rules
+UI text MUST flow through the shared i18n infrastructure under `app/src/lib/i18n/` (locale store + translator + locale dictionaries). Any new module that renders text MUST add keys in the locale files and reference them through the translator instead of hard-coding strings.
+
+#### Scenario: Adding panel/header copy
+- **WHEN** a dock panel, template, or settings toggle needs new copy
+- **THEN** contributors update `app/src/lib/i18n/locales/*.ts` with the key, reference it via `t('namespace.key')`, and document the structure in module notes so future contributors reuse the same keys.

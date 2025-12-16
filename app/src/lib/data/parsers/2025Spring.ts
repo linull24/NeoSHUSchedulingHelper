@@ -16,6 +16,7 @@ import {
 	type ClassTimeSlot,
 	type WeekPattern
 } from '../InsaneCourseData';
+import { parseWeekDescriptorToken } from './weekTokens';
 
 const CAMPUS_MAP: Record<string, CampusTag> = {
 	宝山主区: '宝山',
@@ -31,7 +32,7 @@ const CAMPUS_MAP: Record<string, CampusTag> = {
 };
 
 const WEEKDAY_MAP: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6, 末: 6 };
-const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 export const parser2025Spring: CourseParser = {
 	id: '2025Spring',
 	termNames: ['2025-2026 春', '2025 Spring'],
@@ -39,12 +40,13 @@ export const parser2025Spring: CourseParser = {
 	parse(raw: RawCourseSnapshot, overrides: RawOverrideRecord[] = []) {
 		const stats = analyzeCourses(raw.courses);
 		const baseCalendar: CalendarConfig = {
-			weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+			weekdays: ['周一', '周二', '周三', '周四', '周五', '周六'],
 			periods: resolveTermPeriods(raw.termName),
 			timezone: 'Asia/Shanghai'
 		};
 		const calendar = extendCalendar(baseCalendar, stats);
-		const weeks = Math.max(stats.maxWeek, 18);
+		// 2025-16 is a 16-week term; this value affects upper/lower splitting for clip-path rendering.
+		const weeks = stats.maxWeek > 0 ? stats.maxWeek : 16;
 
 		const courses = new Map<string, CourseRecord>();
 		const courseHashMap = new Map<string, string>();
@@ -325,34 +327,32 @@ function buildWeekPattern(descriptor: WeekDescriptor, maxWeeks: number): WeekPat
 	return pattern;
 }
 
-function describeWeeks(token: string): WeekDescriptor {
-	const clean = token.replace('周', '').replace(/[()（）]/g, '');
-	if (/单/.test(clean)) return { type: 'odd', value: [] };
-	if (/双/.test(clean)) return { type: 'even', value: [] };
-	if (/^\d+-\d+$/.test(clean)) {
-		const [start, end] = clean.split('-').map((value) => Number(value));
-		return { type: 'range', value: [start, end] };
+	function describeWeeks(token: string): WeekDescriptor {
+		const clean = token.replaceAll('周', '').replace(/[()（）]/g, '');
+		return parseWeekDescriptorToken(clean);
 	}
-	if (clean.includes(',')) {
-		return { type: 'list', value: clean.split(',').map((value) => Number(value)) };
-	}
-	const single = Number(clean);
-	if (!Number.isNaN(single)) {
-		return { type: 'list', value: [single] };
-	}
-	return { type: 'custom', value: [] };
-}
 
-function expandWeeks(descriptor: WeekDescriptor, maxWeeks: number) {
-	switch (descriptor.type) {
-		case 'odd':
-			return Array.from({ length: maxWeeks }, (_, index) => index + 1).filter((week) => week % 2 === 1);
-		case 'even':
-			return Array.from({ length: maxWeeks }, (_, index) => index + 1).filter((week) => week % 2 === 0);
-		case 'range': {
-			const [start, end] = descriptor.value as [number, number];
-			return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-		}
+	function expandWeeks(descriptor: WeekDescriptor, maxWeeks: number) {
+		switch (descriptor.type) {
+			case 'odd':
+			case 'even': {
+				const allWeeks = Array.from({ length: maxWeeks }, (_, index) => index + 1);
+				const parity = descriptor.type === 'odd' ? 1 : 0;
+				const value = descriptor.value;
+				const bounded =
+					Array.isArray(value) && value.length > 0
+						? value.length === 2
+							? allWeeks.filter(
+									(week) => week >= Math.min(value[0], value[1]) && week <= Math.max(value[0], value[1])
+							  )
+							: allWeeks.filter((week) => value.includes(week))
+						: allWeeks;
+				return bounded.filter((week) => week % 2 === parity);
+			}
+			case 'range': {
+				const [start, end] = descriptor.value as [number, number];
+				return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+			}
 		case 'list':
 			return descriptor.value as number[];
 		default:

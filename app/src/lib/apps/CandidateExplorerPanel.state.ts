@@ -17,6 +17,8 @@ import type { Readable } from 'svelte/store';
 import { createCourseFilterStore } from '../stores/courseFilters';
 import { applyCourseFilters } from '../utils/courseFilterEngine';
 import type { CourseFilterResult } from '../utils/courseFilterEngine';
+import { termState } from '../stores/termStateStore';
+import { deriveAvailability, type AvailabilityResult } from '../data/termState/derive';
 
 export const expandedCourse = writable<string | null>(null);
 export const expandedGroups = writable<Set<string>>(new Set());
@@ -47,6 +49,20 @@ export const groupedEntries = derived([filteredCourses, collapseByName], ([$cour
 );
 
 export const activeId = derived(hoveredCourse, $hovered => $hovered?.id ?? null);
+
+export function getAvailability(courseId: string): AvailabilityResult {
+	const state = get(termState);
+	const meta = get(filterMeta).get(courseId);
+	if (!state) {
+		return {
+			availability: 'OK_NO_RESCHEDULE',
+			conflict: meta?.conflict ?? 'none',
+			blockerGroups: [],
+			allowed: true
+		};
+	}
+	return deriveAvailability(state, courseId, meta);
+}
 
 export function handleHover(course: CourseCatalogEntry) {
 	if (!allowHover(course.id)) return;
@@ -103,11 +119,7 @@ export function getVariantList(courseId: string) {
 
 export function removeGroup(courses: CourseCatalogEntry[]) {
 	const ids = courses.map(course => course.id);
-	wishlistCourseIds.update(set => {
-		const next = new Set(set);
-		ids.forEach(id => next.delete(id));
-		return next;
-	});
+	ids.forEach((id) => removeFromWishlist(id));
 }
 
 function allowHover(courseId: string) {

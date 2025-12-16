@@ -2,6 +2,7 @@ import { get, writable } from 'svelte/store';
 import { currentTheme, availableThemes, setTheme } from '../stores/uiTheme';
 import { collapseCoursesByName } from '../stores/courseDisplaySettings';
 import { crossCampusAllowed, setCrossCampusAllowed, selectionMode, setSelectionMode } from '../stores/coursePreferences';
+import type { SelectionMode } from '../stores/coursePreferences';
 import { paginationMode, pageSize, pageNeighbors, showWeekends } from '../stores/paginationSettings';
 
 const initialTheme = get(currentTheme);
@@ -29,7 +30,7 @@ export function toggleCrossCampus() {
 	});
 }
 
-export function setSelectionModeSetting(mode: 'overbook' | 'speed') {
+export function setSelectionModeSetting(mode: SelectionMode) {
 	setSelectionMode(mode);
 }
 

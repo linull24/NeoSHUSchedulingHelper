@@ -2,11 +2,19 @@ import { browser } from '$app/environment';
 import { writable, derived } from 'svelte/store';
 import { resolveTermId } from '../../config/term';
 
-type SelectionMode = 'overbook' | 'speed';
+export type SelectionMode = 'allowOverflowMode' | 'overflowSpeedRaceMode';
 
 const termId = resolveTermId();
 const CROSS_KEY = 'course-cross-campus-enabled';
 const MODE_KEY = `selection-mode:${termId}`;
+const DEFAULT_SELECTION_MODE: SelectionMode = 'allowOverflowMode';
+
+function normalizeSelectionMode(value: string | null): SelectionMode | null {
+	if (!value) return null;
+	if (value === 'allowOverflowMode' || value === 'overbook') return 'allowOverflowMode';
+	if (value === 'overflowSpeedRaceMode' || value === 'speed') return 'overflowSpeedRaceMode';
+	return null;
+}
 
 function loadCrossCampus(): boolean {
 	if (!browser) return false;
@@ -15,9 +23,9 @@ function loadCrossCampus(): boolean {
 }
 
 function loadSelectionMode(): { mode: SelectionMode; known: boolean } {
-	if (!browser) return { mode: 'overbook', known: false };
-	const stored = localStorage.getItem(MODE_KEY) as SelectionMode | null;
-	if (!stored) return { mode: 'overbook', known: false };
+	if (!browser) return { mode: DEFAULT_SELECTION_MODE, known: false };
+	const stored = normalizeSelectionMode(localStorage.getItem(MODE_KEY));
+	if (!stored) return { mode: DEFAULT_SELECTION_MODE, known: false };
 	return { mode: stored, known: true };
 }
 

@@ -1,385 +1,468 @@
 <script lang="ts">
-import type { Writable } from 'svelte/store';
-import type { CourseFilterState, CourseFilterOptions, ConflictFilterMode } from '$lib/stores/courseFilters';
-import type { LimitRuleKey, LimitMode } from '../../config/selectionFilters';
+	import type { Writable } from 'svelte/store';
+	import type { CourseFilterState, CourseFilterOptions, ConflictFilterMode } from '$lib/stores/courseFilters';
+import FilterBar from '$lib/components/FilterBar.svelte';
+import Chip from '$lib/components/Chip.svelte';
+	import ChipGroup from '$lib/components/ChipGroup.svelte';
+	import AppField from '$lib/primitives/AppField.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
+	import { translator } from '$lib/i18n';
+	import type { LimitMode, LimitRuleKey } from '../../config/selectionFilters';
 
-	export let filters: Writable<CourseFilterState>;
-	export let options: CourseFilterOptions;
-	export let mode: 'all' | 'wishlist' | 'selected' = 'all';
+export let filters: Writable<CourseFilterState>;
+export let options: CourseFilterOptions;
+export let mode: 'all' | 'wishlist' | 'selected' = 'all';
 
 	let showAdvanced = false;
-	let showLangMode = false;
-	let showWeekFold = false;
+let showLangMode = false;
+let showWeekFold = false;
+
+	let t = (key: string) => key;
+	$: t = $translator;
+
+	const parityOptionValues = ['any', 'odd', 'even', 'all'] as const;
+	const spanOptionValues = ['any', 'upper', 'lower', 'full'] as const;
+
+	const conflictOptionValues: ConflictFilterMode[] = [
+		'any',
+		'no-conflict',
+		'no-time-conflict',
+		'no-hard-conflict',
+		'no-impossible'
+	];
+	const conflictLabelKey: Record<ConflictFilterMode, string> = {
+		any: 'filters.conflictOptions.any',
+		'no-conflict': 'filters.conflictOptions.noAnyConflict',
+		'no-time-conflict': 'filters.conflictOptions.noTimeConflict',
+		'no-hard-conflict': 'filters.conflictOptions.noHardConstraintConflict',
+		'no-impossible': 'filters.conflictOptions.noUnavoidableConflict'
+	};
+
+	const controlClass =
+		'h-9 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 text-[var(--app-color-fg)] outline-none transition-shadow focus:ring-2 focus:ring-[color:var(--app-color-primary)] focus:ring-offset-0';
+
+	$: viewModeLabel =
+		mode === 'wishlist'
+			? t('filters.viewModes.wishlist')
+			: mode === 'selected'
+				? t('filters.viewModes.selected')
+				: t('filters.viewModes.all');
+
+	$: displayOptionChoices =
+		mode === 'selected'
+			? [
+					{ value: 'all', label: t('filters.displayOptions.all') },
+					{ value: 'unselected', label: t('filters.displayOptions.selectedPending') },
+					{ value: 'selected', label: t('filters.displayOptions.selectedChosen') }
+			  ]
+			: [
+					{ value: 'all', label: t('filters.displayOptions.all') },
+					{ value: 'unselected', label: t('filters.displayOptions.wishlistPending') },
+					{ value: 'selected', label: t('filters.displayOptions.wishlistSelected') }
+			  ];
+
+	$: conflictOptions = conflictOptionValues.map((value) => ({
+		value,
+		label: t(conflictLabelKey[value])
+	}));
+
+	$: languageSummary =
+		$filters.teachingLanguage.length
+			? $filters.teachingLanguage.join(t('filters.listSeparator'))
+			: t('filters.noLimit');
+
+	const abnormalRuleKeys: LimitRuleKey[] = ['selectionForbidden', 'locationClosed', 'classClosed'];
+	type AbnormalFilterMode = 'default-hidden' | 'show-all' | 'only-abnormal' | 'mixed';
+
+	$: abnormalFilterMode = (() => {
+		const modes = abnormalRuleKeys.map((key) => $filters.limitModes[key]);
+		if (modes.every((mode) => mode === undefined)) return 'default-hidden';
+		if (modes.every((mode) => mode === 'default')) return 'show-all';
+		if (modes.every((mode) => mode === 'only')) return 'only-abnormal';
+		return 'mixed';
+	})();
+
+	$: abnormalSummary = (() => {
+		switch (abnormalFilterMode) {
+			case 'default-hidden':
+				return t('filters.abnormalFilterSummaries.defaultHidden');
+			case 'show-all':
+				return t('filters.abnormalFilterSummaries.showAll');
+			case 'only-abnormal':
+				return t('filters.abnormalFilterSummaries.onlyAbnormal');
+			default:
+				return t('filters.abnormalFilterSummaries.mixed');
+		}
+	})();
+
+	function setAbnormalMode(mode: Exclude<AbnormalFilterMode, 'mixed'>) {
+		filters.update((current) => {
+			const nextModes = { ...current.limitModes };
+			if (mode === 'default-hidden') {
+				abnormalRuleKeys.forEach((key) => delete nextModes[key]);
+			} else {
+				const target: LimitMode = mode === 'show-all' ? 'default' : 'only';
+				abnormalRuleKeys.forEach((key) => {
+					nextModes[key] = target;
+				});
+			}
+			return { ...current, limitModes: nextModes };
+		});
+	}
+
+	$: paritySummary = t(
+		`filters.weekParitySummary.${($filters.weekParityFilter as 'any' | 'odd' | 'even' | 'all') ?? 'any'}`
+	);
+	$: spanSummary = t(
+		`filters.weekSpanSummary.${($filters.weekSpanFilter as 'any' | 'upper' | 'lower' | 'full') ?? 'any'}`
+	);
+	$: parityOptionLabels = parityOptionValues.map((value) => ({
+		value,
+		label: t(`filters.weekParityOptions.${value}`)
+	}));
+	$: spanOptionLabels = spanOptionValues.map((value) => ({
+		value,
+		label: t(`filters.weekSpanOptions.${value}`)
+	}));
 
 	function updateFilter<K extends keyof CourseFilterState>(key: K, value: CourseFilterState[K]) {
 		filters.update((current) => ({ ...current, [key]: value }));
 	}
 
-function updateLimit(key: LimitRuleKey, value: LimitMode) {
-		filters.update((current) => ({
-			...current,
-			limitModes: {
-				...current.limitModes,
-				[key]: value
-			}
-		}));
-	}
-
-	function toggleRegexTarget(target: CourseFilterState['regexTargets'][number], checked: boolean) {
-		filters.update((current) => {
-			const set = new Set(current.regexTargets);
-			if (checked) set.add(target);
-			else set.delete(target);
-			return { ...current, regexTargets: Array.from(set) };
-		});
+	function toggleAdvanced() {
+		showAdvanced = !showAdvanced;
 	}
 </script>
 
-{#if mode}
-	<div class="mode-indicator">
-		视图：{mode === 'wishlist' ? '待选' : mode === 'selected' ? '已选' : '全部'}
-	</div>
-{/if}
-
-<section class="filters">
-	<div class="simple-bar">
-		<div class="row">
-			<label class="full">
-				<span>搜索</span>
-				<input
-					type="search"
-					placeholder="课程名/课程号/教师号"
-					value={$filters.keyword}
-					disabled={showAdvanced}
-					on:input={(e) => updateFilter('keyword', (e.currentTarget as HTMLInputElement).value)}
-				/>
-			</label>
-			<div class="toggles-inline">
-				<label class="toggle">
-					<input type="checkbox" checked={$filters.regexEnabled} disabled={showAdvanced} on:change={(e) => updateFilter('regexEnabled', (e.currentTarget as HTMLInputElement).checked)} />
-					<span>正则</span>
-				</label>
-				<label class="toggle">
-					<input type="checkbox" checked={$filters.matchCase} disabled={showAdvanced} on:change={(e) => updateFilter('matchCase', (e.currentTarget as HTMLInputElement).checked)} />
-					<span>大小写</span>
-				</label>
-				<button type="button" class="ghost" on:click={() => (showAdvanced = !showAdvanced)}>
-					{showAdvanced ? '关闭高级' : '高级筛选'}
-				</button>
+<FilterBar>
+	<svelte:fragment slot="mode">
+		{#if mode}
+			<div class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+				{t('filters.view')}: <span class="font-medium text-[var(--app-color-fg)]">{viewModeLabel}</span>
 			</div>
+		{/if}
+	</svelte:fragment>
+
+	<svelte:fragment slot="simple">
+		<AppField label={t('filters.search')} class="w-full">
+			<input
+				class={`${controlClass} w-full`}
+				type="search"
+				placeholder={t('filters.searchPlaceholder')}
+				value={$filters.keyword}
+				disabled={showAdvanced}
+				on:input={(e) => updateFilter('keyword', (e.currentTarget as HTMLInputElement).value)}
+			/>
+		</AppField>
+	</svelte:fragment>
+
+	<svelte:fragment slot="chips">
+		<div class="flex flex-wrap gap-2">
+			<Chip selectable selected={$filters.regexEnabled} disabled={showAdvanced} on:click={() => updateFilter('regexEnabled', !$filters.regexEnabled)}>
+				{t('filters.regex')}
+			</Chip>
+			<Chip selectable selected={$filters.matchCase} disabled={showAdvanced} on:click={() => updateFilter('matchCase', !$filters.matchCase)}>
+				{t('filters.caseSensitive')}
+			</Chip>
+			<Chip
+				variant="accent"
+				aria-pressed={showAdvanced}
+				on:pointerdown={(event) => event.stopPropagation()}
+				on:mousedown={(event) => event.stopPropagation()}
+				on:click={(event) => {
+					event.stopPropagation();
+					toggleAdvanced();
+				}}
+			>
+				{showAdvanced ? t('filters.closeAdvanced') : t('filters.advanced')}
+			</Chip>
 		</div>
-	</div>
+	</svelte:fragment>
 
-	<div class="view-controls">
-		<label>
-			<span>状态</span>
-			<select value={$filters.displayOption} on:change={(e) => updateFilter('displayOption', (e.currentTarget as HTMLSelectElement).value as any)}>
-				<option value="all">全部</option>
-				{#if mode !== 'selected'}
-					<option value="unselected">只显示未待选</option>
-					<option value="selected">只显示已待选</option>
-				{:else}
-					<option value="unselected">只显示未选</option>
-					<option value="selected">只显示已选</option>
-				{/if}
-			</select>
-		</label>
-		<label>
-			<span>冲突</span>
-			<select value={$filters.conflictMode} on:change={(e) => updateFilter('conflictMode', (e.currentTarget as HTMLSelectElement).value as ConflictFilterMode)}>
-				<option value="any">不筛</option>
-				<option value="no-conflict">无冲突</option>
-				<option value="no-conflic">无conflic</option>
-				<option value="no-weak-impossible">无weak-impossible</option>
-				<option value="no-impossible">无impossible</option>
-			</select>
-		</label>
-	</div>
+	<svelte:fragment slot="settings">
+		<AppControlRow>
+			<AppField label={t('filters.sort')} class="flex-1 min-w-[200px]">
+				<select
+					class={`${controlClass} w-full`}
+					value={$filters.sortOptionId}
+					on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}
+				>
+					{#each options.sortOptions as opt}
+						<option value={opt.id}>{opt.label}</option>
+					{/each}
+				</select>
+			</AppField>
+		</AppControlRow>
+	</svelte:fragment>
 
-	{#if showAdvanced}
-		<div class="advanced">
-			<div class="row">
-				<label>
-					<span>校区</span>
-					<select value={$filters.campus} on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">全部</option>
+	<svelte:fragment slot="view-controls">
+		<AppControlRow class="w-full">
+			<AppField label={t('filters.status')} class="min-w-[160px]">
+				<select
+					class={controlClass}
+					value={$filters.displayOption}
+					on:change={(e) => updateFilter('displayOption', (e.currentTarget as HTMLSelectElement).value as any)}
+				>
+					{#each displayOptionChoices as opt (opt.value)}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+			</AppField>
+			<AppField label={t('filters.conflict')} class="min-w-[160px]">
+				<select
+					class={controlClass}
+					value={$filters.conflictMode}
+					on:change={(e) => updateFilter('conflictMode', (e.currentTarget as HTMLSelectElement).value as ConflictFilterMode)}
+				>
+					{#each conflictOptions as opt (opt.value)}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+			</AppField>
+		</AppControlRow>
+	</svelte:fragment>
+
+	<svelte:fragment slot="advanced" />
+</FilterBar>
+
+{#if showAdvanced}
+		<button
+			type="button"
+			class="fixed inset-0 z-[5000] cursor-default bg-[color:var(--app-color-bg)]/60 backdrop-blur-[2px] focus-visible:outline-none"
+			aria-label={t('filters.closeAdvanced')}
+			on:click={() => (showAdvanced = false)}
+		></button>
+	<div class="fixed inset-0 z-[5001] flex items-start justify-center overflow-auto p-6 pointer-events-none">
+		<div
+			class="pointer-events-auto flex w-full max-w-5xl flex-col gap-4 rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] p-6 shadow-[var(--app-shadow-hard)]"
+			role="dialog"
+			aria-modal="true"
+			aria-label={t('filters.advanced')}
+		>
+			<div class="flex items-center justify-between gap-4">
+				<h4 class="m-0 text-[var(--app-text-lg)] font-semibold text-[var(--app-color-fg)]">
+					{t('filters.advanced')}
+				</h4>
+				<AppButton variant="secondary" size="sm" on:click={() => (showAdvanced = false)}>
+					{t('filters.closeAdvanced')}
+				</AppButton>
+			</div>
+
+			<div class="grid gap-3 sm:grid-cols-2">
+				<AppField label={t('filters.campus')}>
+					<select
+						class={controlClass}
+						value={$filters.campus}
+						on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}
+					>
+						<option value="">{t('filters.displayOptions.all')}</option>
 						{#each options.campuses as campus}
 							<option value={campus}>{campus}</option>
 						{/each}
 					</select>
-				</label>
-				<label>
-					<span>学院</span>
-					<select value={$filters.college} on:change={(e) => updateFilter('college', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">全部</option>
+				</AppField>
+				<AppField label={t('filters.college')}>
+					<select
+						class={controlClass}
+						value={$filters.college}
+						on:change={(e) => updateFilter('college', (e.currentTarget as HTMLSelectElement).value)}
+					>
+						<option value="">{t('filters.displayOptions.all')}</option>
 						{#each options.colleges as college}
 							<option value={college}>{college}</option>
 						{/each}
 					</select>
-				</label>
-				<label>
-					<span>专业</span>
-					<select value={$filters.major} on:change={(e) => updateFilter('major', (e.currentTarget as HTMLSelectElement).value)}>
-						<option value="">全部</option>
+				</AppField>
+				<AppField label={t('filters.major')}>
+					<select
+						class={controlClass}
+						value={$filters.major}
+						on:change={(e) => updateFilter('major', (e.currentTarget as HTMLSelectElement).value)}
+					>
+						<option value="">{t('filters.displayOptions.all')}</option>
 						{#each options.majors as major}
 							<option value={major}>{major}</option>
 						{/each}
 					</select>
-				</label>
-				<label>
-					<span>课程属性</span>
-					<select value={$filters.displayOption} disabled>
-						<option>敬请期待</option>
+				</AppField>
+				<AppField label={t('filters.specialFilter')}>
+					<select
+						class={controlClass}
+						value={$filters.specialFilter}
+						on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}
+					>
+						<option value="all">{t('filters.specialFilterOptions.all')}</option>
+						<option value="sports-only">{t('filters.specialFilterOptions.sportsOnly')}</option>
+						<option value="exclude-sports">{t('filters.specialFilterOptions.excludeSports')}</option>
 					</select>
-				</label>
-			</div>
-			<div class="row">
-				<div class="fold">
-					<button type="button" class="fold-toggle" on:click={() => (showLangMode = !showLangMode)}>
-						教学语言/模式
-						<span class="hint">
-							{#if $filters.teachingLanguage.length || $filters.teachingMode.length}
-								{$filters.teachingLanguage.concat($filters.teachingMode).join('，')}
-							{:else}
-								不限
-							{/if}
-						</span>
-					</button>
-					{#if showLangMode}
-						<div class="fold-body two-cols">
-							<div class="column">
-								<span>教学语言</span>
-								<div class="chips">
-									{#each options.teachingLanguages as lang}
-										<label class="chip">
-											<input
-												type="checkbox"
-												checked={$filters.teachingLanguage.includes(lang)}
-												on:change={(e) => {
-													const checked = (e.currentTarget as HTMLInputElement).checked;
-													const set = new Set($filters.teachingLanguage);
-													if (checked) set.add(lang);
-													else set.delete(lang);
-													updateFilter('teachingLanguage', Array.from(set));
-												}}
-											/>
-											<span>{lang}</span>
-										</label>
-									{/each}
-								</div>
-							</div>
-							<div class="column">
-								<span>教学模式</span>
-								<div class="chips">
-									{#each options.teachingModes as modeOpt}
-										<label class="chip">
-											<input
-												type="checkbox"
-												checked={$filters.teachingMode.includes(modeOpt)}
-												on:change={(e) => {
-													const checked = (e.currentTarget as HTMLInputElement).checked;
-													const set = new Set($filters.teachingMode);
-													if (checked) set.add(modeOpt);
-													else set.delete(modeOpt);
-													updateFilter('teachingMode', Array.from(set));
-												}}
-											/>
-											<span>{modeOpt}</span>
-										</label>
-									{/each}
-								</div>
-								<input
-									type="text"
-									placeholder="其他教学模式（文本包含）"
-									value={$filters.teachingModeOther}
-									on:input={(e) => updateFilter('teachingModeOther', (e.currentTarget as HTMLInputElement).value)}
-								/>
-							</div>
+				</AppField>
+				{#if options.specialTags.length}
+					<ChipGroup label={t('filters.specialTagsLabel')} class="flex flex-col gap-2">
+						<div class="flex flex-wrap gap-2">
+							{#each options.specialTags as tag (tag)}
+								<Chip
+									selectable
+									selected={$filters.specialTags.includes(tag)}
+									on:click={() => {
+										const set = new Set($filters.specialTags);
+										if (set.has(tag)) {
+											set.delete(tag);
+										} else {
+											set.add(tag);
+										}
+										updateFilter('specialTags', Array.from(set));
+									}}
+								>
+									{tag}
+								</Chip>
+							{/each}
 						</div>
-					{/if}
-				</div>
-				<label>
-					<span>特殊课程</span>
-					<select value={$filters.specialFilter} on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}>
-						<option value="all">不过滤</option>
-						<option value="sports-only">仅体育</option>
-						<option value="exclude-sports">排除体育</option>
-					</select>
-				</label>
-				<label>
-					<span>学分</span>
-					<div class="inline-inputs">
-						<input type="number" min="0" placeholder="最小" value={$filters.minCredit ?? ''} on:input={(e) => updateFilter('minCredit', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)} />
-						<span>—</span>
-						<input type="number" min="0" placeholder="最大" value={$filters.maxCredit ?? ''} on:input={(e) => updateFilter('maxCredit', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)} />
+					</ChipGroup>
+				{/if}
+				<AppField label={t('filters.creditRange')}>
+					<div class="flex items-center gap-2">
+						<input
+							class={`${controlClass} flex-1`}
+							type="number"
+							min="0"
+							placeholder={t('filters.minPlaceholder')}
+							value={$filters.minCredit ?? ''}
+							on:input={(e) =>
+								updateFilter(
+									'minCredit',
+									(e.currentTarget as HTMLInputElement).value
+										? Number((e.currentTarget as HTMLInputElement).value)
+										: null
+								)}
+						/>
+						<span class="text-[var(--app-color-fg-muted)]">—</span>
+						<input
+							class={`${controlClass} flex-1`}
+							type="number"
+							min="0"
+							placeholder={t('filters.maxPlaceholder')}
+							value={$filters.maxCredit ?? ''}
+							on:input={(e) =>
+								updateFilter(
+									'maxCredit',
+									(e.currentTarget as HTMLInputElement).value
+										? Number((e.currentTarget as HTMLInputElement).value)
+										: null
+								)}
+						/>
 					</div>
-				</label>
-				<label>
-					<span>容量下限</span>
+				</AppField>
+				<AppField label={t('filters.capacityMin')}>
 					<input
+						class={controlClass}
 						type="number"
 						min="0"
 						value={$filters.capacityMin ?? ''}
-						on:input={(e) => updateFilter('capacityMin', (e.currentTarget as HTMLInputElement).value ? Number((e.currentTarget as HTMLInputElement).value) : null)}
+						on:input={(e) =>
+							updateFilter(
+							 'capacityMin',
+							 (e.currentTarget as HTMLInputElement).value
+								 ? Number((e.currentTarget as HTMLInputElement).value)
+								 : null
+							)}
 					/>
-				</label>
+				</AppField>
 			</div>
-			<div class="row">
-				<div class="fold">
-					<button type="button" class="fold-toggle" on:click={() => (showWeekFold = !showWeekFold)}>
-						周次筛选
-						<span class="hint">
-							{#if $filters.weekParityFilter !== 'any' || $filters.weekSpanFilter !== 'any'}
-								{($filters.weekParityFilter !== 'any' ? ($filters.weekParityFilter === 'odd' ? '单周' : $filters.weekParityFilter === 'even' ? '双周' : '全周') : '周次不限')}
-								/
-								{($filters.weekSpanFilter !== 'any' ? ($filters.weekSpanFilter === 'upper' ? '前半' : $filters.weekSpanFilter === 'lower' ? '后半' : '全学期') : '半学期不限')}
-							{:else}
-								不限
-							{/if}
+
+				<div class="flex flex-col gap-3">
+					<AppButton variant="secondary" size="sm" class="w-full justify-between px-3" on:click={() => (showLangMode = !showLangMode)}>
+						<span>{t('filters.languageMode')}</span>
+						<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+							{languageSummary}
 						</span>
-					</button>
+					</AppButton>
+					{#if showLangMode}
+						<div class="grid gap-3 sm:grid-cols-2">
+							<ChipGroup label={t('filters.teachingLanguageLabel')} class="flex flex-col gap-2">
+								{#each options.teachingLanguages as lang}
+									<Chip
+										selectable
+										selected={$filters.teachingLanguage.includes(lang)}
+										on:click={() => {
+											const set = new Set($filters.teachingLanguage);
+											if (set.has(lang)) {
+												set.delete(lang);
+											} else {
+												set.add(lang);
+											}
+											updateFilter('teachingLanguage', Array.from(set));
+										}}
+									>
+										{lang}
+									</Chip>
+								{/each}
+							</ChipGroup>
+							<AppField label={t('filters.teachingModeLabel')} class="w-full">
+								<select
+									class={`${controlClass} w-full`}
+									value={abnormalFilterMode}
+									on:change={(e) => {
+										const value = (e.currentTarget as HTMLSelectElement).value as AbnormalFilterMode;
+										if (value !== 'mixed') setAbnormalMode(value);
+									}}
+								>
+									<option value="default-hidden">{t('filters.abnormalFilterOptions.defaultHidden')}</option>
+									<option value="show-all">{t('filters.abnormalFilterOptions.showAll')}</option>
+									<option value="only-abnormal">{t('filters.abnormalFilterOptions.onlyAbnormal')}</option>
+									<option value="mixed" disabled>{t('filters.abnormalFilterOptions.mixed')}</option>
+								</select>
+								<div class="mt-2 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{abnormalSummary}</div>
+							</AppField>
+						</div>
+					{/if}
+
+						<AppButton variant="secondary" size="sm" class="w-full justify-between px-3" on:click={() => (showWeekFold = !showWeekFold)}>
+							<span>{t('filters.weekFilters')}</span>
+							<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+								{paritySummary} / {spanSummary}
+							</span>
+						</AppButton>
 					{#if showWeekFold}
-						<div class="fold-body two-cols">
-							<div>
-								<span>单双周</span>
-								<div class="chips">
-									{#each ['any','odd','even','all'] as option}
-										<label class="chip">
-											<input type="radio" name="parity" value={option} checked={$filters.weekParityFilter === option} on:change={() => updateFilter('weekParityFilter', option as any)} />
-											<span>{option === 'any' ? '不筛' : option === 'odd' ? '单周' : option === 'even' ? '双周' : '全部周'}</span>
-										</label>
-									{/each}
-								</div>
-							</div>
-							<div>
-								<span>上/下半</span>
-								<div class="chips">
-									{#each ['any','upper','lower','full'] as option}
-										<label class="chip">
-											<input type="radio" name="span" value={option} checked={$filters.weekSpanFilter === option} on:change={() => updateFilter('weekSpanFilter', option as any)} />
-											<span>{option === 'any' ? '不筛' : option === 'upper' ? '前半' : option === 'lower' ? '后半' : '全学期'}</span>
-										</label>
-									{/each}
-								</div>
-							</div>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<ChipGroup label={t('filters.weekParityLabel')} class="flex flex-col gap-2">
+								{#each parityOptionLabels as option}
+									<Chip selectable selected={$filters.weekParityFilter === option.value} on:click={() => updateFilter('weekParityFilter', option.value as any)}>
+										{option.label}
+									</Chip>
+								{/each}
+							</ChipGroup>
+							<ChipGroup label={t('filters.weekSpanLabel')} class="flex flex-col gap-2">
+								{#each spanOptionLabels as option}
+									<Chip selectable selected={$filters.weekSpanFilter === option.value} on:click={() => updateFilter('weekSpanFilter', option.value as any)}>
+										{option.label}
+									</Chip>
+								{/each}
+							</ChipGroup>
 						</div>
 					{/if}
 				</div>
-			</div>
 		</div>
-	{/if}
-
-	<div class="sort-row">
-		<label>
-			<span>排序</span>
-			<select value={$filters.sortOptionId} on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}>
-				{#each options.sortOptions as opt}
-					<option value={opt.id}>{opt.label}</option>
-				{/each}
-			</select>
-		</label>
 	</div>
-</section>
+{/if}
 
 <style>
-.filters {
-	display: flex;
-	flex-direction: column;
-	gap: 0.65rem;
-	background: rgba(15, 18, 35, 0.03);
-	border-radius: 0.75rem;
-	padding: 0.5rem 0.75rem;
-}
-
-.mode-indicator {
-	font-size: 0.85rem;
-	color: #4a5163;
-	margin-bottom: 0.25rem;
-}
-
-	.row {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 0.5rem;
-		align-items: center;
+	:global(.filter-field input),
+	:global(.filter-field select),
+	:global(.filter-field textarea) {
+		min-width: 0;
 	}
 
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		font-size: 0.85rem;
-		color: #505565;
+	@container panel-shell (max-width: 640px) {
+		:global(.filter-field) {
+			min-width: 0 !important;
+			width: 100%;
+		}
+
+		:global(.filter-field input),
+		:global(.filter-field select),
+		:global(.filter-field textarea) {
+			width: 100%;
+		}
 	}
-
-	label span {
-		font-weight: 600;
-	}
-
-	input,
-	select {
-		border: 1px solid rgba(15, 18, 35, 0.12);
-		border-radius: 0.5rem;
-		padding: 0.35rem 0.55rem;
-		font-size: 0.92rem;
-	}
-
-	.toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.85rem;
-	}
-
-	.ghost {
-		border: none;
-		background: rgba(15, 18, 35, 0.06);
-		padding: 0.35rem 0.75rem;
-		border-radius: 0.6rem;
-		cursor: pointer;
-		font-size: 0.9rem;
-	}
-
-.advanced {
-	border-top: 1px solid rgba(15, 18, 35, 0.05);
-	padding-top: 0.5rem;
-}
-
-	.fold {
-		border: 1px solid rgba(15, 18, 35, 0.08);
-		border-radius: 0.6rem;
-		padding: 0.4rem 0.55rem;
-		background: rgba(15, 18, 35, 0.02);
-	}
-
-	.fold-toggle {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		width: 100%;
-		border: none;
-		background: transparent;
-		font-size: 0.9rem;
-		font-weight: 600;
-		color: #31384a;
-		cursor: pointer;
-		padding: 0.1rem 0;
-	}
-
-	.fold .hint {
-		font-size: 0.8rem;
-		color: #6b7280;
-	}
-
-	.fold-body {
-		margin-top: 0.4rem;
-		display: flex;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-	}
-
-	.fold-body.two-cols > * {
-		flex: 1 1 220px;
-	}
-
 </style>

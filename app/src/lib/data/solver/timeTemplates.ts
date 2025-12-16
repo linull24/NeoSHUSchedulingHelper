@@ -1,3 +1,5 @@
+import { writable, get } from 'svelte/store';
+
 export type TimeTemplate = {
 	id: string;
 	name: string;
@@ -19,8 +21,7 @@ function writeCookie(value: string) {
 	document.cookie = `${COOKIE_KEY}=${encodeURIComponent(value)}; max-age=${MAX_COOKIE_AGE}; path=/`;
 }
 
-export function loadTimeTemplates(): TimeTemplate[] {
-	const raw = readCookie();
+function parseTemplates(raw: string | null): TimeTemplate[] {
 	if (!raw) return [];
 	try {
 		const parsed = JSON.parse(raw) as TimeTemplate[];
@@ -30,12 +31,31 @@ export function loadTimeTemplates(): TimeTemplate[] {
 	}
 }
 
-export function saveTimeTemplates(templates: TimeTemplate[]) {
-	writeCookie(JSON.stringify(templates));
+const initialTemplates = parseTemplates(readCookie());
+const templatesStore = writable<TimeTemplate[]>(initialTemplates);
+
+function persist(next: TimeTemplate[]) {
+	writeCookie(JSON.stringify(next));
+	return next;
+}
+
+templatesStore.subscribe((templates) => {
+	persist(templates);
+});
+
+export const timeTemplatesStore = {
+	subscribe: templatesStore.subscribe
+};
+
+export function getTimeTemplatesSnapshot() {
+	return get(templatesStore);
+}
+
+export function replaceTimeTemplates(templates: TimeTemplate[]) {
+	templatesStore.set(templates);
 }
 
 export function addTimeTemplate(template: Omit<TimeTemplate, 'id' | 'createdAt'>) {
-	const current = loadTimeTemplates();
 	const entry: TimeTemplate = {
 		...template,
 		id:
@@ -44,14 +64,9 @@ export function addTimeTemplate(template: Omit<TimeTemplate, 'id' | 'createdAt'>
 				: `tmpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
 		createdAt: Date.now()
 	};
-	const next = [...current, entry];
-	saveTimeTemplates(next);
-	return next;
+	templatesStore.update((current) => [...current, entry]);
 }
 
 export function removeTimeTemplate(id: string) {
-	const current = loadTimeTemplates();
-	const next = current.filter((t) => t.id !== id);
-	saveTimeTemplates(next);
-	return next;
+	templatesStore.update((current) => current.filter((t) => t.id !== id));
 }

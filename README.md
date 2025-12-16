@@ -8,6 +8,20 @@ and export the complete list of available教学班信息 for the current学期/�
 Usage
 -----
 
+Web App (SSG, GitHub Pages)
+---------------------------
+
+The `app/` directory contains a SvelteKit UI that builds as a fully static site and can be deployed to GitHub Pages (`https://<user>.github.io/<repo>/`).
+
+- Enable GitHub Pages for the repository: Settings → Pages → Source: GitHub Actions.
+- Push to `main`/`master` and wait for the `Deploy to GitHub Pages` workflow.
+
+Local build:
+
+    cd app
+    npm install
+    npm run build
+
 All crawler assets now live in `crawler/`, managed by `uv` via
 `crawler/pyproject.toml`.
 

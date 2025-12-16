@@ -15,8 +15,13 @@
 </script>
 
 <script lang="ts">
+	import AppListCard from '$lib/components/AppListCard.svelte';
+	import CardActionBar from '$lib/components/CardActionBar.svelte';
+	import AppButton from '$lib/primitives/AppButton.svelte';
+	import Chip from '$lib/components/Chip.svelte';
+	import { dictionary as dictionaryStore, translator } from '$lib/i18n';
+	import type { Dictionary } from '$lib/i18n';
 
-	export let title: string;
 	export let items: ConstraintItem[] = [];
 	export let onRemove: (item: ConstraintItem) => void;
 	export let onConvert: ((item: ConstraintItem) => void) | undefined = undefined;
@@ -25,7 +30,7 @@
 	export let onPrimaryAction: (() => void) | undefined = undefined;
 	export let onSecondaryAction: (() => void) | undefined = undefined;
 	export let convertibleKinds: Array<ConstraintItem['kind']> | null = null;
-	export let searchPlaceholder = '搜索约束';
+	export let searchPlaceholder: string | undefined = undefined;
 
 	let query = '';
 	let filterVersion = 0;
@@ -36,63 +41,101 @@
 	const statusFilters = new Set<string>();
 	const sourceFilters = new Set<string>();
 
-	const filterGroups: Array<{
+	const defaultConstraintTypeLabels = {
+		group: 'Group',
+		section: 'Section',
+		time: 'Time',
+		course: 'Course',
+		teacher: 'Teacher',
+		custom: 'Custom'
+	};
+
+	type ConstraintTypeKey = keyof typeof defaultConstraintTypeLabels;
+	const constraintTypeOrder: ConstraintTypeKey[] = ['group', 'section', 'time', 'course', 'teacher', 'custom'];
+
+	let t = (key: string) => key;
+	let dict: Dictionary | null = null;
+	let resolvedSearchPlaceholder = 'Search constraints';
+	let constraintTypeLabels = defaultConstraintTypeLabels;
+	let filterGroups: Array<{
 		key: 'type' | 'priority' | 'direction' | 'status' | 'source';
 		label: string;
 		options: Array<{ label: string; value: string }>;
 		set: Set<string>;
-	}> = [
+	}> = [];
+
+$: t = $translator;
+$: dict = $dictionaryStore as Dictionary;
+	$: resolvedSearchPlaceholder = searchPlaceholder ?? t('panels.solver.searchConstraints');
+	$: constraintTypeLabels = dict?.panels.solver.constraintTypeLabels ?? defaultConstraintTypeLabels;
+	$: filterGroups = [
 		{
 			key: 'type',
-			label: '类型',
-			options: [
-				{ label: '组', value: 'group' },
-				{ label: '班次', value: 'section' },
-				{ label: '时间', value: 'time' },
-				{ label: '课程', value: 'course' },
-				{ label: '教师', value: 'teacher' },
-				{ label: '自定义', value: 'custom' }
-			],
+			label: t('panels.solver.constraintType'),
+			options: constraintTypeOrder.map((value) => ({
+				value,
+				label: constraintTypeLabels[value]
+			})),
 			set: typeFilters
 		},
 		{
 			key: 'priority',
-			label: '优先级',
+			label: t('panels.solver.constraintPriority'),
 			options: [
-				{ label: '硬', value: 'hard' },
-				{ label: '软', value: 'soft' }
+				{ label: t('dropdowns.hard'), value: 'hard' },
+				{ label: t('dropdowns.soft'), value: 'soft' }
 			],
 			set: priorityFilters
 		},
 		{
 			key: 'direction',
-			label: '方向',
+			label: t('panels.solver.constraintDirection'),
 			options: [
-				{ label: '包含', value: 'include' },
-				{ label: '排除', value: 'exclude' }
+				{ label: t('dropdowns.include'), value: 'include' },
+				{ label: t('dropdowns.exclude'), value: 'exclude' }
 			],
 			set: directionFilters
 		},
 		{
 			key: 'status',
-			label: '状态',
+			label: t('panels.solver.constraintStatus'),
 			options: [
-				{ label: '启用', value: 'enabled' },
-				{ label: '禁用', value: 'disabled' }
+				{ label: t('dropdowns.enabled'), value: 'enabled' },
+				{ label: t('dropdowns.disabled'), value: 'disabled' }
 			],
 			set: statusFilters
 		},
 		{
 			key: 'source',
-			label: '来源',
+			label: t('panels.solver.constraintSource'),
 			options: [
-				{ label: '列表按钮', value: 'list' },
-				{ label: '求解器', value: 'solver' },
-				{ label: '导入', value: 'imported' }
+				{ label: t('dropdowns.listSource'), value: 'list' },
+				{ label: t('dropdowns.solverSource'), value: 'solver' },
+				{ label: t('dropdowns.importSource'), value: 'imported' }
 			],
 			set: sourceFilters
 		}
 	];
+
+	const pillBaseClass =
+		'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[var(--app-text-xs)] bg-[color-mix(in_srgb,var(--app-color-bg-elevated)_90%,var(--app-color-fg)_10%)] text-[var(--app-color-fg)]';
+	const hardPillClass =
+		'bg-[color-mix(in_srgb,var(--app-color-primary)_15%,var(--app-color-bg))] text-[var(--app-color-primary)]';
+	const softPillClass =
+		'bg-[color-mix(in_srgb,var(--app-color-danger)_12%,var(--app-color-bg))] text-[var(--app-color-danger)]';
+
+	const getTypeLabel = (type?: ConstraintItem['type']) => {
+		if (!type) return '';
+		return constraintTypeLabels[type as ConstraintTypeKey] ?? type;
+	};
+
+	const getSourceLabel = (source?: ConstraintItem['source']) => {
+		if (!source) return '';
+		if (source === 'list') return t('dropdowns.listSource');
+		if (source === 'solver') return t('dropdowns.solverSource');
+		if (source === 'imported') return t('dropdowns.importSource');
+		return source;
+	};
 
 	function toggleChip(groupKey: typeof filterGroups[number]['key'], value: string) {
 		const group = filterGroups.find((g) => g.key === groupKey);
@@ -126,97 +169,114 @@
 	})();
 </script>
 
-<section class="constraint-section">
-	<header>
-		<div>
-			<h5>{title}</h5>
-			<small>{items.length} 条</small>
-		</div>
-		<input type="search" placeholder={searchPlaceholder} bind:value={query} aria-label="搜索约束" />
-		{#if primaryActionLabel || secondaryActionLabel}
-			<div class="header-actions">
-				{#if secondaryActionLabel}
-					<button type="button" class="ghost" on:click={onSecondaryAction}>
-						{secondaryActionLabel}
-					</button>
-				{/if}
-				{#if primaryActionLabel}
-					<button type="button" class="primary" on:click={onPrimaryAction}>
-						{primaryActionLabel}
-					</button>
-				{/if}
-			</div>
-		{/if}
-	</header>
+<div class="flex flex-col gap-3 min-w-0">
+	{#if primaryActionLabel || secondaryActionLabel}
+		<CardActionBar class="justify-start">
+			{#if secondaryActionLabel}
+				<AppButton variant="secondary" size="sm" on:click={() => onSecondaryAction?.()}>
+					{secondaryActionLabel}
+				</AppButton>
+			{/if}
+			{#if primaryActionLabel}
+				<AppButton variant="primary" size="sm" on:click={() => onPrimaryAction?.()}>
+					{primaryActionLabel}
+				</AppButton>
+			{/if}
+		</CardActionBar>
+	{/if}
 
-	<div class="filter-row">
+	<div class="w-full min-w-0">
+		<input
+			type="search"
+			class="w-full min-w-0 max-w-[420px] rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)] placeholder:text-[var(--app-color-fg-muted)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-color-primary)] focus:ring-offset-1 focus:ring-offset-[color:var(--app-color-bg)]"
+			placeholder={resolvedSearchPlaceholder}
+			bind:value={query}
+			aria-label={resolvedSearchPlaceholder}
+		/>
+	</div>
+
+	<div class="flex flex-col gap-3">
 		{#each filterGroups as group (group.key)}
-			<div class="chip-group">
-				<span class="chip-label">{group.label}</span>
-				<div class="chip-list">
+			<div class="flex flex-col gap-1.5">
+				<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{group.label}</span>
+				<div class="flex flex-wrap gap-2">
 					{#each group.options as option (option.value)}
-						<button
-							type="button"
-							class:active={group.set.has(option.value)}
+						<Chip
+							selectable
+							selected={group.set.has(option.value)}
+							variant={group.set.has(option.value) ? 'accent' : 'default'}
 							on:click={() => toggleChip(group.key, option.value)}
 						>
 							{option.label}
-						</button>
+						</Chip>
 					{/each}
 				</div>
 			</div>
 		{/each}
 	</div>
 
-{#if !filtered.length}
-		<p class="muted">暂无约束</p>
+	{#if !filtered.length}
+		<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.solver.constraintEmpty')}</p>
 	{:else}
-		<ul>
+		<ul class="flex list-none flex-col gap-3 p-0">
 			{#each filtered as item (item.id)}
 				<li>
-					<div class="meta">
-						<div class="label">
-							<strong>{item.label}</strong>
-							{#if item.detail}<small>{item.detail}</small>{/if}
-						</div>
-						<div class="tags">
-							<span class={`pill ${item.priority === 'hard' ? 'hard' : 'soft'}`}>
-								{item.priority === 'hard' ? '硬' : '软'}
+					<AppListCard
+						title={item.label}
+						subtitle={item.detail ?? null}
+						class="lg:flex-row lg:items-start lg:justify-between"
+					>
+						<div slot="meta" class="flex flex-wrap gap-2 pt-1">
+							<span class={`${pillBaseClass} ${item.priority === 'hard' ? hardPillClass : softPillClass}`}>
+								{item.priority === 'hard' ? t('dropdowns.hard') : t('dropdowns.soft')}
 							</span>
 							{#if item.direction}
-								<span class="pill secondary">{item.direction === 'include' ? '包含' : '排除'}</span>
+								<span class={pillBaseClass}>
+									{item.direction === 'include' ? t('dropdowns.include') : t('dropdowns.exclude')}
+								</span>
 							{/if}
 							{#if item.type}
-								<span class="pill secondary">{item.type === 'group' ? '组' : item.type}</span>
+								<span class={pillBaseClass}>{getTypeLabel(item.type)}</span>
 							{/if}
 							{#if item.status}
-								<span class="pill secondary">{item.status === 'disabled' ? '禁用' : '启用'}</span>
+								<span class={pillBaseClass}>
+									{item.status === 'disabled' ? t('dropdowns.disabled') : t('dropdowns.enabled')}
+								</span>
 							{/if}
 							{#if item.source}
-								<span class="pill secondary">{item.source === 'list' ? '列表按钮' : item.source === 'solver' ? '求解器' : '导入'}</span>
+								<span class={pillBaseClass}>{getSourceLabel(item.source)}</span>
 							{/if}
 							{#if item.tags}
 								{#each item.tags as tag}
-									<span class="pill secondary">{tag}</span>
+									<span class={pillBaseClass}>{tag}</span>
 								{/each}
 							{/if}
 							{#if typeof item.weight === 'number'}
-								<span class="pill secondary">权重 {item.weight}</span>
+								<span class={pillBaseClass}>
+									{t('panels.solver.quickWeight')} {item.weight}
+								</span>
 							{/if}
 						</div>
-					</div>
-					<div class="actions">
-						{#if onConvert && (!convertibleKinds || convertibleKinds.includes(item.kind))}
-							<button type="button" class="ghost" on:click={() => onConvert?.(item)}>
-								转为{item.priority === 'hard' ? '软' : '硬'}
-							</button>
-						{/if}
-						<button type="button" class="danger" on:click={() => onRemove(item)}>移除</button>
-					</div>
+						<CardActionBar slot="actions" class="justify-end">
+							{#if onConvert && (!convertibleKinds || convertibleKinds.includes(item.kind))}
+								<AppButton variant="secondary" size="sm" on:click={() => onConvert?.(item)}>
+									{item.priority === 'hard'
+										? t('panels.solver.convertToSoft')
+										: t('panels.solver.convertToHard')}
+								</AppButton>
+							{/if}
+							<AppButton
+								variant="secondary"
+								size="sm"
+								class="text-[var(--app-color-danger)] border-[color:var(--app-color-danger)]"
+								on:click={() => onRemove(item)}
+							>
+								{t('panels.solver.removeConstraint')}
+							</AppButton>
+						</CardActionBar>
+					</AppListCard>
 				</li>
 			{/each}
 		</ul>
 	{/if}
-</section>
-
-<style src="$lib/styles/constraint-list.scss" lang="scss"></style>
+</div>

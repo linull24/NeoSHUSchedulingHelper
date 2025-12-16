@@ -1,0 +1,21 @@
+import crypto from 'node:crypto';
+
+const RSA_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDl/aCgRl9f/4ON9MewoVnV58OL
+OU2ALBi2FKc5yIsfSpivKxe7A6FitJjHva3WpM7gvVOinMehp6if2UNIkbaN+plW
+f5IwqEVxsNZpeixc4GsbY9dXEk3WtRjwGSyDLySzEESH/kpJVoxO7ijRYqU+2oSR
+wTBNePOk1H+LRQokgQIDAQAB
+-----END PUBLIC KEY-----`;
+
+export function encryptPassword(password: string): string {
+	const key = crypto.createPublicKey(RSA_PUBKEY);
+	const encrypted = crypto.publicEncrypt(
+		{
+			key,
+			padding: crypto.constants.RSA_PKCS1_PADDING
+		},
+		Buffer.from(password, 'utf8')
+	);
+	return encrypted.toString('base64');
+}
+

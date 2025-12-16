@@ -1,94 +1,48 @@
 <script lang="ts">
 	import { setSelectionMode } from '$lib/stores/coursePreferences';
+	import type { SelectionMode } from '$lib/stores/coursePreferences';
+	import { translator } from '$lib/i18n';
+	import AppButton from '$lib/primitives/AppButton.svelte';
 
 	export let open = false;
 	export let onClose: (() => void) | undefined;
 
-	function choose(mode: 'overbook' | 'speed') {
+	let t = (key: string) => key;
+	$: t = $translator;
+
+	function choose(mode: SelectionMode) {
 		setSelectionMode(mode);
 		onClose?.();
 	}
 </script>
 
 {#if open}
-	<div class="backdrop" role="presentation">
-		<div class="modal" role="dialog" aria-label="选择选课模式">
-			<h3>选择选课模式</h3>
-			<p>首次进入本学期，请确认是否允许超额或拼手速。可在设置中随时修改。</p>
-			<div class="actions">
-				<button type="button" class="primary" on:click={() => choose('overbook')}>可超额</button>
-				<button type="button" on:click={() => choose('speed')}>拼手速</button>
+	<div class="fixed inset-0 z-50 grid place-items-center bg-[rgba(0,0,0,0.35)]" role="presentation">
+		<div
+			class="relative flex w-[min(420px,90vw)] flex-col gap-3 rounded-[var(--app-radius-lg)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg-elevated)] p-5 text-[var(--app-color-fg)] shadow-[var(--app-shadow-hard)]"
+			role="dialog"
+			aria-label={t('prompts.selectionMode.title')}
+		>
+			<h3 class="text-[var(--app-text-md)] font-semibold">{t('prompts.selectionMode.title')}</h3>
+			<p class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('prompts.selectionMode.description')}</p>
+			<div class="flex flex-wrap items-center justify-end gap-2">
+				<AppButton variant="primary" size="sm" on:click={() => choose('allowOverflowMode')}>
+					{t('prompts.selectionMode.allowOverflow')}
+				</AppButton>
+				<AppButton variant="secondary" size="sm" on:click={() => choose('overflowSpeedRaceMode')}>
+					{t('prompts.selectionMode.speedRace')}
+				</AppButton>
 			</div>
-			<button class="close" type="button" aria-label="关闭" on:click={onClose}>×</button>
+			<AppButton
+				variant="secondary"
+				size="sm"
+				iconOnly={true}
+				class="absolute right-3 top-3 h-8 w-8 rounded-full bg-[var(--app-color-bg-muted)]"
+				aria-label={t('prompts.selectionMode.close')}
+				on:click={() => onClose?.()}
+			>
+				×
+			</AppButton>
 		</div>
 	</div>
 {/if}
-
-<style>
-	.backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.35);
-		display: grid;
-		place-items: center;
-		z-index: 999;
-	}
-
-	.modal {
-		position: relative;
-		background: #fff;
-		padding: 1.25rem;
-		border-radius: 0.9rem;
-		box-shadow: 0 16px 40px rgba(15, 18, 35, 0.18);
-		width: min(420px, 90vw);
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	h3 {
-		margin: 0;
-		font-size: 1.1rem;
-	}
-
-	p {
-		margin: 0;
-		color: #555b6d;
-		font-size: 0.95rem;
-		line-height: 1.5;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.75rem;
-		justify-content: flex-end;
-	}
-
-	button {
-		border: none;
-		border-radius: 0.6rem;
-		padding: 0.55rem 0.9rem;
-		font-size: 0.95rem;
-		cursor: pointer;
-		background: #f1f3f7;
-		color: #1d2433;
-	}
-
-	button.primary {
-		background: #1f7ae0;
-		color: #fff;
-	}
-
-	button.close {
-		position: absolute;
-		top: 0.4rem;
-		right: 0.4rem;
-		width: 1.8rem;
-		height: 1.8rem;
-		padding: 0;
-		border-radius: 50%;
-		background: #eef1f6;
-		font-size: 1.2rem;
-		line-height: 1.1;
-	}
-</style>
