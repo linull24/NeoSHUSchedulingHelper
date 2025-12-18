@@ -62,7 +62,10 @@ function canUseWorker() {
 async function createWorkerSlot(): Promise<WorkerSlot> {
 	const mod = await import('./solver.worker?worker');
 	const WorkerCtor = mod.default as typeof Worker;
-	const worker = new WorkerCtor();
+	// Some TS libs require a URL argument; Vite's ?worker export is already a ctor with embedded URL.
+	// Cast to any to satisfy the signature.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const worker = new (WorkerCtor as any)();
 	const slot: WorkerSlot = { worker, inflight: 0, pending: new Map() };
 
 	worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
@@ -76,7 +79,7 @@ async function createWorkerSlot(): Promise<WorkerSlot> {
 		else pending.reject(new Error(msg.error));
 	});
 
-	worker.addEventListener('error', (event) => {
+	worker.addEventListener('error', (event: ErrorEvent) => {
 		const error = new Error(event.message || 'solver worker error');
 		for (const pending of slot.pending.values()) pending.reject(error);
 		slot.pending.clear();

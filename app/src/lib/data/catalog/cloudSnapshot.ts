@@ -33,33 +33,32 @@ export function hasCloudSnapshot(termId: string): boolean {
 	}
 }
 
-const BUNDLED_CURRENT = import.meta.glob('../../../../static/crawler/data/current.json', {
-	eager: true,
-	import: 'default'
-});
-const BUNDLED_TERMS = import.meta.glob('../../../../static/crawler/data/terms/*.json', {
-	eager: true,
-	import: 'default'
-});
-
-function readBundledCurrentEntries(): CurrentTermEntry[] | null {
-	const mod = Object.values(BUNDLED_CURRENT)[0] as unknown;
-	if (!mod) return null;
-	if (!Array.isArray(mod)) return null;
-	return mod as CurrentTermEntry[];
+async function fetchBundledJson<T>(path: string): Promise<T | null> {
+	try {
+		// static assets are served from /crawler/... in dev/prod
+		const url = path.startsWith('/') ? path : `/${path.replace(/^\/+/, '')}`;
+		const res = await fetch(url, { method: 'GET' });
+		if (!res.ok) return null;
+		return (await res.json()) as T;
+	} catch {
+		return null;
+	}
 }
 
-function readBundledTermSnapshotText(termId: string): string | null {
-	const suffix = `/crawler/data/terms/${termId}.json`;
-	for (const [path, value] of Object.entries(BUNDLED_TERMS)) {
-		if (!path.endsWith(suffix)) continue;
-		try {
-			return JSON.stringify(value);
-		} catch {
-			return null;
-		}
+async function readBundledCurrentEntries(): Promise<CurrentTermEntry[] | null> {
+	if (!browser) return null;
+	return fetchBundledJson<CurrentTermEntry[]>('/crawler/data/current.json');
+}
+
+async function readBundledTermSnapshotText(termId: string): Promise<string | null> {
+	if (!browser) return null;
+	const data = await fetchBundledJson<unknown>(`/crawler/data/terms/${termId}.json`);
+	if (!data) return null;
+	try {
+		return JSON.stringify(data);
+	} catch {
+		return null;
 	}
-	return null;
 }
 
 function resolveRemoteCurrentUrl(): string {
@@ -165,7 +164,12 @@ export async function fetchAndStoreCloudSnapshot(termId: string): Promise<{
 
 		const url = buildRemoteTermUrl(normalized);
 		const response = await fetch(url, { method: 'GET' });
-		if (!response.ok) return { ok: false, error: `HTTP_${response.status}` };
+		if (!response.ok) {
+			// Fallback to bundled static snapshot if available
+			const bundled = await readBundledTermSnapshotText(normalized);
+			if (bundled) return storeSnapshotText(normalized, bundled, url);
+			return { ok: false, error: `HTTP_${response.status}` };
+		}
 		const text = await response.text();
 		return storeSnapshotText(normalized, text, url);
 	} catch (error) {
@@ -238,13 +242,17 @@ async function fetchCloudCurrentEntries(): Promise<{ ok: true; entries: CurrentT
 	try {
 		const cfg = getCrawlerConfig();
 		if (!cfg.remote) {
-			const bundled = readBundledCurrentEntries();
+			const bundled = await readBundledCurrentEntries();
 			if (!bundled) return { ok: false, error: 'REMOTE_DISABLED' };
 			return { ok: true, entries: bundled, url: 'bundled:current.json' };
 		}
 		const url = resolveRemoteCurrentUrl();
 		const response = await fetch(url, { method: 'GET' });
-		if (!response.ok) return { ok: false, error: `HTTP_${response.status}` };
+		if (!response.ok) {
+			const bundled = await readBundledCurrentEntries();
+			if (bundled) return { ok: true, entries: bundled, url: 'bundled:current.json' };
+			return { ok: false, error: `HTTP_${response.status}` };
+		}
 		const text = await response.text();
 		const parsed = JSON.parse(text) as unknown;
 		if (!Array.isArray(parsed)) return { ok: false, error: 'INVALID_CURRENT_JSON' };
@@ -253,6 +261,8 @@ async function fetchCloudCurrentEntries(): Promise<{ ok: true; entries: CurrentT
 		}
 		return { ok: true, entries: parsed as CurrentTermEntry[], url };
 	} catch (error) {
+		const bundled = await readBundledCurrentEntries();
+		if (bundled) return { ok: true, entries: bundled, url: 'bundled:current.json' };
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
 }
@@ -262,7 +272,7 @@ async function fetchAndStoreCloudRoundSnapshot(termId: string, xkkzId: string): 
 		const cfg = getCrawlerConfig();
 		if (!cfg.remote) {
 			const key = `${termId}--xkkz-${xkkzId}`;
-			const text = readBundledTermSnapshotText(key);
+			const text = await readBundledTermSnapshotText(key);
 			if (!text) return { ok: false, error: 'REMOTE_DISABLED' };
 			return storeSnapshotTextAt(
 				getCloudRoundSnapshotStorageKey(termId, xkkzId),
