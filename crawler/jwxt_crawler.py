@@ -35,7 +35,9 @@ COURSE_DETAIL_ENDPOINT = (
 )
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_DIR = SCRIPT_ROOT / "data"
+PROJECT_ROOT = SCRIPT_ROOT.parent
+STATIC_OUTPUT_ROOT = PROJECT_ROOT / "app" / "static" / "crawler"
+DEFAULT_OUTPUT_DIR = STATIC_OUTPUT_ROOT / "data"
 DEFAULT_SECRETS_FILE = SCRIPT_ROOT / ".secrets.json"
 DEFAULT_COOKIE_STORE_FILE = SCRIPT_ROOT / ".jwxt_cookie.enc.json"
 DEFAULT_COOKIE_KEY_FILE = SCRIPT_ROOT / ".jwxt_cookie_rsa.pem"
@@ -193,9 +195,11 @@ def _is_subpath(child: Path, parent: Path) -> bool:
 
 def resolve_output_dir(output_dir: str | None) -> Path:
     target = (Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR).expanduser().resolve()
-    allowed_root = SCRIPT_ROOT
-    if not _is_subpath(target, allowed_root):
-        raise ValueError(f"Output path {target} is outside allowed root {allowed_root}")
+    allowed_roots = [SCRIPT_ROOT, STATIC_OUTPUT_ROOT]
+    if not any(_is_subpath(target, root) for root in allowed_roots):
+        raise ValueError(
+            f"Output path {target} is outside allowed roots {', '.join(str(root) for root in allowed_roots)}"
+        )
     target.mkdir(parents=True, exist_ok=True)
     return target
 

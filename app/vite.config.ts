@@ -36,8 +36,6 @@ export default defineConfig({
 			}
 		})
 	],
-	// Disable Vite's default esbuild TS transpilation since SWC handles it now.
-	esbuild: false,
 	server: {
 		headers: {
 			// SharedArrayBuffer / wasm pthreads (Z3, DuckDB coi) require cross-origin isolation.
@@ -52,6 +50,27 @@ export default defineConfig({
 		headers: {
 			'Cross-Origin-Opener-Policy': 'same-origin',
 			'Cross-Origin-Embedder-Policy': 'require-corp'
+		}
+	},
+	worker: {
+		format: 'es',
+		rollupOptions: {
+			external: ['__sveltekit/*', '__sveltekit/*?*']
+		},
+		plugins() {
+			return [
+				{
+					name: 'worker-sveltekit-env-stub',
+					resolveId(id) {
+						if (id === '__sveltekit/environment') return id;
+					},
+					load(id) {
+						if (id === '__sveltekit/environment') {
+							return 'export const browser = false; export const dev = false; export const building = true; export const version = "0.0.0";';
+						}
+					}
+				}
+			];
 		}
 	}
 });

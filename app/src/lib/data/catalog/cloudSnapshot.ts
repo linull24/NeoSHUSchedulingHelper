@@ -33,11 +33,11 @@ export function hasCloudSnapshot(termId: string): boolean {
 	}
 }
 
-const BUNDLED_CURRENT = import.meta.glob('../../../../../crawler/data/current.json', {
+const BUNDLED_CURRENT = import.meta.glob('../../../../static/crawler/data/current.json', {
 	eager: true,
 	import: 'default'
 });
-const BUNDLED_TERMS = import.meta.glob('../../../../../crawler/data/terms/*.json', {
+const BUNDLED_TERMS = import.meta.glob('../../../../static/crawler/data/terms/*.json', {
 	eager: true,
 	import: 'default'
 });

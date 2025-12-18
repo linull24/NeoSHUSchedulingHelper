@@ -59,8 +59,10 @@ function canUseWorker() {
 	return !import.meta.env?.SSR && typeof Worker !== 'undefined';
 }
 
-function createWorkerSlot(): WorkerSlot {
-	const worker = new Worker(new URL('./solver.worker.ts', import.meta.url), { type: 'module' });
+async function createWorkerSlot(): Promise<WorkerSlot> {
+	const mod = await import('./solver.worker?worker');
+	const WorkerCtor = mod.default as typeof Worker;
+	const worker = new WorkerCtor();
 	const slot: WorkerSlot = { worker, inflight: 0, pending: new Map() };
 
 	worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
@@ -84,16 +86,22 @@ function createWorkerSlot(): WorkerSlot {
 	return slot;
 }
 
-function ensureWorkerPool(): WorkerSlot[] | null {
+let workerPoolPromise: Promise<WorkerSlot[] | null> | null = null;
+
+async function ensureWorkerPool(): Promise<WorkerSlot[] | null> {
 	if (!canUseWorker()) return null;
 	if (workerPool) return workerPool;
+	if (workerPoolPromise) return workerPoolPromise;
 
 	const config = getSolverConfig();
 	const count = Math.max(0, Math.floor(config.worker.poolSize));
 	if (count === 0) return null;
 
-	workerPool = Array.from({ length: count }, () => createWorkerSlot());
-	return workerPool;
+	workerPoolPromise = Promise.all(Array.from({ length: count }, () => createWorkerSlot())).then((slots) => {
+		workerPool = slots;
+		return workerPool;
+	});
+	return workerPoolPromise;
 }
 
 function pickWorkerSlot(slots: WorkerSlot[]): WorkerSlot {
@@ -105,7 +113,7 @@ function pickWorkerSlot(slots: WorkerSlot[]): WorkerSlot {
 }
 
 export async function solveDesiredWithPlanInWorker(payload: SolvePayload): Promise<SolveDesiredOutput> {
-	const slots = ensureWorkerPool();
+	const slots = await ensureWorkerPool();
 	if (!slots) {
 		return solveDesiredWithPlan({
 			data: courseDataset,

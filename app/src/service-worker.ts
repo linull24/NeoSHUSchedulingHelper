@@ -57,20 +57,21 @@ self.addEventListener('fetch', (event) => {
 		(async () => {
 			const cache = await caches.open(CACHE_NAME);
 
-			if (ASSETS.includes(url.pathname)) {
-				const cached = await cache.match(event.request);
-				if (cached) return withIsolationHeaders(cached);
-			}
+			const cached = await cache.match(event.request);
+			if (cached) return withIsolationHeaders(cached);
 
 			try {
 				const response = await fetch(event.request);
+				if (response.ok && (ASSETS.includes(url.pathname) || url.pathname.startsWith('/crawler/data/'))) {
+					cache.put(event.request, response.clone()).catch(() => {});
+				}
 				return withIsolationHeaders(response);
 			} catch {
 				if (event.request.mode === 'navigate') {
 					const fallback = await cache.match(`${BASE_PATH}/`);
 					if (fallback) return withIsolationHeaders(fallback);
 				}
-				throw new Error('Network error and no cache hit');
+				return new Response('offline', { status: 503, statusText: 'Offline' });
 			}
 		})()
 	);

@@ -2,7 +2,7 @@ export interface DatasetConfig {
 	/**
 	 * Term identifier.
 	 *
-	 * Frontend will load `crawler/data/terms/<termId>.json` as the raw snapshot.
+	 * Frontend will load `/crawler/data/terms/<termId>.json` as the raw snapshot (served from static assets).
 	 */
 	termId: string;
 	/**
@@ -23,7 +23,7 @@ export interface DatasetConfig {
 
 const DEFAULT_DATASET_CONFIG: DatasetConfig = {
 	termId: '2025-16',
-	snapshotPath: '../crawler/data/terms/2025-16.json',
+	snapshotPath: '/crawler/data/terms/2025-16.json',
 	parserId: '2025Spring',
 	seedSelectionIds: []
 };

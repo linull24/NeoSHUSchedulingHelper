@@ -56,7 +56,7 @@ function joinPath(root: string, ...parts: string[]) {
 }
 
 function resolveLocalCrawlerRoot() {
-	const configured = (readEnvNonEmpty('VITE_CRAWLER_ROOT') ?? '..').replace(/\/+$/, '');
+	const configured = (readEnvNonEmpty('VITE_CRAWLER_ROOT') ?? '../static').replace(/\/+$/, '');
 	return configured.endsWith('/crawler') ? configured : joinPath(configured, 'crawler');
 }
 

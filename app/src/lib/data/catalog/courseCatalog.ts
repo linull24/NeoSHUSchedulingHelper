@@ -21,7 +21,7 @@ import { readCloudSnapshot } from './cloudSnapshot';
 
 const datasetConfig = getDatasetConfig();
 
-const RAW_SNAPSHOT_MODULES = import.meta.glob('../../../../../crawler/data/terms/*.json', {
+const RAW_SNAPSHOT_MODULES = import.meta.glob('../../../../static/crawler/data/terms/*.json', {
 	eager: true,
 	import: 'default'
 });
