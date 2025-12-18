@@ -738,7 +738,7 @@ export const zhCN = {
       },
       statuses: {
         loading: '正在读取教务系统状态...',
-        backendMissing: '由于CORS限制，请安装Allow CORS拓展并临时允许跨域访问。',
+        backendMissing: '由于CORS 暂时不可用',
         loggedIn: '已登录教务系统。',
         loggedOut: '未登录教务系统。',
         roundSelected: '已切换选课轮次：{round}',
