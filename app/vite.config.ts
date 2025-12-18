@@ -12,6 +12,7 @@ export default defineConfig({
 	define: {
 		global: 'globalThis'
 	},
+	base: process.env.BASE_PATH ?? '',
 	optimizeDeps: {
 		esbuildOptions: {
 			define: {
