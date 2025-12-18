@@ -748,7 +748,7 @@ export const enUS = {
       },
       statuses: {
         loading: 'Loading JWXT status...',
-        backendMissing: 'JWXT backend is not wired yet.',
+        backendMissing: 'According to the limit of CORS,please install Allow CORS plugin and enable CORS TEMPORATYLY',
         loggedIn: 'Logged in to JWXT.',
         loggedOut: 'Not logged in to JWXT.',
         roundSelected: 'Enrollment round switched: {round}',
