@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -16,6 +16,11 @@ concurrency:
 
 jobs:
   build:
+    # Prevent infinite loops:
+    # - This workflow may push snapshot commits (crawler outputs) using github-actions[bot].
+    # - The same run already has the updated files in its working tree and will build+deploy them.
+    # - Therefore, the follow-up bot commit should NOT trigger another build+deploy cycle.
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,7 +36,41 @@ jobs:
 
       - run: npm ci
 
+      - name: Crawl JWXT snapshots (SSG bundled)
+        # Cloud-side fallback only: prefer frontend-first runtime.
+        # This step updates SSG-bundled snapshots under `app/static/crawler/data/**`.
+        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
+        run: npm run crawl:jwxt
+        env:
+          JWXT_USERID: ${{ secrets.JWXT_USERID }}
+          JWXT_PASSWORD: ${{ secrets.JWXT_PASSWORD }}
+          JWXT_CRAWL_CONCURRENCY: 4
+
+      - name: Commit JWXT snapshots (SSG bundled)
+        # Commit+push snapshot updates back to the repo.
+        #
+        # Important:
+        # - This commit is produced by github-actions[bot].
+        # - The workflow is guarded by `if: github.actor != github-actions[bot]` above,
+        #   so this push will NOT cause an infinite loop.
+        # - Deployment uses the CURRENT working tree (including these new files),
+        #   so we still deploy the latest snapshots in the same run.
+        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/static/crawler/data
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(crawler): auto update JWXT snapshots [skip ci]"
+          # Push to the same branch that triggered this workflow.
+          git push origin "HEAD:${{ github.ref_name }}"
+
       - name: Build site
+        # Static output (SSG): includes the freshly crawled+committed snapshots.
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}
@@ -42,6 +81,7 @@ jobs:
 
   deploy:
     needs: build
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

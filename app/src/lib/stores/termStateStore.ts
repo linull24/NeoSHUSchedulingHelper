@@ -1,4 +1,4 @@
-import { derived, get, writable, type Readable } from 'svelte/store';
+import { derived, get, readable, writable, type Readable } from 'svelte/store';
 import type { TermAction, TermEffect, TermState } from '../data/termState/types';
 import { commitTermState, loadOrInitTermState } from '../data/termState/repository';
 import { reduceTermState } from '../data/termState/reducer';
@@ -10,6 +10,7 @@ import { parseTermStateBundleBase64 } from '../data/termState/bundle';
 import type { DesiredLock, DesiredState, SoftConstraint } from '../data/desired/types';
 import { buildSnapshotMetadata } from '../data/utils/snapshot';
 import { createEmptySelectionMatrixState } from '../data/selectionMatrix';
+import type { SelectionMatrixState } from '../data/selectionMatrix';
 import type { HardConstraint } from '../data/solver/ConstraintSolver';
 import { solveDesiredWithPlanInWorker } from '../data/solver/solverWorkerClient';
 import {
@@ -25,6 +26,9 @@ import { getGistFileContent, syncGist } from '../data/github/gistSync';
 import { assertNever } from '../data/termState/types';
 import { deriveGroupKey } from '../data/termState/groupKey';
 import { collapseCoursesByName } from './courseDisplaySettings';
+import { appPolicy } from '../policies';
+import type { PolicyGateModule, PolicyGateResult } from '../policies/solver/types';
+import { buildJwxtBatchHardConstraintsForZ3 } from '../policies/jwxt/batchFilter';
 
 type TermStateStatus =
 	| { kind: 'idle' }
@@ -41,6 +45,42 @@ let loadPromise: Promise<void> | null = null;
 let dispatchQueue: Promise<void> = Promise.resolve();
 let effectQueue: Promise<void> = Promise.resolve();
 
+let policyBypassOnce: { key: string } | null = null;
+
+let persistRunning = false;
+let persistPendingState: TermState | null = null;
+
+function queuePersist(state: TermState) {
+	persistPendingState = state;
+	if (persistRunning) return;
+	persistRunning = true;
+	void (async () => {
+		for (;;) {
+			const next = persistPendingState;
+			if (!next) break;
+			persistPendingState = null;
+			try {
+				const committed = await commitTermState(next, currentVersion);
+				currentVersion = committed.version;
+				// Keep store in sync with persisted canonical state, but avoid unnecessary updates.
+				if (get(stateStore) !== committed.state) stateStore.set(committed.state);
+			} catch (error) {
+				const message = errorMessage(error);
+				if (message === '[TermState] OCC_CONFLICT') {
+					const loaded = await loadOrInitTermState();
+					currentVersion = loaded.version;
+					stateStore.set(loaded.state);
+					continue;
+				}
+				// Persist failures should not block UI updates; leave the in-memory state as-is.
+				// Next actions may retry persistence naturally.
+				continue;
+			}
+		}
+		persistRunning = false;
+	})();
+}
+
 type PendingDispatch = {
 	action: TermAction;
 	resolveResult: (result: DispatchResult) => void;
@@ -54,15 +94,44 @@ export const termState: Readable<TermState | null> = derived(stateStore, ($state
 export const termStateStatus: Readable<TermStateStatus> = derived(statusStore, ($status) => $status);
 export const termStateAlert: Readable<TermStateAlert | null> = derived(alertStore, ($alert) => $alert);
 
-export const selectedEntryIds = derived(termState, ($state) => new Set<string>(($state?.selection.selected ?? []) as unknown as string[]));
-export const wishlistSectionIds = derived(
-	termState,
-	($state) => new Set<string>(($state?.selection.wishlistSections ?? []) as unknown as string[])
-);
+// PERF: Avoid emitting new Set() objects on every termState update.
+// Svelte's `derived` uses `safe_not_equal`, which treats objects as always-changed and will re-run downstream
+// computations (e.g. filtering 4k+ courses) even when the underlying selection didn't change.
+export const selectedEntryIds: Readable<Set<string>> = readable(new Set<string>(), (set) => {
+	let lastSig: string | null = null;
+	return termState.subscribe(($state) => {
+		const sig = $state?.selection?.selectedSig ? String($state.selection.selectedSig as any) : null;
+		if (sig && sig === lastSig) return;
+		lastSig = sig;
+		const ids = (($state?.selection.selected ?? []) as unknown as string[]) ?? [];
+		set(new Set<string>(ids));
+	});
+});
+
+export const wishlistSectionIds: Readable<Set<string>> = readable(new Set<string>(), (set) => {
+	let lastRef: unknown = null;
+	return termState.subscribe(($state) => {
+		const ref = ($state?.selection.wishlistSections ?? null) as unknown;
+		if (ref && ref === lastRef) return;
+		lastRef = ref;
+		const ids = (($state?.selection.wishlistSections ?? []) as unknown as string[]) ?? [];
+		set(new Set<string>(ids));
+	});
+});
 
 export type TermStateAlert = {
 	kind: 'SOLVER_INVALID_CONSTRAINTS';
 	issues: SolverInvalidIssue[];
+} | {
+	kind: 'POLICY_CONFIRM';
+	titleKey: string;
+	bodyKey: string;
+	titleParams?: Record<string, any>;
+	bodyParams?: Record<string, any>;
+	confirmLabelKey?: string;
+	cancelLabelKey?: string;
+	bypassKey: string;
+	after: TermAction;
 } | {
 	kind: 'SEL_CLEAR_WISHLIST_IMPACT';
 	lockIds: string[];
@@ -88,7 +157,7 @@ export function clearTermStateAlert() {
 	alertStore.set(null);
 }
 
-export async function setAutoSolveEnabled(nextEnabled: boolean) {
+export async function setAutoSolveEnabled(nextEnabled: boolean): Promise<DispatchResult | void> {
 	await ensureTermStateLoaded();
 	const current = get(stateStore);
 	if (!current) return;
@@ -96,7 +165,6 @@ export async function setAutoSolveEnabled(nextEnabled: boolean) {
 	if (nextEnabled === enabled) return;
 
 	if (nextEnabled) {
-		if (current.settings.selectionMode === 'overflowSpeedRaceMode') return;
 		const backup = {
 			at: Date.now() as any,
 			selection: {
@@ -111,14 +179,18 @@ export async function setAutoSolveEnabled(nextEnabled: boolean) {
 
 		// Auto mode is group-oriented: force list collapse to group mode.
 		collapseCoursesByName.set(true);
-		void dispatchTermAction({
+		return await dispatchTermAction({
 			type: 'SETTINGS_UPDATE',
 			patch: { autoSolveEnabled: true, autoSolveBackup: backup as any }
 		});
-		return;
 	}
 
-	void dispatchTermAction({ type: 'SETTINGS_UPDATE', patch: { autoSolveEnabled: false } });
+	return await dispatchTermAction({ type: 'SETTINGS_UPDATE', patch: { autoSolveEnabled: false } });
+}
+
+export async function dispatchTermActionWithPolicyBypass(action: TermAction, bypassKey: string) {
+	policyBypassOnce = { key: bypassKey };
+	return dispatchTermAction(action);
 }
 
 function buildAutoSolveTimeSoftConstraints(settings: TermState['settings']): SoftConstraint[] {
@@ -152,6 +224,7 @@ function parseEntryId(entryId: string) {
 }
 
 function buildGroupKeyToSectionIdsIndex() {
+	if (cachedGroupKeyToSectionIdsIndex) return cachedGroupKeyToSectionIdsIndex;
 	const map = new Map<string, string[]>();
 	for (const entry of courseCatalogMap.values()) {
 		const groupKey = deriveGroupKey(entry) as unknown as string;
@@ -162,10 +235,12 @@ function buildGroupKeyToSectionIdsIndex() {
 	for (const [key, list] of map.entries()) {
 		map.set(key, Array.from(new Set(list)).sort());
 	}
+	cachedGroupKeyToSectionIdsIndex = map;
 	return map;
 }
 
 function buildCourseHashToSectionIdsIndex() {
+	if (cachedCourseHashToSectionIdsIndex) return cachedCourseHashToSectionIdsIndex;
 	const map = new Map<string, string[]>();
 	for (const entry of courseCatalogMap.values()) {
 		const courseHash = (entry.courseHash ?? '').trim();
@@ -177,7 +252,42 @@ function buildCourseHashToSectionIdsIndex() {
 	for (const [key, list] of map.entries()) {
 		map.set(key, Array.from(new Set(list)).sort());
 	}
+	cachedCourseHashToSectionIdsIndex = map;
 	return map;
+}
+
+let cachedGroupKeyToSectionIdsIndex: Map<string, string[]> | null = null;
+let cachedCourseHashToSectionIdsIndex: Map<string, string[]> | null = null;
+
+type CachedSelectionMatrix = {
+	key: string;
+	matrix: SelectionMatrixState;
+};
+let cachedSolverSelectionMatrix: CachedSelectionMatrix | null = null;
+
+function buildSolverSelectionMatrix(state: TermState, source: SelectionMatrixState['meta']['source'] = 'term-state') {
+	const selected = state.selection.selected as unknown as string[];
+	const periods = Math.max(12, selected.length || 1);
+	const cacheKey = `${state.selection.selectedSig}::${periods}`;
+	if (cachedSolverSelectionMatrix?.key === cacheKey) return cachedSolverSelectionMatrix.matrix;
+
+	const selection = createEmptySelectionMatrixState({ days: 1, periods }, source);
+	selected.forEach((entryId, index) => {
+		const raw = entryId as unknown as string;
+		const sep = raw.indexOf(':');
+		const courseHash = sep === -1 ? raw : raw.slice(0, sep);
+		const sectionId = sep === -1 ? raw : raw.slice(sep + 1);
+		const catalog = courseCatalogMap.get(raw);
+		selection.matrix[0][index] = {
+			courseHash,
+			sectionId,
+			title: catalog?.title,
+			teacherName: catalog?.teacher,
+			credit: catalog?.credit
+		};
+	});
+	cachedSolverSelectionMatrix = { key: cacheKey, matrix: selection };
+	return selection;
 }
 
 function collectSolverCandidateSectionIds(state: TermState): string[] {
@@ -499,6 +609,10 @@ function prepareAction(state: TermState, action: TermAction): PreparedAction {
 	}
 
 	if (effectiveAction.type === 'SOLVER_RUN') {
+		const policyGate = resolvePolicyGate(appPolicy.solver.getPolicy().manualSolverRun, state);
+		const gated = applyPolicyGate(policyGate, effectiveAction);
+		if (gated) return gated;
+
 		const issues = collectSolverRunIssues(state);
 		if (issues.length) {
 			return {
@@ -507,6 +621,12 @@ function prepareAction(state: TermState, action: TermAction): PreparedAction {
 				setAlert: { kind: 'SOLVER_INVALID_CONSTRAINTS', issues }
 			};
 		}
+	}
+
+	if (effectiveAction.type === 'AUTO_SOLVE_RUN') {
+		const policyGate = resolvePolicyGate(appPolicy.solver.getPolicy().autoSolveRun, state);
+		const gated = applyPolicyGate(policyGate, effectiveAction);
+		if (gated) return gated;
 	}
 
 	if (effectiveAction.type === 'SEL_CLEAR_WISHLIST') {
@@ -521,6 +641,45 @@ function prepareAction(state: TermState, action: TermAction): PreparedAction {
 	}
 
 	return { ok: true, action: effectiveAction };
+}
+
+function applyPolicyGate(policyGate: PolicyGateResult | null, action: TermAction): PreparedAction | null {
+	if (!policyGate || policyGate.ok) return null;
+
+	if (policyGate.kind === 'block') {
+		return { ok: false, error: { kind: 'VALIDATION', message: policyGate.message } };
+	}
+
+	const bypassed = policyBypassOnce?.key === policyGate.bypassKey;
+	if (bypassed) {
+		policyBypassOnce = null;
+		return null;
+	}
+
+	return {
+		ok: false,
+		error: { kind: 'DIALOG_REQUIRED', dialogId: policyGate.dialogId, message: `DIALOG_REQUIRED:${policyGate.dialogId}` },
+		setAlert: {
+			kind: 'POLICY_CONFIRM',
+			titleKey: policyGate.titleKey,
+			bodyKey: policyGate.bodyKey,
+			titleParams: policyGate.titleParams,
+			bodyParams: policyGate.bodyParams,
+			confirmLabelKey: policyGate.confirmLabelKey,
+			cancelLabelKey: policyGate.cancelLabelKey,
+			bypassKey: policyGate.bypassKey,
+			after: action
+		}
+	};
+}
+
+function resolvePolicyGate(gates: PolicyGateModule[], state: TermState): PolicyGateResult | null {
+	for (const gate of gates) {
+		const out = gate.apply(state);
+		if (!out) continue;
+		if (!out.ok) return out;
+	}
+	return null;
 }
 
 async function processDispatchBatch(batch: PendingDispatch[]) {
@@ -591,11 +750,11 @@ async function processDispatchBatch(batch: PendingDispatch[]) {
 	if (!okItems.length) return;
 
 	try {
-		const committed = await commitTermState(working, currentVersion);
-		currentVersion = committed.version;
-		stateStore.set(committed.state);
-
-		for (const item of okItems) item.resolveResult({ ok: true, state: committed.state });
+		// Optimistic UI update: commit to the local DB in background to avoid UI jank
+		// when rapidly adding/removing courses (DuckDB/JSON payload can be expensive).
+		stateStore.set(working);
+		for (const item of okItems) item.resolveResult({ ok: true, state: working });
+		queuePersist(working);
 
 		const effects = okItems.flatMap((item) => item.effects);
 		const done = effects.length ? scheduleEffects(effects) : Promise.resolve();
@@ -753,7 +912,9 @@ async function runEffect(effect: TermEffect) {
 			}
 			try {
 				const candidateSectionIds = collectSolverCandidateSectionIds(current);
-				const baselineHard = buildSolverBaselineHardConstraints(current, candidateSectionIds);
+				const baselineHard = buildSolverBaselineHardConstraints(current, candidateSectionIds).concat(
+					buildJwxtBatchHardConstraintsForZ3(current, candidateSectionIds)
+				);
 				const meta = buildSnapshotMetadata({
 					version: String(current.history.entries.length),
 					updatedAt: Date.now(),
@@ -769,22 +930,7 @@ async function runEffect(effect: TermEffect) {
 					softConstraints: current.solver.constraints.soft
 				};
 
-				const periods = Math.max(12, current.selection.selected.length || 1);
-				const selection = createEmptySelectionMatrixState({ days: 1, periods }, 'term-state');
-				current.selection.selected.forEach((entryId, index) => {
-					const raw = entryId as unknown as string;
-					const sep = raw.indexOf(':');
-					const courseHash = sep === -1 ? raw : raw.slice(0, sep);
-					const sectionId = sep === -1 ? raw : raw.slice(sep + 1);
-					const catalog = courseCatalogMap.get(raw);
-					selection.matrix[0][index] = {
-						courseHash,
-						sectionId,
-						title: catalog?.title,
-						teacherName: catalog?.teacher,
-						credit: catalog?.credit
-					};
-				});
+				const selection = buildSolverSelectionMatrix(current, 'term-state');
 
 				const vacancyPolicy = 'IGNORE_VACANCY' as const;
 				const output = await solveDesiredWithPlanInWorker({
@@ -809,14 +955,20 @@ async function runEffect(effect: TermEffect) {
 				const current = get(stateStore);
 				if (!current) return;
 				if (!current.settings.autoSolveEnabled) return;
-				if (current.settings.selectionMode === 'overflowSpeedRaceMode') return;
 
 				const wishlistGroups = current.selection.wishlistGroups as unknown as string[];
 				if (!wishlistGroups.length) return;
 
+				// Policy hook: this is a Z3-powered "entry filter" used by auto mode.
+				// No UI dialogs here: if gated, we just skip (best-effort).
+				const policyGate = resolvePolicyGate(appPolicy.solver.getPolicy().autoEntryFilter, current);
+				if (policyGate && policyGate.ok === false) return;
+
 				try {
 					const candidateSectionIds = collectAutoSolveCandidateSectionIds(current);
-					const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds);
+					const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds).concat(
+						buildJwxtBatchHardConstraintsForZ3(current, candidateSectionIds)
+					);
 					const meta = buildSnapshotMetadata({
 						version: String(current.history.entries.length),
 						updatedAt: Date.now(),
@@ -840,22 +992,7 @@ async function runEffect(effect: TermEffect) {
 						softConstraints: groupSoft
 					};
 
-					const periods = Math.max(12, current.selection.selected.length || 1);
-					const selection = createEmptySelectionMatrixState({ days: 1, periods }, 'term-state');
-					current.selection.selected.forEach((entryId, index) => {
-						const raw = entryId as unknown as string;
-						const sep = raw.indexOf(':');
-						const courseHash = sep === -1 ? raw : raw.slice(0, sep);
-						const sectionId = sep === -1 ? raw : raw.slice(sep + 1);
-						const catalog = courseCatalogMap.get(raw);
-						selection.matrix[0][index] = {
-							courseHash,
-							sectionId,
-							title: catalog?.title,
-							teacherName: catalog?.teacher,
-							credit: catalog?.credit
-						};
-					});
+					const selection = buildSolverSelectionMatrix(current, 'term-state');
 
 					const vacancyPolicy = 'IGNORE_VACANCY' as const;
 					const output = await solveDesiredWithPlanInWorker({
@@ -903,10 +1040,6 @@ async function runEffect(effect: TermEffect) {
 					return;
 			}
 			try {
-				if (current.settings.selectionMode === 'overflowSpeedRaceMode') {
-					await dispatchTermAction({ type: 'AUTO_SOLVE_ERR', runId: effect.runId, error: 'disabled:overflowSpeedRaceMode' });
-					return;
-				}
 				const wishlistGroups = current.selection.wishlistGroups as unknown as string[];
 				const selected = current.selection.selected as unknown as string[];
 				if (!wishlistGroups.length && !selected.length) {
@@ -915,9 +1048,9 @@ async function runEffect(effect: TermEffect) {
 				}
 
 				const candidateSectionIds = collectAutoSolveCandidateSectionIds(current);
-				const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds).concat(
-					buildAutoSolveWishlistGroupHardConstraints(current, candidateSectionIds)
-				);
+				const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds)
+					.concat(buildAutoSolveWishlistGroupHardConstraints(current, candidateSectionIds))
+					.concat(buildJwxtBatchHardConstraintsForZ3(current, candidateSectionIds));
 				const meta = buildSnapshotMetadata({
 					version: String(current.history.entries.length),
 					updatedAt: Date.now(),
@@ -933,22 +1066,7 @@ async function runEffect(effect: TermEffect) {
 					softConstraints: current.solver.constraints.soft.concat(buildAutoSolveTimeSoftConstraints(current.settings))
 				};
 
-				const periods = Math.max(12, current.selection.selected.length || 1);
-				const selection = createEmptySelectionMatrixState({ days: 1, periods }, 'term-state');
-				current.selection.selected.forEach((entryId, index) => {
-					const raw = entryId as unknown as string;
-					const sep = raw.indexOf(':');
-					const courseHash = sep === -1 ? raw : raw.slice(0, sep);
-					const sectionId = sep === -1 ? raw : raw.slice(sep + 1);
-					const catalog = courseCatalogMap.get(raw);
-					selection.matrix[0][index] = {
-						courseHash,
-						sectionId,
-						title: catalog?.title,
-						teacherName: catalog?.teacher,
-						credit: catalog?.credit
-					};
-				});
+					const selection = buildSolverSelectionMatrix(current, 'term-state');
 
 				const vacancyPolicy = 'IGNORE_VACANCY' as const;
 				const output = await solveDesiredWithPlanInWorker({
@@ -996,11 +1114,6 @@ async function runEffect(effect: TermEffect) {
 				return;
 			}
 			try {
-				if (current.settings.selectionMode === 'overflowSpeedRaceMode') {
-					alertStore.set({ kind: 'AUTO_SOLVE_EXIT_FAILED', error: 'disabled:overflowSpeedRaceMode' });
-					await dispatchTermAction({ type: 'AUTO_SOLVE_ERR', runId: effect.runId, error: 'disabled:overflowSpeedRaceMode' });
-					return;
-				}
 				const wishlistGroups = current.selection.wishlistGroups as unknown as string[];
 				if (!wishlistGroups.length) {
 					alertStore.set({ kind: 'AUTO_SOLVE_EXIT_FAILED', error: 'no wishlist groups' });
@@ -1009,9 +1122,9 @@ async function runEffect(effect: TermEffect) {
 				}
 
 				const candidateSectionIds = collectAutoSolveCandidateSectionIds(current);
-				const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds).concat(
-					buildAutoSolveWishlistGroupHardConstraints(current, candidateSectionIds)
-				);
+				const baselineHard = buildAutoSolvePinnedSelectedHardConstraints(current, candidateSectionIds)
+					.concat(buildAutoSolveWishlistGroupHardConstraints(current, candidateSectionIds))
+					.concat(buildJwxtBatchHardConstraintsForZ3(current, candidateSectionIds));
 				const meta = buildSnapshotMetadata({
 					version: String(current.history.entries.length),
 					updatedAt: Date.now(),
@@ -1027,22 +1140,7 @@ async function runEffect(effect: TermEffect) {
 					softConstraints: current.solver.constraints.soft.concat(buildAutoSolveTimeSoftConstraints(current.settings))
 				};
 
-				const periods = Math.max(12, current.selection.selected.length || 1);
-				const selection = createEmptySelectionMatrixState({ days: 1, periods }, 'term-state');
-				current.selection.selected.forEach((entryId, index) => {
-					const raw = entryId as unknown as string;
-					const sep = raw.indexOf(':');
-					const courseHash = sep === -1 ? raw : raw.slice(0, sep);
-					const sectionId = sep === -1 ? raw : raw.slice(sep + 1);
-					const catalog = courseCatalogMap.get(raw);
-					selection.matrix[0][index] = {
-						courseHash,
-						sectionId,
-						title: catalog?.title,
-						teacherName: catalog?.teacher,
-						credit: catalog?.credit
-					};
-				});
+				const selection = buildSolverSelectionMatrix(current, 'term-state');
 
 				const vacancyPolicy = 'IGNORE_VACANCY' as const;
 				const output = await solveDesiredWithPlanInWorker({

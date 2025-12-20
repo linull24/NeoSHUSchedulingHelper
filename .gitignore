@@ -12,6 +12,7 @@ crawler/.jwxt_cookie_rsa.pem
 
 # Agent temporary files
 agentTemps/
+app/static/backenduserscript/userconfig/local.json
 openspec/
 
 AGENTS.md

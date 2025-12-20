@@ -5,6 +5,13 @@ Define the contract for interacting with JWXT as an external, side-effecting clo
 
 ## Requirements
 
+### Requirement: JWXT is atomic & emergency-only (frontend-first)
+JWXT integration MUST remain a small set of **atomic, user-initiated** operations (sync/push/enroll/drop/breakdown). Any “automation” (e.g. polling push) is considered **emergency tooling**:
+- it MUST be explicitly enabled by the user (no silent background enable),
+- it MUST be observable and stoppable (task list + stop),
+- it MUST still follow the preview/confirm contract for any real side-effects,
+- it MUST NOT become a long-running backend service (SSG-first; userscript provides the runtime IO capability).
+
 ### Requirement: Cloud operations must be previewed as a concrete diff before execution
 Any operation that changes real JWXT enrollment MUST show a concrete `{toEnroll,toDrop}` diff (or a single target) and require user confirmation.
 
@@ -37,4 +44,3 @@ Action Log entries and state bundles MUST NOT store user password, cookie, token
 - `openspec/changes/JWXT-DIFF-1/apply.md` (dryRun diff preview)
 - `openspec/changes/JWXT-SYNC-1/apply.md` (mapping safety checks)
 - `openspec/changes/UNDO-SM-1/design.md` (Term-State invariants, cloudDrift contract)
-

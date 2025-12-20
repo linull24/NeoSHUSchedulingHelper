@@ -101,6 +101,60 @@ async function initDuckDB(): Promise<QueryLayer> {
 
 	const conn = await db.connect();
 	let closed = false;
+
+	// Perf: cache compiled named-param templates and prepared statements.
+	// This keeps the query path fast for hot loops (e.g. state repo reads/writes, UI lists).
+	// Keep cache sizes small to avoid unbounded growth.
+	const COMPILED_LRU_MAX = 64;
+	const STMT_LRU_MAX = 24;
+	const compiledCache = new Map<string, { sql: string; keys: string[] }>();
+	const stmtCache = new Map<string, any>();
+
+	function touchLru<K, V>(map: Map<K, V>, key: K, value: V) {
+		if (map.has(key)) map.delete(key);
+		map.set(key, value);
+	}
+
+	function evictLru<K, V>(map: Map<K, V>, max: number, onEvict?: (value: V) => void) {
+		while (map.size > max) {
+			const firstKey = map.keys().next().value as K | undefined;
+			if (firstKey === undefined) return;
+			const v = map.get(firstKey) as V;
+			map.delete(firstKey);
+			onEvict?.(v);
+		}
+	}
+
+	function compileNamedParamsForDuckDBCached(sql: string): { sql: string; keys: string[] } {
+		const cached = compiledCache.get(sql);
+		if (cached) {
+			touchLru(compiledCache, sql, cached);
+			return cached;
+		}
+		const compiled = compileNamedParamsPlanForDuckDB(sql);
+		touchLru(compiledCache, sql, compiled);
+		evictLru(compiledCache, COMPILED_LRU_MAX);
+		return compiled;
+	}
+
+	async function getPreparedStatement(compiledSql: string) {
+		const existing = stmtCache.get(compiledSql);
+		if (existing) {
+			touchLru(stmtCache, compiledSql, existing);
+			return existing;
+		}
+		const stmt = await conn.prepare(compiledSql);
+		touchLru(stmtCache, compiledSql, stmt);
+		evictLru(stmtCache, STMT_LRU_MAX, (v) => {
+			try {
+				void v?.close?.();
+			} catch {
+				// ignore
+			}
+		});
+		return stmt;
+	}
+
 	return {
 		engine: 'duckdb',
 		async exec<T>(sql: string, params?: Record<string, unknown>): Promise<T[]> {
@@ -108,17 +162,26 @@ async function initDuckDB(): Promise<QueryLayer> {
 			if (!params || Object.keys(params).length === 0) {
 				return (await conn.query(sql)).toArray() as T[];
 			}
-			const compiled = compileNamedParamsForDuckDB(sql, params);
-			const stmt = await conn.prepare(compiled.sql);
-			try {
-				return (await stmt.query(...compiled.values)).toArray() as T[];
-			} finally {
-				await stmt.close();
-			}
+			const compiled = compileNamedParamsForDuckDBCached(sql);
+			const values = compiled.keys.map((key) => {
+				if (!(key in params)) throw new Error(`缺少 SQL 参数 :${key}`);
+				return normalizeSqlValue(params[key]);
+			});
+			const stmt = await getPreparedStatement(compiled.sql);
+			return (await stmt.query(...values)).toArray() as T[];
 		},
 		async close() {
 			if (closed) return;
 			closed = true;
+			for (const stmt of stmtCache.values()) {
+				try {
+					await stmt?.close?.();
+				} catch {
+					// ignore
+				}
+			}
+			stmtCache.clear();
+			compiledCache.clear();
 			await conn.close();
 			await db.terminate();
 		}
@@ -293,6 +356,109 @@ function compileNamedParamsForDuckDB(
 	}
 
 	return { sql: out, values };
+}
+
+function compileNamedParamsPlanForDuckDB(sql: string): { sql: string; keys: string[] } {
+	const keys: string[] = [];
+
+	let out = '';
+	let i = 0;
+
+	let inSingle = false;
+	let inDouble = false;
+	let inLineComment = false;
+	let inBlockComment = false;
+
+	while (i < sql.length) {
+		const ch = sql[i];
+		const next = i + 1 < sql.length ? sql[i + 1] : '';
+
+		if (inLineComment) {
+			out += ch;
+			if (ch === '\n') inLineComment = false;
+			i += 1;
+			continue;
+		}
+
+		if (inBlockComment) {
+			out += ch;
+			if (ch === '*' && next === '/') {
+				out += next;
+				i += 2;
+				inBlockComment = false;
+				continue;
+			}
+			i += 1;
+			continue;
+		}
+
+		if (inSingle) {
+			out += ch;
+			if (ch === "'" && next === "'") {
+				out += next;
+				i += 2;
+				continue;
+			}
+			if (ch === "'") inSingle = false;
+			i += 1;
+			continue;
+		}
+
+		if (inDouble) {
+			out += ch;
+			if (ch === '"' && next === '"') {
+				out += next;
+				i += 2;
+				continue;
+			}
+			if (ch === '"') inDouble = false;
+			i += 1;
+			continue;
+		}
+
+		if (ch === '-' && next === '-') {
+			out += ch + next;
+			i += 2;
+			inLineComment = true;
+			continue;
+		}
+
+		if (ch === '/' && next === '*') {
+			out += ch + next;
+			i += 2;
+			inBlockComment = true;
+			continue;
+		}
+
+		if (ch === "'") {
+			out += ch;
+			i += 1;
+			inSingle = true;
+			continue;
+		}
+
+		if (ch === '"') {
+			out += ch;
+			i += 1;
+			inDouble = true;
+			continue;
+		}
+
+		if (ch === ':' && next !== ':' && isIdentStart(next)) {
+			let j = i + 1;
+			while (j < sql.length && isIdentPart(sql[j])) j += 1;
+			const name = sql.slice(i + 1, j);
+			out += '?';
+			keys.push(name);
+			i = j;
+			continue;
+		}
+
+		out += ch;
+		i += 1;
+	}
+
+	return { sql: out, keys };
 }
 
 function isIdentStart(ch: string) {

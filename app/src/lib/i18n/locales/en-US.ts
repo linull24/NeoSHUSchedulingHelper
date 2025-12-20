@@ -4,6 +4,15 @@ export const enUS = {
     subtitle: 'Switch dock theme and global preferences.',
     displaySection: 'Display',
     behaviorSection: 'Behavior',
+    filtersSection: 'Filters',
+    minAcceptableBatchLabel: 'Minimum acceptable batch (ranked rounds)',
+    minAcceptableBatchOff: 'No limit',
+    minAcceptableBatchHint:
+      'For ranked rounds: if ★ user batch is available, sections below this threshold will be blocked from enroll.',
+    userscriptSnapshotConcurrencyLabel: 'Userscript concurrency: course details',
+    userscriptSnapshotConcurrencyHint: 'Affects crawl speed; too high may trigger throttling/failures.',
+    userscriptRoundsConcurrencyLabel: 'Userscript concurrency: rounds metadata',
+    userscriptRoundsConcurrencyHint: 'Affects how fast round/Display pages are fetched in parallel.',
     pwaSection: 'App (PWA)',
     theme: 'Theme',
     themeColorLabel: 'Theme color (MD3)',
@@ -84,6 +93,8 @@ export const enUS = {
     dockTitle: 'Course Tools',
     settings: 'Settings',
     optional: 'Optional',
+    refresh: 'Refresh',
+    cancel: 'Cancel',
     selectPlaceholder: 'Select an option',
     crawlStages: {
       context: 'Loading selection context…',
@@ -183,6 +194,10 @@ export const enUS = {
       hint: 'Group selection must be resolved to a specific section before enrolling or syncing.',
       cancel: 'Cancel',
       confirm: 'Select'
+    },
+    policyConfirm: {
+      cancel: 'Cancel',
+      confirm: 'Continue'
     }
   },
   lists: {
@@ -638,6 +653,8 @@ export const enUS = {
       refresh: 'Refresh',
       ping: 'Test connection',
       login: 'Log in',
+      helpUserscript: 'Install backend userscript',
+      helpLink: 'Userscript help',
       logout: 'Log out',
       loginHint: 'Your password is only sent to the local backend. You can optionally save an encrypted session cookie for auto login.',
       loginMethodLabel: 'Login method',
@@ -674,6 +691,46 @@ export const enUS = {
       autoPush: 'Auto push (confirmation required)',
       autoPushHint: 'Auto push is enabled: selection changes will trigger a diff confirmation dialog.',
       autoPushMutedUntil: 'Auto push reminders muted until {time}',
+      pollPush: {
+        toggle: 'Polling push',
+        hint: 'Polling push is running: periodically tries to push your local “selected” to JWXT (userscript required).',
+        confirmTitle: 'Confirm starting polling push',
+        confirmStart: 'Start polling push',
+        started: 'Polling push started',
+        taskLabel: 'Task: {id}',
+        parallelLabel: 'Parallel',
+        applyParallel: 'Apply parallel',
+        stop: 'Stop polling push'
+      },
+      batchPolicyLabel: 'Min acceptable batch',
+      batchPolicyOff: 'Off',
+      batchFilterLabel: 'Batch filter',
+      batchFilterOptions: {
+        all: 'No filter',
+        eligibleOrUnknown: 'Hide known denied (keep unknown)',
+        eligibleOnly: 'Only eligible (requires cache)'
+      },
+      batchPolicyAllowed: 'Allowed',
+      batchPolicyDeniedShort: 'Denied',
+      batchPolicyDenied: 'Your ★ batch is below the minimum acceptable batch ({min}).',
+      batchPolicyNeedUserBatch: 'User batch unavailable: requires userscript login and fetching “Breakdown” once.',
+      batchPolicyUnavailable: '★ user batch unavailable (userscript login required); cannot apply batch policy.',
+      batchPolicyImpossible: 'No chance: your cohort rank is already beyond capacity (full).',
+      breakdownButton: 'Breakdown',
+      breakdownTitle: 'Enrollment breakdown: {course}',
+      breakdownLoading: 'Loading breakdown...',
+      breakdownEmpty: 'No breakdown data.',
+      breakdownHint: 'Data source: JWXT “已选人数明细”.',
+      breakdownNoUserBatch: 'User batch unavailable (requires userscript login).',
+      breakdownUserBatch: 'User batch: {batch}',
+      userBatchStatus: 'User batch: {batch}',
+      userBatchMissing: 'User batch unavailable: not fetched (requires userscript login).',
+      userBatchNeedUserscript: 'User batch unavailable: userscript login required.',
+      breakdownMinBatch: 'Min: {min}',
+      breakdownRankHint: 'Estimated rank interval: {start}-{end}',
+      breakdownColType: 'Type',
+      breakdownColValue: 'Value',
+      breakdownColMarker: 'Marker',
       localCounts: 'Local state: {selected} selected, {wishlist} wishlist',
       lastSyncAt: 'Last sync: {time}',
       lastPushAt: 'Last push: {time}',
@@ -798,6 +855,41 @@ export const enUS = {
         vaultPasswordMismatch: 'Vault passwords do not match',
         persistSaved: 'Saved session for future login',
         persistFailed: 'Failed to save session: {error}'
+      }
+    },
+    jwxtIo: {
+      title: 'Grab / IO',
+      description: 'Shows userscript tasks and interaction logs (stoppable/tunable). Push polling is configured in the JWXT panel.',
+      status: {
+        unavailable: 'JWXT unavailable (install userscript).',
+        notLoggedIn: 'Not logged in to JWXT.',
+        loggedIn: 'Logged in ({userId})'
+      },
+      entry: {
+        title: 'Entry',
+        description: 'Push polling is enabled under JWXT → Sync.',
+        hint: 'This panel is for observability & management (stop tasks / tune concurrency).'
+      },
+      openJwxtPanel: 'Open JWXT panel',
+      runtime: {
+        title: 'Runtime',
+        updatedAt: 'Updated at {time}'
+      },
+      tasks: {
+        title: 'Tasks',
+        subtitle: 'From userscript TaskManager (stoppable).',
+        empty: 'No tasks.',
+        stop: 'Stop',
+        parallelLabel: 'Parallel:',
+        applyConcurrency: 'Apply',
+        invalidConcurrency: 'Invalid concurrency value.'
+      },
+      logs: {
+        title: 'Logs',
+        subtitle: 'From userscript ↔ page interaction.',
+        clear: 'Clear',
+        empty: 'No logs yet.',
+        count: '{count} entries'
       }
     },
     sync: {

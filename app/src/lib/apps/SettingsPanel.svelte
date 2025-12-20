@@ -10,6 +10,7 @@
 		materialSeedColor,
 		fluentAccentColor,
 		collapseCoursesByName,
+		minAcceptableBatchLabel,
 		handleThemeChange,
 		handleMaterialSeedColorChange,
 		setMaterialSeedColorValue,
@@ -24,6 +25,7 @@
 		toggleCrossCampus,
 		setHomeCampusSetting,
 		setSelectionModeSetting,
+		setMinAcceptableBatchSetting,
 		paginationMode,
 		pageSize,
 		pageNeighbors,
@@ -35,17 +37,20 @@
 	} from './SettingsPanel.state';
 	import { translator } from '$lib/i18n';
 	import { localeSetting } from '$lib/stores/localePreference';
+	import { termState, dispatchTermAction } from '$lib/stores/termStateStore';
 	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 	import ListSurface from '$lib/components/ListSurface.svelte';
 	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
 	import AppField from '$lib/primitives/AppField.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
-	import { filterOptions } from '$lib/stores/courseFilters';
+	import { getFilterOptionsForScope } from '$lib/stores/courseFilters';
 	import { ensureServiceWorkerRegistered, type ServiceWorkerStatus } from '$lib/pwa/serviceWorker';
+	import { ENROLLMENT_BATCH_ORDER } from '../../../shared/jwxtCrawler/batchPolicy';
 
 	let t = (key: string) => key;
 	$: t = $translator;
+	const filterOptions = getFilterOptionsForScope('all');
 	$: currentLocale = $localeSetting;
 	$: isMaterialTheme = $selectedTheme === 'material';
 	$: isFluentTheme = $selectedTheme === 'fluent';
@@ -284,6 +289,61 @@
 							<option value="zh-CN">{t('settings.languageOptions.zh')}</option>
 							<option value="en-US">{t('settings.languageOptions.en')}</option>
 						</select>
+					</AppField>
+				</AppControlRow>
+			</AppControlPanel>
+
+			<AppControlPanel
+				title={t('settings.filtersSection')}
+				density="comfortable"
+				class="flex-[1_1_520px] min-w-[min(360px,100%)] max-w-[860px]"
+			>
+				<AppControlRow>
+					<AppField
+						label={t('settings.minAcceptableBatchLabel')}
+						description={t('settings.minAcceptableBatchHint')}
+						class="flex-1 min-w-[min(320px,100%)]"
+					>
+						<select
+							class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-control-border)] bg-[var(--app-color-bg)] px-3 py-2"
+							value={$minAcceptableBatchLabel ?? ''}
+							on:change={(event) => setMinAcceptableBatchSetting((event.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="">{t('settings.minAcceptableBatchOff')}</option>
+							{#each ENROLLMENT_BATCH_ORDER as label (label)}
+								<option value={label}>{label}</option>
+							{/each}
+						</select>
+					</AppField>
+				</AppControlRow>
+				<AppControlRow>
+					<AppField label={t('settings.userscriptSnapshotConcurrencyLabel')} description={t('settings.userscriptSnapshotConcurrencyHint')} class="flex-1 min-w-[min(320px,100%)]">
+						<input
+							class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-control-border)] bg-[var(--app-color-bg)] px-3 py-2 font-mono"
+							type="number"
+							min="1"
+							max="48"
+							step="1"
+							value={$termState?.settings.jwxt.snapshotConcurrency ?? 32}
+							on:change={(e) => {
+								const n = Number.parseInt((e.currentTarget as HTMLInputElement).value || '0', 10);
+								void dispatchTermAction({ type: 'SETTINGS_UPDATE', patch: { jwxt: { ...($termState?.settings.jwxt ?? {}), snapshotConcurrency: n } } as any });
+							}}
+						/>
+					</AppField>
+					<AppField label={t('settings.userscriptRoundsConcurrencyLabel')} description={t('settings.userscriptRoundsConcurrencyHint')} class="flex-1 min-w-[min(320px,100%)]">
+						<input
+							class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-control-border)] bg-[var(--app-color-bg)] px-3 py-2 font-mono"
+							type="number"
+							min="1"
+							max="24"
+							step="1"
+							value={$termState?.settings.jwxt.roundsConcurrency ?? 12}
+							on:change={(e) => {
+								const n = Number.parseInt((e.currentTarget as HTMLInputElement).value || '0', 10);
+								void dispatchTermAction({ type: 'SETTINGS_UPDATE', patch: { jwxt: { ...($termState?.settings.jwxt ?? {}), roundsConcurrency: n } } as any });
+							}}
+						/>
 					</AppField>
 				</AppControlRow>
 			</AppControlPanel>

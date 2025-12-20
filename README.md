@@ -13,6 +13,26 @@
 * SAT求解器使得可以处理复杂的连环调课问题
 * github同步账户数据
 
+致谢：
+
+* 最初作品
+  * [cosformula/CourseSchedulingHelper](https://github.com/cosformula/CourseSchedulingHelper) — @cosformula
+  * [ZKLlab/SHU-scheduling-helper](https://github.com/ZKLlab/SHU-scheduling-helper) — @ZKLlab
+  `xk.shuosc.com：
+  * public contributors，截至 2025-12-19）：
+    * @ZKLlab
+    * @BH4HPA
+    * @hidacow
+    * @chinggg
+    * @Sanstale
+    * @panghaibin
+* 爬虫参考（`crawler/ref/`）：
+  * [shuosc/shu-course-data](https://github.com/shuosc/shu-course-data)
+  * [Kunz1Pro/CUMT-jwxt](https://github.com/Kunz1Pro/CUMT-jwxt)
+  * `crawler/ref/CCSU_course`（长沙学院抢课工具代码参考）
+  * 鼠鼠选课plus @IAFEnvoy
+* 感谢 @ceilf6 的 console 抢课脚本，为后端完善提供参考
+* 感谢 @zichunHU 的第三方对于完善后段的参考
 ---
 
 ## 快速开始

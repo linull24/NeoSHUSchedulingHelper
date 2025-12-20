@@ -1,12 +1,21 @@
 import { browser } from '$app/environment';
 import type { RawCourseSnapshot } from '$lib/data/InsaneCourseParser';
 import { getCrawlerConfig } from '../../../config/crawler';
-import { jwxtCrawlSnapshot, jwxtGetRounds, jwxtGetStatus, jwxtSelectRound } from '../jwxt/jwxtApi';
+import {
+	jwxtCrawlSnapshot,
+	jwxtGetRounds,
+	jwxtGetStatus,
+	jwxtHasUserscriptBackend,
+	jwxtSelectRound,
+	jwxtTaskGet,
+	jwxtTaskStart
+} from '../jwxt/jwxtApi';
 
 const PREFIX = 'cloud.termSnapshot.v1:';
 const META_PREFIX = 'cloud.termSnapshotMeta.v1:';
 const ROUND_PREFIX = 'cloud.termSnapshotRound.v1:';
 const ROUND_META_PREFIX = 'cloud.termSnapshotRoundMeta.v1:';
+const ACTIVE_ROUND_PREFIX = 'cloud.termSnapshotActiveRound.v1:';
 
 export function getCloudSnapshotStorageKey(termId: string) {
 	return `${PREFIX}${termId}`;
@@ -24,9 +33,18 @@ export function getCloudRoundSnapshotMetaKey(termId: string, xkkzId: string) {
 	return `${ROUND_META_PREFIX}${termId}::${xkkzId}`;
 }
 
+export function getCloudActiveRoundKey(termId: string) {
+	return `${ACTIVE_ROUND_PREFIX}${termId}`;
+}
+
 export function hasCloudSnapshot(termId: string): boolean {
 	if (!browser) return false;
 	try {
+		const activeXkkzId = localStorage.getItem(getCloudActiveRoundKey(termId));
+		if (activeXkkzId) {
+			const roundKey = getCloudRoundSnapshotStorageKey(termId, activeXkkzId);
+			if (localStorage.getItem(roundKey)) return true;
+		}
 		return Boolean(localStorage.getItem(getCloudSnapshotStorageKey(termId)));
 	} catch {
 		return false;
@@ -188,10 +206,60 @@ function validateSnapshotText(text: string): { ok: true; parsed: RawCourseSnapsh
 function storeSnapshotTextAt(storageKey: string, metaKey: string, text: string, url: string) {
 	const validated = validateSnapshotText(text);
 	if (!validated.ok) return validated;
-	localStorage.setItem(storageKey, text);
 	const fetchedAt = Date.now();
-	localStorage.setItem(metaKey, JSON.stringify({ fetchedAt, url, size: text.length }));
-	return { ok: true as const, url, size: text.length, fetchedAt };
+
+	// Best-effort local caching:
+	// - Cloud snapshots can exceed localStorage quota on some browsers/devices.
+	// - Cache is an optimization only; the app always has bundled SSG data as a fallback.
+	//
+	// Strategy:
+	// 1) Try to store.
+	// 2) On quota error, clear older cloud snapshot keys and retry once.
+	// 3) If it still fails, keep meta only (so UI can show "downloaded") and return ok.
+	try {
+		localStorage.setItem(storageKey, text);
+		localStorage.setItem(metaKey, JSON.stringify({ fetchedAt, url, size: text.length, stored: true }));
+		return { ok: true as const, url, size: text.length, fetchedAt };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const quota = /quota|exceeded|storage/i.test(message);
+		if (!quota) return { ok: false as const, error: message || 'LOCAL_STORAGE_FAILED' };
+		try {
+			// Clear older cached snapshots to make room.
+			for (let i = 0; i < localStorage.length; i++) {
+				const key = localStorage.key(i);
+				if (!key) continue;
+				if (key === storageKey || key === metaKey) continue;
+				if (
+					key.startsWith(PREFIX) ||
+					key.startsWith(META_PREFIX) ||
+					key.startsWith(ROUND_PREFIX) ||
+					key.startsWith(ROUND_META_PREFIX) ||
+					key.startsWith(ACTIVE_ROUND_PREFIX)
+				) {
+					localStorage.removeItem(key);
+					i--;
+				}
+			}
+		} catch {
+			// ignore
+		}
+
+		try {
+			localStorage.setItem(storageKey, text);
+			localStorage.setItem(metaKey, JSON.stringify({ fetchedAt, url, size: text.length, stored: true }));
+			return { ok: true as const, url, size: text.length, fetchedAt };
+		} catch {
+			// Meta only (small) so UI can still proceed without hard-failing.
+			try {
+				localStorage.removeItem(storageKey);
+				localStorage.setItem(metaKey, JSON.stringify({ fetchedAt, url, size: text.length, stored: false, reason: 'QUOTA' }));
+			} catch {
+				// ignore
+			}
+			return { ok: true as const, url, size: text.length, fetchedAt };
+		}
+	}
 }
 
 function storeSnapshotText(termId: string, text: string, url: string) {
@@ -218,23 +286,17 @@ export function hasRoundSnapshot(termId: string, xkkzId: string): boolean {
 export function activateRoundSnapshot(termId: string, xkkzId: string): { ok: true } | { ok: false; error: string } {
 	if (!browser) return { ok: false, error: 'NOT_IN_BROWSER' };
 	const key = getCloudRoundSnapshotStorageKey(termId, xkkzId);
-	const metaKey = getCloudRoundSnapshotMetaKey(termId, xkkzId);
 	const text = localStorage.getItem(key);
 	if (!text) return { ok: false, error: 'NO_ROUND_SNAPSHOT' };
 	const validated = validateSnapshotText(text);
 	if (!validated.ok) return validated;
-	const metaRaw = localStorage.getItem(metaKey);
-	let meta: any = null;
-	try {
-		meta = metaRaw ? JSON.parse(metaRaw) : null;
-	} catch {
-		meta = null;
-	}
-	const url = String(meta?.url || 'cloud:round');
-	const fetchedAt = typeof meta?.fetchedAt === 'number' ? meta.fetchedAt : Date.now();
-	const size = typeof meta?.size === 'number' ? meta.size : text.length;
-	localStorage.setItem(getCloudSnapshotStorageKey(termId), text);
-	localStorage.setItem(getCloudSnapshotMetaKey(termId), JSON.stringify({ fetchedAt, url, size }));
+
+	// IMPORTANT:
+	// Avoid copying the (potentially huge) snapshot into `cloud.termSnapshot.v1:<termId>`,
+	// which easily exceeds localStorage quota.
+	//
+	// Instead we persist a tiny pointer so `readCloudSnapshot(termId)` resolves it.
+	localStorage.setItem(getCloudActiveRoundKey(termId), xkkzId);
 	return { ok: true };
 }
 
@@ -298,7 +360,11 @@ async function fetchAndStoreCloudRoundSnapshot(termId: string, xkkzId: string): 
 
 export async function fetchAndStoreBestSnapshot(
 	termId: string,
-	options?: { onProgress?: (progress: SnapshotProgress) => void; roundScope?: 'selected' | 'firstTwo' }
+	options?: {
+		onProgress?: (progress: SnapshotProgress) => void;
+		roundScope?: 'selected' | 'firstTwo';
+		userscript?: { snapshotConcurrency?: number };
+	}
 ): Promise<
 	| { ok: true; url: string; size: number; fetchedAt: number }
 	| { ok: false; error: string }
@@ -310,6 +376,48 @@ export async function fetchAndStoreBestSnapshot(
 
 		const status = await jwxtGetStatus();
 		if (status.ok && status.supported && status.loggedIn) {
+			const crawlViaUserscriptTask = async (): Promise<{ ok: true; snapshot: unknown } | { ok: false; error: string }> => {
+				const snapshotConcurrency =
+					typeof options?.userscript?.snapshotConcurrency === 'number' && Number.isFinite(options.userscript.snapshotConcurrency)
+						? Math.max(1, Math.floor(options.userscript.snapshotConcurrency))
+						: 32;
+				// Prefer userscript Task API so we can surface progress (list/details/finalize) instead of
+				// staying forever at "读取选课页面…".
+				const started = await jwxtTaskStart({
+					kind: 'jwxt_crawl_snapshot',
+					termId,
+					poll: { enabled: false },
+					parallel: { concurrency: snapshotConcurrency }
+				} as any);
+				if (!started.ok) return { ok: false, error: started.error };
+
+				const deadline = Date.now() + 8 * 60_000;
+				for (;;) {
+					if (Date.now() > deadline) return { ok: false, error: 'TASK_TIMEOUT' };
+					const got = await jwxtTaskGet(started.task.id);
+					if (!got.ok) return { ok: false, error: got.error };
+					const task = got.task as any;
+					const progress = task?.progress ?? null;
+					if (progress && typeof progress === 'object') {
+						const stage = String(progress.stage || '').trim() as any;
+						const done = typeof progress.done === 'number' ? progress.done : undefined;
+						const total = typeof progress.total === 'number' ? progress.total : undefined;
+						const message = typeof progress.message === 'string' ? progress.message : undefined;
+						if (stage) options?.onProgress?.({ source: 'jwxt', stage, done, total, message });
+					}
+					if (task?.state === 'success') {
+						const last = task?.lastResult ?? null;
+						const snapshot = last?.snapshot ?? null;
+						if (!snapshot) return { ok: false, error: 'TASK_RESULT_MISSING' };
+						return { ok: true, snapshot };
+					}
+					if (task?.state === 'error' || task?.state === 'stopped') {
+						return { ok: false, error: String(task?.lastError || 'TASK_FAILED') };
+					}
+					await new Promise((r) => setTimeout(r, 250));
+				}
+			};
+
 			if (roundScope === 'firstTwo') {
 				const roundsRes = await jwxtGetRounds();
 				if (roundsRes.ok) {
@@ -322,9 +430,9 @@ export async function fetchAndStoreBestSnapshot(
 						options?.onProgress?.({ source: 'jwxt', stage: 'context', message: `Selecting round ${round.xklc ?? xkkzId}` });
 						const switched = await jwxtSelectRound({ xkkzId });
 						if (!switched.ok) return { ok: false, error: switched.error };
-						const streamed = await crawlSnapshotViaSse(termId, options?.onProgress);
-						if (!streamed.ok) return { ok: false, error: streamed.error };
-						const snapshotText = JSON.stringify(streamed.snapshot);
+						const snapshotRes = jwxtHasUserscriptBackend() ? await crawlViaUserscriptTask() : await jwxtCrawlSnapshot({ termId });
+						if (!snapshotRes.ok) return { ok: false, error: snapshotRes.error };
+						const snapshotText = JSON.stringify(snapshotRes.snapshot);
 						const stored = storeSnapshotTextAt(
 							getCloudRoundSnapshotStorageKey(termId, xkkzId),
 							getCloudRoundSnapshotMetaKey(termId, xkkzId),
@@ -347,24 +455,7 @@ export async function fetchAndStoreBestSnapshot(
 			}
 
 			options?.onProgress?.({ source: 'jwxt', stage: 'context' });
-			const streamed = await crawlSnapshotViaSse(termId, options?.onProgress);
-			if (streamed.ok) {
-				const snapshotText = JSON.stringify(streamed.snapshot);
-				const stored = storeSnapshotText(termId, snapshotText, 'jwxt:live');
-				if (stored.ok) {
-					const xkkzId = pickXkkzIdFromSnapshot(streamed.snapshot);
-					if (xkkzId) {
-						storeSnapshotTextAt(
-							getCloudRoundSnapshotStorageKey(termId, xkkzId),
-							getCloudRoundSnapshotMetaKey(termId, xkkzId),
-							snapshotText,
-							'jwxt:live'
-						);
-					}
-				}
-				return stored;
-			}
-			const crawled = await jwxtCrawlSnapshot({ termId });
+			const crawled = jwxtHasUserscriptBackend() ? await crawlViaUserscriptTask() : await jwxtCrawlSnapshot({ termId });
 			if (crawled.ok) {
 				const snapshotText = JSON.stringify(crawled.snapshot);
 				const stored = storeSnapshotText(termId, snapshotText, 'jwxt:live');
@@ -419,72 +510,14 @@ export type SnapshotProgress = {
 	total?: number;
 };
 
-async function crawlSnapshotViaSse(
-	termId: string,
-	onProgress?: (progress: SnapshotProgress) => void
-): Promise<{ ok: true; termId: string; snapshot: unknown } | { ok: false; error: string }> {
-	try {
-		const url = new URL('/api/jwxt/crawl-snapshot/stream', window.location.origin);
-		url.searchParams.set('termId', termId);
-		const response = await fetch(url.toString(), { method: 'GET' });
-		if (!response.ok) return { ok: false, error: `HTTP_${response.status}` };
-		if (!response.body) return { ok: false, error: 'NO_BODY' };
-
-		const decoder = new TextDecoder();
-		const reader = response.body.getReader();
-		let buffer = '';
-
-		for (;;) {
-			const { value, done } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			for (;;) {
-				const idx = buffer.indexOf('\n\n');
-				if (idx === -1) break;
-				const chunk = buffer.slice(0, idx);
-				buffer = buffer.slice(idx + 2);
-
-				let event = 'message';
-				let data = '';
-				for (const line of chunk.split('\n')) {
-					if (line.startsWith('event:')) event = line.slice(6).trim();
-					else if (line.startsWith('data:')) data += line.slice(5).trim();
-				}
-				if (!data) continue;
-				const payload = JSON.parse(data) as any;
-
-				if (event === 'status') {
-					onProgress?.({
-						source: 'jwxt',
-						stage: String(payload.stage || 'context') as SnapshotProgress['stage'],
-						message: typeof payload.message === 'string' ? payload.message : undefined,
-						done: typeof payload.done === 'number' ? payload.done : undefined,
-						total: typeof payload.total === 'number' ? payload.total : undefined
-					});
-				} else if (event === 'progress') {
-					onProgress?.({
-						source: 'jwxt',
-						stage: String(payload.stage || 'details') as SnapshotProgress['stage'],
-						message: typeof payload.message === 'string' ? payload.message : undefined,
-						done: payload.done,
-						total: payload.total
-					});
-				} else if (event === 'done') {
-					return { ok: true, termId: String(payload.termId || termId), snapshot: payload.snapshot };
-				} else if (event === 'error') {
-					return { ok: false, error: String(payload.error || 'UNKNOWN') };
-				}
-			}
-		}
-		return { ok: false, error: 'STREAM_ENDED' };
-	} catch (error) {
-		return { ok: false, error: error instanceof Error ? error.message : String(error) };
-	}
-}
-
 export function readCloudSnapshot(termId: string): RawCourseSnapshot | null {
 	if (!browser) return null;
 	try {
+		const activeXkkzId = localStorage.getItem(getCloudActiveRoundKey(termId));
+		if (activeXkkzId) {
+			const raw = localStorage.getItem(getCloudRoundSnapshotStorageKey(termId, activeXkkzId));
+			if (raw) return JSON.parse(raw) as RawCourseSnapshot;
+		}
 		const raw = localStorage.getItem(getCloudSnapshotStorageKey(termId));
 		if (!raw) return null;
 		return JSON.parse(raw) as RawCourseSnapshot;
@@ -496,6 +529,7 @@ export function readCloudSnapshot(termId: string): RawCourseSnapshot | null {
 export function clearCloudSnapshot(termId: string) {
 	if (!browser) return;
 	try {
+		localStorage.removeItem(getCloudActiveRoundKey(termId));
 		localStorage.removeItem(getCloudSnapshotStorageKey(termId));
 		localStorage.removeItem(getCloudSnapshotMetaKey(termId));
 	} catch {

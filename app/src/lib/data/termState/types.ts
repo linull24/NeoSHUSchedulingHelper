@@ -10,6 +10,7 @@ import type { DesiredLock, SoftConstraint } from '../desired/types';
 import type { TimeTemplate } from '../solver/timeTemplates';
 import type { SolverResultRecord } from '../solver/resultTypes';
 import type { ManualUpdate } from '../manualUpdates';
+import type { EnrollmentBatchLabel, UserBatchState } from '../../../../shared/jwxtCrawler/batchPolicy';
 
 export type JwxtPair = { kchId: string; jxbId: string };
 
@@ -82,6 +83,27 @@ export interface TermState {
 				wishlistSections: EntryId[];
 			};
 		} | null;
+		/**
+		 * USER-SPECIFIC runtime cache derived from enrollment breakdown ★ marker.
+		 *
+		 * NOTE:
+		 * - This is NOT part of cloud snapshots (SSG bundled data).
+		 * - This exists so edge policies can be pure (state-only) while userscript is the data source.
+		 * - In future we may exclude this from any remote sync/export bundles.
+		 */
+		userBatchCache: Record<
+			string,
+			{
+				userBatch: UserBatchState;
+				source: 'userscript' | 'server';
+				fetchedAt: EpochMs;
+				// Optional derived facts (best-effort, userscript-only).
+				impossible?: boolean;
+				capacity?: number | null;
+				rankStart?: number;
+				rankEnd?: number;
+			}
+		>;
 	};
 
 	history: {
@@ -136,6 +158,33 @@ export interface TermState {
 			autoSyncIntervalSec: number;
 			autoPreviewEnabled: boolean;
 			autoPushEnabled: boolean;
+			// Userscript crawler knobs (policy-owned defaults/clamping).
+			roundsConcurrency?: number;
+			snapshotConcurrency?: number;
+			selectableIncludeBreakdown?: boolean;
+			/**
+			 * JWXT enroll list filtering mode based on ★ user batch cache.
+			 *
+			 * NOTE: this only affects local UI + solver inputs; cloud snapshots stay user-agnostic.
+			 */
+			batchFilterMode: 'all' | 'eligible-or-unknown' | 'eligible-only';
+			/**
+			 * Minimum acceptable enrollment batch (底线).
+			 *
+			 * This is USER preference (not user profile). User's actual cohort/batch (★ marker)
+			 * is USER-SPECIFIC and only available in userscript runtime.
+			 */
+			minAcceptableBatchLabel: EnrollmentBatchLabel | null;
+			/**
+			 * Per-filterScope overrides for `minAcceptableBatchLabel`.
+			 *
+			 * Semantics:
+			 * - If a scope override exists, that scope uses it.
+			 * - If absent, fall back to the system/global default `minAcceptableBatchLabel`.
+			 *
+			 * NOTE: scopes are UI filter scopes (not JWXT-only), and are intended to be user-configurable.
+			 */
+			minAcceptableBatchLabelOverrides?: Partial<Record<'all' | 'current', EnrollmentBatchLabel | null>>;
 		};
 	};
 }
@@ -178,6 +227,16 @@ export type TermAction =
 	| { type: 'JWXT_ENROLL_NOW'; pair: JwxtPair }
 	| { type: 'JWXT_ENROLL_OK'; pair: JwxtPair }
 	| { type: 'JWXT_ENROLL_ERR'; pair: JwxtPair; error: string }
+	| {
+			type: 'JWXT_USERBATCH_CACHE_SET';
+			pair: JwxtPair;
+			userBatch: UserBatchState;
+			source: 'userscript' | 'server';
+			impossible?: boolean;
+			capacity?: number | null;
+			rankStart?: number;
+			rankEnd?: number;
+	  }
 	| { type: 'JWXT_FROZEN_ACK_RESUME' }
 	| { type: 'HIST_TOGGLE_TO_INDEX'; index: number }
 	| { type: 'SETTINGS_UPDATE'; patch: Partial<TermState['settings']> }

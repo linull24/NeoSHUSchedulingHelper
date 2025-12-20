@@ -7,6 +7,10 @@ JWXT 是外部系统：本地 Selection/Solver 状态可以完全回滚，但 JW
 - **Local planning**：只改本地 selection（`selection:*`），不触发云端。
 - **Cloud execution**：触发 JWXT enroll/drop（`jwxt:*`），必须可审计、可预览、可补偿。
 
+补充约束（SSG-first）：
+- JWXT 模块保持“原子操作”形态（sync/push/enroll/drop/breakdown）；不把 JWXT 当作主运行后端。
+- 轮询/自动化只能以 userscript task 的形式存在，并且定位为“救急工具”：可见、可停、可审计，且不会把凭据写入日志/同步包。
+
 ## 2. Data Model (Minimal)
 
 ```ts
@@ -49,6 +53,11 @@ interface JwxtActionPayload {
 - `jwxt:push-preview`：dryRun 计算 diff（`plan`），用于 UI 展示确认，不改远端。
 - `jwxt:push-apply`：用同一份 selection snapshot 执行真实 enroll/drop，并记录 `result` + `cloudUndoPlan`。
 
+轮询推送（救急模式）：
+- 轮询并不改变上述合同，只是把 “push preview → push apply” 周期性重复执行；
+- 每次 tick 必须先 dryRun 得到 plan；plan 非空才允许执行 apply；
+- UI 必须提供停止入口，并能在运行中调整并行度等参数（不改变安全语义）。
+
 ### 3.3 Undo (Compensation)
 - `jwxt:undo`：基于 `cloudUndoPlan` 发起反向请求（best-effort）。
 - 若失败：进入 `cloudStatus='drift'`，UI 必须提示重新 sync。
@@ -60,4 +69,3 @@ interface JwxtActionPayload {
 ## 5. Contract Links
 - Action Log schema/undo: `openspec/specs/action-log/spec.md`
 - Term-State invariants: `openspec/changes/UNDO-SM-1/design.md`
-

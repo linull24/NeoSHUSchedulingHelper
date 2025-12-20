@@ -13,14 +13,16 @@ import {
 import { getCourseVariants, sortCourses } from '../utils/courseHelpers';
 import { getCoursesByIds } from '../utils/courseLookup';
 import { derived, get, writable, type Readable } from 'svelte/store';
-import { createCourseFilterStore } from '../stores/courseFilters';
-import { selectionFiltersConfig } from '../stores/courseFilters';
+import { createCourseFilterStoreForScope } from '../stores/courseFilters';
+import { getSelectionFiltersConfigForScope } from '../stores/courseFilters';
 import { applyCourseFilters } from '../utils/courseFilterEngine';
 import type { CourseFilterResult } from '../utils/courseFilterEngine';
 import { termState } from '../stores/termStateStore';
 import { deriveAvailability, type AvailabilityResult } from '../data/termState/derive';
 import { deriveGroupKey } from '../data/termState/groupKey';
 import type { GroupKey } from '../data/termState/types';
+
+const currentSelectionFiltersConfig = getSelectionFiltersConfigForScope('current');
 
 export const expandedCourse = writable<string | null>(null);
 export const expandedGroups = writable<Set<string>>(new Set());
@@ -37,7 +39,7 @@ export const selectedGroupKeySet = derived(selectedSet, ($selected) => {
 	}
 	return keys;
 });
-export const filters = createCourseFilterStore({
+export const filters = createCourseFilterStoreForScope('current', {
 	statusMode: 'wishlist:none'
 });
 export const autoSolveEnabled = derived(termState, ($state) => Boolean($state?.settings.autoSolveEnabled));
@@ -100,7 +102,8 @@ const filterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlist,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
-			conflictGranularity: $collapse ? 'group' : 'section'
+			conflictGranularity: $collapse ? 'group' : 'section',
+			filterScope: 'current'
 		})
 );
 
@@ -126,7 +129,8 @@ const anchorFilterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlist,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
-			conflictGranularity: $collapse ? 'group' : 'section'
+			conflictGranularity: $collapse ? 'group' : 'section',
+			filterScope: 'current'
 		})
 );
 
@@ -171,13 +175,13 @@ const availabilityMeta: Readable<Map<string, any>> = derived(
 		}
 
 		const limitModes: Record<string, any> = {};
-		for (const key of Object.keys(selectionFiltersConfig.limitRules)) limitModes[key] = 'default';
+		for (const key of Object.keys(currentSelectionFiltersConfig.limitRules)) limitModes[key] = 'default';
 
 		const neutralState = {
 			keyword: '',
 			regexEnabled: false,
 			matchCase: false,
-			regexTargets: selectionFiltersConfig.regex.targets,
+			regexTargets: currentSelectionFiltersConfig.regex.targets,
 			campus: '',
 			college: '',
 			minCredit: null,
@@ -190,7 +194,7 @@ const availabilityMeta: Readable<Map<string, any>> = derived(
 			weekParityFilter: 'any',
 			statusMode: 'all:none',
 			limitModes,
-			sortOptionId: selectionFiltersConfig.sortOptions[0]?.id ?? 'courseCode',
+			sortOptionId: currentSelectionFiltersConfig.sortOptions[0]?.id ?? 'courseCode',
 			sortOrder: 'asc',
 			conflictMode: 'current',
 			showConflictBadges: true
@@ -199,7 +203,8 @@ const availabilityMeta: Readable<Map<string, any>> = derived(
 		return applyCourseFilters(Array.from(unique.values()), neutralState as any, {
 			selectedIds: $selected,
 			wishlistIds: $wishlist,
-			wishlistGroupKeys: $wishlistGroups
+			wishlistGroupKeys: $wishlistGroups,
+			filterScope: 'current'
 		}).meta;
 	}
 );

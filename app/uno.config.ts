@@ -25,6 +25,8 @@ export default defineConfig({
 	shortcuts: {
 		'app-panel': 'bg-[var(--app-color-bg-elevated)] rounded-[var(--app-radius-lg)]',
 		'app-card': 'bg-[var(--app-color-bg)] rounded-[var(--app-radius-md)] shadow-soft',
+		'app-control':
+			'h-9 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 text-[var(--app-color-fg)] outline-none transition-shadow focus:ring-2 focus:ring-[color:var(--app-color-primary)] focus:ring-offset-0',
 		'app-elevate-soft':
 			'transform-gpu [filter:none] [transition:transform_var(--app-transition-fast),filter_var(--app-transition-fast)] hover:translate-y-[var(--app-elevation-active-translate-y)] hover:[filter:var(--app-elevation-active-filter)] focus-visible:translate-y-[var(--app-elevation-active-translate-y)] focus-visible:[filter:var(--app-elevation-active-filter)]',
 		'app-elevate-strong':

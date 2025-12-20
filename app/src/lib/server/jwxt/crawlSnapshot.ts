@@ -4,6 +4,9 @@ import { refreshSelectionContext } from './contextRefresh';
 import { buildCourseDetailUrl, buildCourseListUrl, buildSelectionIndexUrl } from './selectionContext';
 import type { JwxtSession } from './sessionStore';
 import { getJwxtConfig } from '../../../config/jwxt';
+import { deriveTermCode } from '../../../../shared/jwxtCrawler/term';
+import { buildLimitations, normalizeText, parseTeacher, pickFirst, stringify } from '../../../../shared/jwxtCrawler/snapshot';
+import { mapWithConcurrency } from '../../../../shared/jwxtCrawler/task';
 
 type RemoteCourseRow = Record<string, unknown> & {
 	kch_id?: string;
@@ -61,69 +64,6 @@ export type CrawledSnapshot = {
 	hash: string;
 	courses: RawCourseEntry[];
 };
-
-function stringify(value: unknown): string {
-	return typeof value === 'string' ? value : value == null ? '' : String(value);
-}
-
-function normalizeText(raw: unknown): string {
-	return stringify(raw).replace(/<br\s*\/?\s*>/gi, '; ').trim();
-}
-
-function parseTeacher(text: unknown): { teacherId: string; teacherName: string; teacherTitle: string } {
-	const segments = stringify(text)
-		.split('/')
-		.map((part) => part.trim())
-		.filter(Boolean);
-	return {
-		teacherId: segments[0] ?? '',
-		teacherName: segments[1] ?? '',
-		teacherTitle: segments[2] ?? ''
-	};
-}
-
-function pickFirst(obj: Record<string, unknown>, keys: string[]): string {
-	for (const key of keys) {
-		const value = obj[key];
-		const text = stringify(value).trim();
-		if (!text || text === '--') continue;
-		return text;
-	}
-	return '';
-}
-
-function buildLimitations(detail: Record<string, unknown>, base: { cxbj: string; fxbj: string }): string[] {
-	const notes: string[] = [];
-	if (base.cxbj === '1') notes.push('仅限重修');
-	if (base.fxbj === '1') notes.push('辅修班');
-	if (stringify(detail.dsfrl).trim() === '1') notes.push('容量锁定');
-	const cap = Number.parseInt(stringify(detail.jxbrl || detail.capacity), 10);
-	const num = Number.parseInt(stringify(detail.yxzrs || detail.number), 10);
-	if (Number.isFinite(cap) && Number.isFinite(num) && cap > 0 && num >= cap) notes.push('人数已满');
-	return notes;
-}
-
-async function mapWithConcurrency<T, R>(
-	items: T[],
-	concurrency: number,
-	mapper: (item: T, index: number) => Promise<R>,
-	onEachDone?: (done: number, total: number) => void
-): Promise<R[]> {
-	const results: R[] = new Array(items.length);
-	let cursor = 0;
-	let done = 0;
-	const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
-		for (;;) {
-			const index = cursor++;
-			if (index >= items.length) return;
-			results[index] = await mapper(items[index], index);
-			done += 1;
-			onEachDone?.(done, items.length);
-		}
-	});
-	await Promise.all(workers);
-	return results;
-}
 
 function isAllCampusOption(label: string, value: string): boolean {
 	if (!label) return false;
@@ -320,8 +260,11 @@ export async function crawlJwxtSnapshot(session: JwxtSession, options: CrawlOpti
 		a.courseId === b.courseId ? a.teachingClassId.localeCompare(b.teachingClassId) : a.courseId.localeCompare(b.courseId)
 	);
 
-	const termId = `${stringify(session.fields.xkxnm).trim()}-${stringify(session.fields.xkxqm).trim()}`.replace(/^-|-$/g, '');
-	const termName = `${pickFirst(session.fields as any, ['xkxnmc', 'xkxnm']).trim()} ${pickFirst(session.fields as any, ['xkxqmc', 'xkxqm']).trim()}`.trim() || termId;
+	const derived = deriveTermCode(session.fields);
+	const termId = derived.termCode;
+	const termName =
+		`${pickFirst(session.fields as any, ['xkxnmc', 'xkxnm']).trim()} ${pickFirst(session.fields as any, ['xkxqmc', 'xkxqm']).trim()}`.trim() ||
+		termId;
 
 	const jwxtRound: JwxtRoundMeta = {
 		xkkzId: stringify(session.context.xkkz_id),
@@ -329,7 +272,9 @@ export async function crawlJwxtSnapshot(session: JwxtSession, options: CrawlOpti
 		xklcmc: stringify((session.fields as any).xklcmc)
 	};
 
-	const hash = createHash('md5').update(JSON.stringify(uniqueCourses)).digest('hex');
+	// Snapshot-level hash is only used for debugging / coarse change detection.
+	// Avoid hashing `JSON.stringify(uniqueCourses)` as it can be extremely slow for large terms.
+	const hash = '';
 	const snapshot: CrawledSnapshot = {
 		backendOrigin: 'https://jwxt.shu.edu.cn',
 		termName,

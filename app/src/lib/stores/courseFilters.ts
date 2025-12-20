@@ -6,6 +6,8 @@ import {
 	type LimitRuleKey,
 	type SelectionFiltersConfig
 } from '../../config/selectionFilters';
+import { appPolicy } from '../policies';
+import type { FilterScope } from '../policies';
 import { courseCatalog } from '../data/catalog/courseCatalog';
 import { getTaxonomyOptions } from '../data/taxonomy/taxonomyRegistry';
 
@@ -51,7 +53,12 @@ export interface CourseFilterState {
 	showConflictBadges: boolean;
 }
 
-export const selectionFiltersConfig = getSelectionFiltersConfig();
+export function getSelectionFiltersConfigForScope(scope: FilterScope): SelectionFiltersConfig {
+	return getSelectionFiltersConfig(appPolicy.courseFilters.getPolicy(scope).selectionFiltersOverrides);
+}
+
+// Default baseline (All Courses).
+export const selectionFiltersConfig = getSelectionFiltersConfigForScope('all');
 
 const DEFAULT_FILTER_STATE: CourseFilterState = {
 	keyword: '',
@@ -75,6 +82,31 @@ const DEFAULT_FILTER_STATE: CourseFilterState = {
 	conflictMode: 'current',
 	showConflictBadges: true
 };
+
+function buildDefaultCourseFilterState(config: SelectionFiltersConfig): CourseFilterState {
+	return {
+		keyword: '',
+		regexEnabled: false,
+		matchCase: false,
+		regexTargets: config.regex.targets,
+		campus: '',
+		college: '',
+		minCredit: null,
+		maxCredit: null,
+		capacityMin: null,
+		teachingLanguage: [],
+		specialFilter: 'all',
+		specialTags: [],
+		weekSpanFilter: 'any',
+		weekParityFilter: 'any',
+		statusMode: 'all:none',
+		limitModes: {},
+		sortOptionId: config.sortOptions[0]?.id ?? 'courseCode',
+		sortOrder: 'asc',
+		conflictMode: 'current',
+		showConflictBadges: true
+	};
+}
 
 export interface CourseFilterOptions {
 	campuses: string[];
@@ -105,11 +137,29 @@ export const filterOptions: CourseFilterOptions = {
 	specialTags: collectOptionsByFrequency(courseCatalog.flatMap((entry) => entry.specialFilterTags ?? []))
 };
 
-export function createCourseFilterStore(initial?: Partial<CourseFilterState>): Writable<CourseFilterState> {
+export function getFilterOptionsForScope(scope: FilterScope): CourseFilterOptions {
+	const config = getSelectionFiltersConfigForScope(scope);
+	return {
+		...filterOptions,
+		limitRules: config.limitRules,
+		sortOptions: config.sortOptions,
+		regexTargets: config.regex.targets
+	};
+}
+
+export function createCourseFilterStoreForScope(
+	scope: FilterScope,
+	initial?: Partial<CourseFilterState>
+): Writable<CourseFilterState> {
+	const config = getSelectionFiltersConfigForScope(scope);
 	return writable({
-		...DEFAULT_FILTER_STATE,
+		...buildDefaultCourseFilterState(config),
 		...initial
 	});
+}
+
+export function createCourseFilterStore(initial?: Partial<CourseFilterState>): Writable<CourseFilterState> {
+	return createCourseFilterStoreForScope('all', initial);
 }
 
 function collectOptions(values: string[]) {

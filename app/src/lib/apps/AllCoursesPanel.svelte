@@ -28,6 +28,7 @@
 		filterMeta,
 		filters,
 		groupedEntries,
+		wishlistedSectionGroupKeySet,
 		handleHover,
 		handleLeave,
 		removeGroupFromWishlist,
@@ -321,11 +322,11 @@ $: visibleGroups =
 										: null}
 							{@const showConflictBadges = $filters.showConflictBadges}
 							{@const canAddAny =
-											courses.some(
-												(course: any) =>
-													!$wishlistSet.has(course.id) && !$selectedSet.has(course.id) && canAddToWishlist(course.id)
-											)}
-							{@const groupInWishlist = courses.some((course: any) => $wishlistSet.has(course.id))}
+									courses.some(
+											(course: any) =>
+												!$wishlistSet.has(course.id) && !$selectedSet.has(course.id) && canAddToWishlist(course.id)
+										)}
+							{@const groupInWishlist = $wishlistedSectionGroupKeySet.has(groupKey as any)}
 							{@const groupInTarget = $wishlistGroupKeySet.has(groupKey as any)}
 							{@const groupDisabled = !groupInWishlist && !canAddAny}
 							{@const autoTargetBlocked = Boolean(meta?.currentImpossible)}
@@ -347,17 +348,16 @@ $: visibleGroups =
 									showConflictBadge={showConflictBadges && Boolean(conflictItems)}
 									conflictDetails={showConflictBadges ? conflictItems : null}
 								>
-										<svelte:fragment slot="meta-controls">
-											<CardBulkCheckbox
-												checked={bulkHas(bulkSelection, { kind: 'group', key: groupKey })}
-												ariaLabel={t('panels.allCourses.bulk.selectGroup').replace(
-													'{name}',
-													primary.title ?? String(groupKey)
-												)}
-												on:toggle={() =>
-													(bulkSelection = bulkToggle(bulkSelection, { kind: 'group', key: groupKey }))}
-											/>
-										</svelte:fragment>
+									<svelte:fragment slot="meta-controls">
+										<CardBulkCheckbox
+											checked={bulkHas(bulkSelection, { kind: 'group', key: groupKey })}
+											ariaLabel={t('panels.allCourses.bulk.selectGroup').replace(
+												'{name}',
+												primary.title ?? String(groupKey)
+											)}
+											on:toggle={() => (bulkSelection = bulkToggle(bulkSelection, { kind: 'group', key: groupKey }))}
+										/>
+									</svelte:fragment>
 										<CardActionBar slot="actions" class={groupDenseActionBarClass}>
 											<span class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
 												{formatVariantCount(courses.length)}
@@ -449,9 +449,9 @@ $: visibleGroups =
 																			: addCourse(course.id, inWishlist, inSelected)}
 																	disabled={!canWishlistAdd}
 																>
-																	{inWishlist ? t('panels.allCourses.removeGroup') : t('panels.allCourses.addGroup')}
-																</AppButton>
-															{/if}
+																		{inWishlist ? t('panels.allCourses.removeGroup') : t('panels.allCourses.addGroup')}
+																	</AppButton>
+																{/if}
 															{#if !autoSolveEnabled}
 																{#if availability.availability === 'SELECTED'}
 																	<AppButton
@@ -500,20 +500,20 @@ $: visibleGroups =
 							<div class="flex flex-col divide-y divide-[color:var(--app-color-border-subtle)]">
 								{#each page.items as [groupKey, courses], groupIndex (groupKey)}
 									{@const absIndex = page.start + groupIndex}
-									{@const primary = courses[0]}
-									{@const expanded = $expandedGroups.has(groupKey)}
-										{@const meta = $filterMeta.get(primary.id)}
-										{@const conflictItems =
-											meta?.hardImpossible && meta?.diagnostics?.length
+							{@const primary = courses[0]}
+							{@const expanded = $expandedGroups.has(groupKey)}
+								{@const meta = $filterMeta.get(primary.id)}
+								{@const conflictItems =
+									meta?.hardImpossible && meta?.diagnostics?.length
 												? meta.diagnostics.map((d) => ({ label: d.label, value: d.reason }))
 												: null}
 							{@const showConflictBadges = $filters.showConflictBadges}
 									{@const canAddAny =
-										courses.some(
+									courses.some(
 											(course: any) =>
 												!$wishlistSet.has(course.id) && !$selectedSet.has(course.id) && canAddToWishlist(course.id)
 										)}
-							{@const groupInWishlist = courses.some((course: any) => $wishlistSet.has(course.id))}
+							{@const groupInWishlist = $wishlistedSectionGroupKeySet.has(groupKey as any)}
 							{@const groupInTarget = $wishlistGroupKeySet.has(groupKey as any)}
 							{@const groupDisabled = !groupInWishlist && !canAddAny}
 							{@const autoTargetBlocked = Boolean(meta?.currentImpossible)}
@@ -534,18 +534,14 @@ $: visibleGroups =
 											toneIndex={absIndex}
 											showConflictBadge={showConflictBadges && Boolean(conflictItems)}
 											conflictDetails={showConflictBadges ? conflictItems : null}
-										>
-											<svelte:fragment slot="meta-controls">
-												<CardBulkCheckbox
-													checked={bulkHas(bulkSelection, { kind: 'group', key: groupKey })}
-													ariaLabel={t('panels.allCourses.bulk.selectGroup').replace(
-														'{name}',
-														primary.title ?? String(groupKey)
-													)}
-													on:toggle={() =>
-														(bulkSelection = bulkToggle(bulkSelection, { kind: 'group', key: groupKey }))}
-												/>
-											</svelte:fragment>
+											>
+													<svelte:fragment slot="meta-controls">
+														<CardBulkCheckbox
+															checked={bulkHas(bulkSelection, { kind: 'group', key: groupKey })}
+															ariaLabel={t('panels.allCourses.bulk.selectGroup').replace('{name}', primary.title ?? String(groupKey))}
+															on:toggle={() => (bulkSelection = bulkToggle(bulkSelection, { kind: 'group', key: groupKey }))}
+														/>
+													</svelte:fragment>
 											<CardActionBar slot="actions" class={groupDenseActionBarClass}>
 												<span class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
 													{formatVariantCount(courses.length)}
@@ -553,20 +549,20 @@ $: visibleGroups =
 											<AppButton variant="secondary" size="sm" on:click={() => toggleGroup(groupKey)}>
 											{expanded ? t('panels.candidates.toggleMore.collapse') : t('panels.candidates.toggleMore.expand')}
 										</AppButton>
-												{#if autoSolveEnabled}
-													<AppButton
-														variant={groupInTarget ? 'secondary' : 'primary'}
-														size="sm"
+													{#if autoSolveEnabled}
+														<AppButton
+															variant={groupInTarget ? 'secondary' : 'primary'}
+															size="sm"
 														disabled={!groupInTarget && autoTargetBlocked}
 														title={!groupInTarget && autoTargetBlocked ? t('panels.candidates.autoTargetBlocked') : undefined}
 														on:click={() => toggleGroupTarget(groupKey as any, primary.id)}
-													>
-														{groupInTarget ? t('panels.candidates.autoTargetRemove') : t('panels.candidates.autoTargetAdd')}
-													</AppButton>
-												{:else}
-													<AppButton
-														variant="secondary"
-														size="sm"
+														>
+															{groupInTarget ? t('panels.candidates.autoTargetRemove') : t('panels.candidates.autoTargetAdd')}
+														</AppButton>
+													{:else}
+															<AppButton
+																variant="secondary"
+																size="sm"
 														on:click={() =>
 															groupInWishlist
 																? removeGroupFromWishlist(courses, $wishlistSet)
@@ -575,14 +571,14 @@ $: visibleGroups =
 													>
 														{groupInWishlist ? t('panels.allCourses.removeGroup') : t('panels.allCourses.addGroup')}
 													</AppButton>
-													{#if groupDisabled}
-														<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
-															{t('panels.common.availability.groupNoSelectable')}
-														</span>
-													{/if}
-												{/if}
-										</CardActionBar>
-									</CourseCard>
+														{#if groupDisabled}
+																<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+																	{t('panels.common.availability.groupNoSelectable')}
+																</span>
+															{/if}
+														{/if}
+											</CardActionBar>
+										</CourseCard>
 										{#if expanded}
 											<div class="flex flex-col gap-2 border-t border-[color:var(--app-color-border-subtle)] pt-2">
 												{#each courses as course, variantIndex (course.id)}
@@ -636,8 +632,8 @@ $: visibleGroups =
 																			: addCourse(course.id, inWishlist, inSelected)}
 																	disabled={!canWishlistAdd}
 																>
-																	{inWishlist ? t('panels.allCourses.removeGroup') : t('panels.allCourses.addGroup')}
-																</AppButton>
+																		{inWishlist ? t('panels.allCourses.removeGroup') : t('panels.allCourses.addGroup')}
+																	</AppButton>
 																{#if availability.availability === 'SELECTED'}
 																	<AppButton
 																		variant="secondary"

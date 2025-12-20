@@ -1,0 +1,34 @@
+{
+  "name": "SHU Course Scheduler JWXT Backend (Userscript)",
+  "namespace": "https://xk.shuosc.com/",
+  "version": "0.5.3",
+  "description": "JWXT backend implemented in userscript; exposes window.__jwxtUserscriptBackend for the frontend (RPC bridge, no popup tabs).",
+  "runAt": "document-start",
+  "match": [
+    "https://jwxt.shu.edu.cn/*",
+    "https://newsso.shu.edu.cn/*",
+    "https://linull24.github.io/*",
+    "https://shuosc.github.io/*",
+    "http://localhost/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "include": [
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "grant": [
+    "GM_xmlhttpRequest",
+    "GM.xmlHttpRequest",
+    "GM_getValue",
+    "GM_setValue",
+    "GM_addValueChangeListener",
+    "GM_removeValueChangeListener"
+  ],
+  "connect": [
+    "jwxt.shu.edu.cn",
+    "newsso.shu.edu.cn",
+    "*"
+  ]
+}

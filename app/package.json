@@ -5,11 +5,16 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"dev:userscript": "node ./scripts/build-userscript.mjs --watch",
+		"build:userscript": "node ./scripts/build-userscript.mjs --minify --swc",
+		"crawl:jwxt": "node --import tsx ./scripts/crawl-jwxt-static.ts",
+		"build": "npm run build:userscript && vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check:i18n": "python3 ../scripts/check_i18n.py all",
-		"check": "npm run check:i18n && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:jwxt:parsers": "node --import tsx ./scripts/selftest-jwxt-parsers.ts",
+		"check:userscript": "node ./scripts/build-userscript.mjs --minify --swc && node --check ./static/backenduserscript/backend.user.js",
+		"check": "npm run check:i18n && npm run check:userscript && npm run check:jwxt:parsers && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"state:check": "tsx ./scripts/checkState.ts"
 	},

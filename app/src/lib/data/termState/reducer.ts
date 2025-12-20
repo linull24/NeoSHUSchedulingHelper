@@ -927,6 +927,30 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 			});
 			return { state: next, effects: [] };
 		}
+		case 'JWXT_USERBATCH_CACHE_SET': {
+			const key = jwxtPairKey(action.pair);
+			return {
+				state: {
+					...state,
+					jwxt: {
+						...state.jwxt,
+						userBatchCache: {
+							...(state.jwxt.userBatchCache ?? {}),
+							[key]: {
+								userBatch: action.userBatch as any,
+								source: action.source,
+								fetchedAt: nowEpochMs(),
+								impossible: (action as any).impossible,
+								capacity: (action as any).capacity ?? null,
+								rankStart: (action as any).rankStart,
+								rankEnd: (action as any).rankEnd
+							}
+						}
+					}
+				},
+				effects: []
+			};
+		}
 		case 'JWXT_FROZEN_ACK_RESUME': {
 			const next = appendHistory(
 				{
@@ -1015,12 +1039,9 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 				nextCalendar = { showWeekends: Boolean(showWeekends) };
 			}
 
-				const nextAutoSolveEnabled = action.patch.autoSolveEnabled;
-				const enablingAutoSolve =
-					typeof nextAutoSolveEnabled === 'boolean' && nextAutoSolveEnabled && !state.settings.autoSolveEnabled;
-			if (enablingAutoSolve && state.settings.selectionMode === 'overflowSpeedRaceMode') {
-				throw new Error('INVALID_ACTION:auto-solve-disabled-in-speed-race');
-			}
+			const nextAutoSolveEnabled = action.patch.autoSolveEnabled;
+			const enablingAutoSolve =
+				typeof nextAutoSolveEnabled === 'boolean' && nextAutoSolveEnabled && !state.settings.autoSolveEnabled;
 			const providedAutoSolveBackup = action.patch.autoSolveBackup;
 			const enablingBackup = enablingAutoSolve
 				? (providedAutoSolveBackup ?? {

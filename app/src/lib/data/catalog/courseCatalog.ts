@@ -9,7 +9,7 @@ import type {
 	WeekPattern,
 	WeekSpan
 } from '../InsaneCourseData';
-import type { RawCourseSnapshot } from '../InsaneCourseParser';
+import type { RawJwxtCourseSnapshot } from '../InsaneCourseParser';
 import { resolveParser } from '../parsers';
 import { getDatasetConfig } from '../../../config/dataset';
 import type { CourseTaxonomyInfo } from '../../types/taxonomy';
@@ -26,26 +26,25 @@ const RAW_SNAPSHOT_MODULES = import.meta.glob('../../../../static/crawler/data/t
 	import: 'default'
 });
 
-function resolveRawSnapshot(termId: string): RawCourseSnapshot {
+function resolveRawSnapshot(termId: string): RawJwxtCourseSnapshot {
 	if (browser) {
 		const cloud = readCloudSnapshot(termId);
-		if (cloud) return cloud;
+		if (cloud) return cloud as RawJwxtCourseSnapshot;
 	}
 	const suffix = `/crawler/data/terms/${termId}.json`;
 	for (const [path, value] of Object.entries(RAW_SNAPSHOT_MODULES)) {
-		if (path.endsWith(suffix)) return value as RawCourseSnapshot;
+		if (path.endsWith(suffix)) return value as RawJwxtCourseSnapshot;
 	}
 	// If the app is configured with a termCode (e.g. `2025-16`), allow matching
 	// round-specific snapshots `terms/<termCode>--xkkz-<id>.json`.
 	const roundPrefix = `/crawler/data/terms/${termId}--xkkz-`;
-	const candidates: Array<{ snapshot: RawCourseSnapshot; xklc: number; updatedAt: number }> = [];
+	const candidates: Array<{ snapshot: RawJwxtCourseSnapshot; xklc: number; updatedAt: number }> = [];
 	for (const [path, value] of Object.entries(RAW_SNAPSHOT_MODULES)) {
 		if (!path.includes(roundPrefix)) continue;
-		const snapshot = value as RawCourseSnapshot;
-		const xklcRaw = String((snapshot as any)?.jwxtRound?.xklc ?? '').trim();
+		const snapshot = value as RawJwxtCourseSnapshot;
+		const xklcRaw = String(snapshot?.jwxtRound?.xklc ?? '').trim();
 		const xklcNum = Number.parseInt(xklcRaw || '0', 10);
-		const updatedAt =
-			typeof (snapshot as any)?.updateTimeMs === 'number' ? (snapshot as any).updateTimeMs : 0;
+		const updatedAt = typeof snapshot?.updateTimeMs === 'number' ? snapshot.updateTimeMs : 0;
 		candidates.push({
 			snapshot,
 			xklc: Number.isFinite(xklcNum) ? xklcNum : 0,

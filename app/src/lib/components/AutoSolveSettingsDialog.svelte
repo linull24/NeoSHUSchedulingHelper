@@ -21,7 +21,6 @@
 	$: timeSoft = $termState?.settings.autoSolveTimeSoft ?? { avoidEarlyWeight: 0, avoidLateWeight: 0 };
 	$: wishlistGroupCount = ($termState?.selection.wishlistGroups ?? []).length;
 	$: selectedCount = ($termState?.selection.selected ?? []).length;
-	$: speedRace = selectionMode === 'overflowSpeedRaceMode';
 
 	$: selectionModeLabel =
 		selectionMode === 'allowOverflowMode'
@@ -35,8 +34,11 @@
 	}
 
 	function toggleEnabled() {
-		if (speedRace) return;
-		void setAutoSolveEnabled(!enabled);
+		void (async () => {
+			status = '';
+			const res = await setAutoSolveEnabled(!enabled);
+			if (res && !res.ok) status = `${t('dialogs.autoSolve.failed')}: ${res.error.message}`;
+		})();
 	}
 
 	function updateTimeSoft(patch: Partial<typeof timeSoft>) {
@@ -49,7 +51,6 @@
 
 	async function runNow() {
 		if (busy) return;
-		if (speedRace) return;
 		if (wishlistGroupCount === 0 && selectedCount === 0) {
 			status = t('dialogs.autoSolve.noGroups');
 			return;
@@ -88,8 +89,6 @@
 			<AppButton
 				variant={enabled ? 'primary' : 'secondary'}
 				size="sm"
-				disabled={speedRace}
-				title={speedRace ? t('dialogs.autoSolve.disabledSpeedRace') : undefined}
 				on:click={toggleEnabled}
 			>
 				{enabled ? t('dialogs.autoSolve.enabledOn') : t('dialogs.autoSolve.enabledOff')}
@@ -100,12 +99,6 @@
 			<span class="text-[var(--app-text-sm)]">{t('dialogs.autoSolve.selectionModeLabel')}</span>
 			<span class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{selectionModeLabel}</span>
 		</div>
-
-		{#if speedRace}
-			<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-warning)]">
-				{t('dialogs.autoSolve.disabledSpeedRace')}
-			</p>
-		{/if}
 
 		<div class="flex flex-col gap-2">
 			<span class="text-[var(--app-text-sm)]">{t('dialogs.autoSolve.timeSoftTitle')}</span>
@@ -118,7 +111,6 @@
 					type="number"
 					min="0"
 					step="1"
-					disabled={speedRace}
 					value={timeSoft.avoidEarlyWeight}
 					on:change={(e) => updateTimeSoft({ avoidEarlyWeight: (e.currentTarget as HTMLInputElement).valueAsNumber })}
 				/>
@@ -132,7 +124,6 @@
 					type="number"
 					min="0"
 					step="1"
-					disabled={speedRace}
 					value={timeSoft.avoidLateWeight}
 					on:change={(e) => updateTimeSoft({ avoidLateWeight: (e.currentTarget as HTMLInputElement).valueAsNumber })}
 				/>
@@ -165,7 +156,7 @@
 			variant="primary"
 			size="sm"
 			on:click={runNow}
-			disabled={busy || speedRace || (wishlistGroupCount === 0 && selectedCount === 0)}
+			disabled={busy || (wishlistGroupCount === 0 && selectedCount === 0)}
 		>
 			{busy ? t('dialogs.autoSolve.runningButton') : t('dialogs.autoSolve.runNow')}
 		</AppButton>

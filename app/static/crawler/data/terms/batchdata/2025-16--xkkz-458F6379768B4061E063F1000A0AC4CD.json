@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "generatedAt": 1766182906045,
+  "termId": "2025-16--xkkz-458F6379768B4061E063F1000A0AC4CD",
+  "termCode": "2025-16",
+  "jwxtRound": {
+    "xkkzId": "458F6379768B4061E063F1000A0AC4CD",
+    "xklc": "2",
+    "xklcmc": "第2轮"
+  },
+  "source": "manual",
+  "labels": [
+    "其他已选人数",
+    "培养方案已选人数",
+    "总计",
+    "预置已选人数",
+    "高年级已选人数"
+  ],
+  "sampleCount": 240,
+  "stats": {
+    "其他已选人数": {
+      "valueCount": 240,
+      "min": 0,
+      "max": 2,
+      "avg": 0.063,
+      "positiveCount": 14
+    },
+    "培养方案已选人数": {
+      "valueCount": 240,
+      "min": 0,
+      "max": 45,
+      "avg": 13.829,
+      "positiveCount": 185
+    },
+    "总计": {
+      "valueCount": 240,
+      "min": 0,
+      "max": 104,
+      "avg": 19.371,
+      "positiveCount": 234
+    },
+    "预置已选人数": {
+      "valueCount": 240,
+      "min": 0,
+      "max": 103,
+      "avg": 4.204,
+      "positiveCount": 64
+    },
+    "高年级已选人数": {
+      "valueCount": 240,
+      "min": 0,
+      "max": 11,
+      "avg": 1.275,
+      "positiveCount": 112
+    }
+  }
+}

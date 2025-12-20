@@ -93,7 +93,7 @@ export const visibleEntries = derived(
 	([$selected, $hover, $weekdays]) => {
 		const selectedEntries = buildEntries(
 			Array.from($selected)
-				.map((id) => courseCatalog.find((c) => c.id === id))
+				.map((id) => courseCatalogMap.get(id) ?? null)
 				.filter(Boolean) as CourseCatalogEntry[],
 			$weekdays.length
 		);

@@ -1,5 +1,8 @@
 import { writable } from 'svelte/store';
 import { fetchAndStoreBestSnapshot, type SnapshotProgress } from '../data/catalog/cloudSnapshot';
+import { get } from 'svelte/store';
+import { termState } from './termStateStore';
+import { resolveUserscriptCrawlerConfig } from '../policies/jwxt/crawlerConfig';
 
 export type JwxtCrawlUiState = {
 	termId: string | null;
@@ -34,7 +37,8 @@ export async function startJwxtCrawl(
 	if (activePromise) return activePromise;
 	const normalized = termId.trim();
 	if (!normalized) return { ok: false, error: 'Missing termId' };
-	const roundScope = options?.roundScope ?? 'firstTwo';
+	// On static deployments (GitHub Pages), backend SSE isn't available; userscript crawl works per selected round.
+	const roundScope = options?.roundScope ?? 'selected';
 
 	state.set({
 		termId: normalized,
@@ -51,6 +55,7 @@ export async function startJwxtCrawl(
 		try {
 			const res = await fetchAndStoreBestSnapshot(normalized, {
 				roundScope,
+				userscript: { snapshotConcurrency: resolveUserscriptCrawlerConfig(get(termState)).snapshotConcurrency },
 				onProgress: (p) => {
 					state.update((current) => ({
 						...current,
@@ -66,14 +71,29 @@ export async function startJwxtCrawl(
 				}
 			});
 			if (!res.ok) {
-				state.update((current) => ({ ...current, running: false, error: res.error, message: null }));
+				state.update((current) => ({
+					...current,
+					running: false,
+					error: res.error,
+					message: null,
+					stage: null,
+					progress: null
+				}));
 				return { ok: false as const, error: res.error };
 			}
-			state.update((current) => ({ ...current, running: false, error: null, lastOkAt: Date.now(), message: null }));
+			state.update((current) => ({
+				...current,
+				running: false,
+				error: null,
+				lastOkAt: Date.now(),
+				message: null,
+				stage: null,
+				progress: null
+			}));
 			return { ok: true as const };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			state.update((current) => ({ ...current, running: false, error: message, message: null }));
+			state.update((current) => ({ ...current, running: false, error: message, message: null, stage: null, progress: null }));
 			return { ok: false as const, error: message };
 		} finally {
 			activePromise = null;

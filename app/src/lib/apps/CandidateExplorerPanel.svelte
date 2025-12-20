@@ -716,11 +716,11 @@
 																		</AppButton>
 																	{/if}
 																{/if}
-																{#if inWishlist}
-																	<AppButton variant="secondary" size="sm" on:click={() => removeCourse(course.id)}>
-																		{t('panels.candidates.removeGroup')}
-																	</AppButton>
-																{/if}
+																	{#if inWishlist}
+																		<AppButton variant="secondary" size="sm" on:click={() => removeCourse(course.id)}>
+																			{t('panels.candidates.removeGroup')}
+																		</AppButton>
+																	{/if}
 																{#if availabilityHint}
 																	<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 																		{availabilityHint}

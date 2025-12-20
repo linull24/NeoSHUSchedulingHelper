@@ -1,6 +1,14 @@
-# Crawler 数据源配置
+# Crawler 设计（Userscript-first + Node CI 生成 + SSG 消费）
 
-为保证解析器能在 monorepo 或独立部署下稳定获取课表快照，我们在 `src/config/crawler.ts` 中定义了统一的配置结构，支持本地目录与远程对象存储（后续可扩展）。
+为保证解析器能在 SSG（GitHub Pages / 静态站点）下稳定获取课表快照，本仓库把“爬取/快照生成”与“消费/展示”彻底解耦：
+
+- **消费端（App runtime）**：只读取静态快照 `/crawler/data/**`（或配置的 remote URL），无依赖后端。
+- **生成端（Crawler pipeline）**：优先 Userscript 与 Node（CI）路径，Python 仅 legacy 兜底。
+
+Refs:
+- `spec://core-mcp#chunk-01`
+- `spec://cluster/jwxt#chunk-01`
+- `spec://cluster/data-pipeline#chunk-01`
 
 ## 配置结构
 
@@ -47,7 +55,26 @@ const DEFAULT_CONFIG = {
 
 ## 索引规范（建议）
 
-为了在对象存储或多端环境快速枚举学期文件，建议维护 `data/terms/index.json`，结构如下：
+### `current.json`（round 索引，SSG 必需）
+
+SSG 模式下，推荐维护 `app/static/crawler/data/current.json` 作为“当前学期+轮次索引”（由 CI/脚本自动生成）：
+
+```jsonc
+[
+  {
+    "termId": "2025-16--xkkz-<xkkzId>",
+    "termCode": "2025-16",
+    "jwxtRound": { "xkkzId": "<xkkzId>", "xklc": "2", "xklcmc": "第2轮" },
+    "generatedAt": 1764847274263
+  }
+]
+```
+
+App 读取逻辑位于：`app/src/lib/data/catalog/cloudSnapshot.ts`。
+
+### `terms/index.json`（可选）
+
+为了在对象存储或多端环境快速枚举学期文件，仍可维护 `data/terms/index.json`（可选），结构如下：
 
 ```jsonc
 [
@@ -63,6 +90,30 @@ const DEFAULT_CONFIG = {
 ```
 
 Parser 在启动时可读取索引，选择最新快照，也能与远程对象存储对齐（`bucket/prefix/file`）。
+
+## 快照文件命名（round-stable）
+
+为支持“一学期多轮次”，快照文件名以 `xkkzId` 为稳定键：
+
+- `app/static/crawler/data/terms/<termCode>--xkkz-<xkkzId>.json`
+
+同时，App 允许传入 `termCode`（例如 `2025-16`）并通过 `current.json` 解析到首选轮次，再激活到 `cloud.termSnapshot.v1:<termId>` 的本地缓存中。
+
+## 生成路径（两条主路径）
+
+### 1) Userscript（浏览器侧）
+
+- 通过 GM XHR 直接访问 JWXT，复用浏览器 Cookie session。
+- 产出一份符合 `RawCourseSnapshot` schema 的 JSON（包含 `jwxtRound` 与 `campusOptions`）。
+- 适合本地手动刷新、调试、应急修复。
+
+### 2) Node crawler（CI / server-side）
+
+- 在 GitHub Actions 中运行（每次 deploy 或按需），使用 Secrets 的账号密码（或 cookie header）登录 JWXT。
+- 写入 `app/static/crawler/data/current.json` 与 `app/static/crawler/data/terms/*.json`。
+- 随后 `vite build` 把它们打包进 SSG 产物，作为 “cloud snapshot” 的默认来源。
+
+> 备注：仓库内保留 `crawler/jwxt_crawler.py` 仅作历史参考，已弃用（不进入 CI/生产链路），未来将移除。
 
 ## 未来扩展
 

@@ -13,7 +13,7 @@ import {
 } from '../stores/courseSelection';
 import { sortCourses } from '../utils/courseHelpers';
 import type { Readable } from 'svelte/store';
-import { createCourseFilterStore } from '../stores/courseFilters';
+import { createCourseFilterStoreForScope } from '../stores/courseFilters';
 import { applyCourseFilters } from '../utils/courseFilterEngine';
 import type { CourseFilterResult } from '../utils/courseFilterEngine';
 import { termState } from '../stores/termStateStore';
@@ -26,6 +26,7 @@ export const expandedGroups = writable<Set<string>>(new Set());
 export const collapseByName = collapseCoursesByName;
 export const wishlistSet = derived(wishlistCourseIds, $set => $set);
 export const selectedSet = derived(selectedCourseIds, $set => $set);
+const changeScope = derived(termState, ($state) => $state?.solver.changeScope);
 export const selectedGroupKeySet = derived(selectedSet, ($selected) => {
 	const keys = new Set<string>();
 	for (const id of $selected) {
@@ -35,24 +36,44 @@ export const selectedGroupKeySet = derived(selectedSet, ($selected) => {
 	}
 	return keys;
 });
-export const filters = createCourseFilterStore({ statusMode: 'all:none' });
-const baseCourses = derived([wishlistSet, selectedSet], () => courseCatalog);
+export const filters = createCourseFilterStoreForScope('all', { statusMode: 'all:none' });
 export const wishlistGroupKeySet = derived(
 	termState,
 	($state) => new Set<string>((($state?.selection.wishlistGroups ?? []) as unknown as string[]) ?? [])
 );
 
-const sortedCourses = derived(baseCourses, $base => sortCourses($base));
+// Fast lookup: which groupKeys have any wishlisted sections (for "group card" UI).
+export const wishlistedSectionGroupKeySet = derived(wishlistSet, ($wishlist) => {
+	const keys = new Set<string>();
+	for (const id of $wishlist) {
+		const entry = courseCatalogMap.get(id);
+		if (!entry) continue;
+		keys.add(deriveGroupKey(entry) as unknown as string);
+	}
+	return keys;
+});
+
+// Performance: `courseCatalog` is a static dataset for the current term.
+// Sorting it on every wishlist/selected change is expensive (thousands of entries) and can cause UI jank
+// when users rapidly select/reselect courses.
+const sortedCourses = sortCourses(courseCatalog);
+
+const EMPTY_SET = new Set<string>();
 
 const filterResult: Readable<CourseFilterResult> = derived(
-	[sortedCourses, filters, wishlistSet, selectedSet, wishlistGroupKeySet, termState, collapseByName],
-	([$sorted, $filters, $wishlist, $selected, $wishlistGroups, $termState, $collapse]) =>
-		applyCourseFilters($sorted, $filters, {
+	// IMPORTANT performance note:
+	// - AllCourses list does not support "statusMode" controls (statusModeScope='none'),
+	//   so wishlist membership does not affect filtering.
+	// - Avoid re-running the full filter engine (thousands of entries) on every wishlist change.
+	[filters, selectedSet, changeScope, collapseByName],
+	([$filters, $selected, $changeScope, $collapse]) =>
+		applyCourseFilters(sortedCourses, $filters, {
 			selectedIds: $selected,
-			wishlistIds: $wishlist,
-			wishlistGroupKeys: $wishlistGroups,
-			changeScope: $termState?.solver.changeScope,
-			conflictGranularity: $collapse ? 'group' : 'section'
+			wishlistIds: EMPTY_SET,
+			wishlistGroupKeys: EMPTY_SET,
+			changeScope: $changeScope,
+			conflictGranularity: $collapse ? 'group' : 'section',
+			filterScope: 'all'
 		})
 );
 

@@ -2,10 +2,11 @@ import { t } from '../i18n';
 import type { CourseCatalogEntry } from '../data/catalog/courseCatalog';
 import { courseCatalog, courseCatalogMap } from '../data/catalog/courseCatalog';
 import type { CourseFilterState } from '../stores/courseFilters';
-import { selectionFiltersConfig } from '../stores/courseFilters';
+import { getSelectionFiltersConfigForScope, selectionFiltersConfig } from '../stores/courseFilters';
 import type { ConflictFilterMode } from '../stores/courseFilters';
 import type { WeekDescriptor } from '../data/InsaneCourseData';
 import type { SortField, LimitRuleKey } from '../../config/selectionFilters';
+import type { FilterScope } from '../policies';
 import { parseCourseQuickQuery, type CourseQuickQueryToken } from './courseQuickQuery';
 import { deriveGroupKey } from '../data/termState/groupKey';
 
@@ -37,6 +38,7 @@ export interface CourseFilterContext {
 	selectedSchedule?: ScheduleSlot[];
 	changeScope?: 'FIX_SELECTED_SECTIONS' | 'RESELECT_WITHIN_SELECTED_GROUPS' | 'REPLAN_ALL';
 	conflictGranularity?: 'section' | 'group';
+	filterScope?: FilterScope;
 }
 
 interface ScheduleSlot {
@@ -112,8 +114,9 @@ export function applyCourseFilters(
 
 	const filtered: CourseCatalogEntry[] = [];
 	const keyword = state.keyword.trim();
-	const regexTargets = state.regexTargets.length ? state.regexTargets : selectionFiltersConfig.regex.targets;
-	const limitRules = selectionFiltersConfig.limitRules;
+	const config = context.filterScope ? getSelectionFiltersConfigForScope(context.filterScope) : selectionFiltersConfig;
+	const regexTargets = state.regexTargets.length ? state.regexTargets : config.regex.targets;
+	const limitRules = config.limitRules;
 	const quickTokens = !state.regexEnabled && keyword ? parseCourseQuickQuery(keyword) : [];
 
 	for (const course of courses) {
@@ -142,7 +145,7 @@ export function applyCourseFilters(
 		filtered.push(course);
 	}
 
-	const sorted = sortCourses(filtered, state.sortOptionId, state.sortOrder, selectionFiltersConfig);
+	const sorted = sortCourses(filtered, state.sortOptionId, state.sortOrder, config);
 	return {
 		items: sorted,
 		meta: metaIndex,

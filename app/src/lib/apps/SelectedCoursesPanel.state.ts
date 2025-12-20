@@ -7,14 +7,14 @@ import { filterCourses, sortCourses } from '../utils/courseHelpers';
 import { deriveGroupKey } from '../data/termState/groupKey';
 import type { GroupKey } from '../data/termState/types';
 import { derived, get, writable, type Readable } from 'svelte/store';
-import { createCourseFilterStore } from '../stores/courseFilters';
+import { createCourseFilterStoreForScope } from '../stores/courseFilters';
 import { applyCourseFilters } from '../utils/courseFilterEngine';
 import type { CourseFilterResult } from '../utils/courseFilterEngine';
 import { termState } from '../stores/termStateStore';
 
 export const collapseByName = collapseCoursesByName;
 export const expandedGroups = writable<Set<string>>(new Set());
-export const filters = createCourseFilterStore({ statusMode: 'selected:none' });
+export const filters = createCourseFilterStoreForScope('current', { statusMode: 'selected:none' });
 
 const baseSelectedCourses = derived(selectedCourseIds, $ids =>
 	sortCourses(filterCourses(courseCatalog, $ids))
@@ -59,7 +59,8 @@ const filterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlistSections,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
-			conflictGranularity: $collapse ? 'group' : 'section'
+			conflictGranularity: $collapse ? 'group' : 'section',
+			filterScope: 'current'
 		})
 );
 
