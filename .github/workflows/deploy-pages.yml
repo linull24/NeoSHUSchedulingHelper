@@ -16,11 +16,6 @@ concurrency:
 
 jobs:
   build:
-    # Prevent infinite loops:
-    # - This workflow may push snapshot commits (crawler outputs) using github-actions[bot].
-    # - The same run already has the updated files in its working tree and will build+deploy them.
-    # - Therefore, the follow-up bot commit should NOT trigger another build+deploy cycle.
-    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,23 +31,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Crawl JWXT snapshots (SSG bundled)
-        # Cloud-side fallback only: prefer frontend-first runtime.
-        # This step updates SSG-bundled snapshots under `app/static/crawler/data/**`.
-        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
-        run: npm run crawl:jwxt
-        env:
-          JWXT_USERID: ${{ secrets.JWXT_USERID }}
-          JWXT_PASSWORD: ${{ secrets.JWXT_PASSWORD }}
-          JWXT_CRAWL_CONCURRENCY: 4
-
-      # NOTE: This workflow is designed for GitHub Pages (SSG).
-      # Some repos enforce Actions to have read-only `GITHUB_TOKEN` permissions.
-      # We therefore do NOT push snapshot updates back to the repo here; we still deploy
-      # the freshly crawled snapshots from the current working tree in the same run.
-
       - name: Build site
-        # Static output (SSG): includes the freshly crawled+committed snapshots.
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}
@@ -64,9 +43,9 @@ jobs:
 
   deploy:
     needs: build
-    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
     steps:
       - uses: actions/deploy-pages@v4
+
