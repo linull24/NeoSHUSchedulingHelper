@@ -24,6 +24,8 @@ export function buildSelectionIndexUrl(): string {
 	const cfg = getJwxtConfig();
 	const url = new URL(cfg.selectionIndexPath, cfg.jwxtHost);
 	url.searchParams.set('gnmkdm', cfg.defaultGnmkdm);
+	// Ref UI entry uses `layout=default`, which may expose extra hidden fields (e.g. csrftoken).
+	url.searchParams.set('layout', 'default');
 	return url.toString();
 }
 

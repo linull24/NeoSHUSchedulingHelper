@@ -16,6 +16,7 @@ import { ASSUME_ELIGIBLE_FOR_NOW } from '../../../shared/jwxtCrawler/eligibility
 import type { JwxtUserProfileSignals } from '../../../shared/jwxtCrawler/eligibility';
 import { deriveRoundPolicy } from '../../../shared/jwxtCrawler/roundPolicy';
 import { deriveUserBatchState } from '../../../shared/jwxtCrawler/batchPolicy';
+import { parseFormAction, parseHiddenInputsByName } from '../../../shared/jwxtCrawler/forms';
 import {
   buildDropPayloadTuikBcZzxkYzb,
   buildEnrollPayload,
@@ -195,10 +196,14 @@ declare const __USERSCRIPT_CONFIG__: {
     ssoHost: 'https://newsso.shu.edu.cn',
     // Important: must use HTTP entry to reliably trigger `newsso.shu.edu.cn` redirects.
     ssoEntryUrl: 'http://jwxt.shu.edu.cn/sso/shulogin',
-    selectionIndexUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512',
+    // Ref page link includes `layout=default` and exposes additional hidden fields (e.g. csrftoken).
+    selectionIndexUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default',
     selectionDisplayUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxZzxkYzbDisplay.html?gnmkdm=N253512',
     courseListUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxZzxkYzbPartDisplay.html?gnmkdm=N253512',
     selectedCoursesUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxZzxkYzbChoosedDisplay.html?gnmkdm=N253512',
+    // Ref UI scripts use this endpoint for multiple pre-flight checks before enroll (term-system dependent).
+    // Some deployments return "无操作权限" if we call enroll directly without the pre-check.
+    preflightUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_cxXkTitleMsg.html',
     enrollUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzbjk_xkBcZyZzxkYzb.html',
     // Ref: `zzxkYzbChoosedZy.js` uses `/xsxk/zzxkyzb_tuikBcZzxkYzb.html` for normal drop.
     dropBcUrl: 'https://jwxt.shu.edu.cn/jwglxt/xsxk/zzxkyzb_tuikBcZzxkYzb.html',
@@ -214,10 +219,12 @@ declare const __USERSCRIPT_CONFIG__: {
     fields: null,
     context: null,
     contextValidatedAtMs: 0,
+    contextRefreshPromise: null,
     roundTabs: null,
     activeXkkzId: null,
     currentXkkzId: null,
     preferredXkkzId: null,
+    roundMetaCache: new Map(),
     courseBaseCache: null,
     courseBaseCachePromise: null
   };
@@ -349,6 +356,13 @@ declare const __USERSCRIPT_CONFIG__: {
     }
   }
 
+  async function yieldToEventLoop() {
+    // Keep the tab responsive and allow timers/message events to run.
+    // This is important because heavy HTML parsing can otherwise block the page
+    // and prevent timeout guards from firing.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
   function isPromiseLike(value: any) {
     return Boolean(value && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function');
   }
@@ -392,14 +406,42 @@ declare const __USERSCRIPT_CONFIG__: {
     const timeoutMs = typeof init.timeout === 'number' ? init.timeout : 20000;
     return new Promise<any>((resolve, reject) => {
       let settled = false;
+      let abortCleanup: (() => void) | null = null;
       const finish = (fn: any) => (val: any) => {
         if (settled) return;
         settled = true;
+        if (abortCleanup) abortCleanup();
+        abortCleanup = null;
         fn(val);
       };
       const guard = setTimeout(finish(() => reject(new Error('GM request timeout (guard)'))), timeoutMs);
 
-      gmXhr({
+      let req: any = null;
+      const signal: AbortSignal | null = init && init.signal && typeof init.signal === 'object' ? init.signal : null;
+      if (signal) {
+        if (signal.aborted) {
+          clearTimeout(guard);
+          reject(new Error('ABORTED'));
+          return;
+        }
+        const onAbort = () => {
+          try {
+            req?.abort?.();
+          } catch {
+            // ignore
+          }
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        abortCleanup = () => {
+          try {
+            signal.removeEventListener('abort', onAbort as any);
+          } catch {
+            // ignore
+          }
+        };
+      }
+
+      req = gmXhr({
         url: targetUrl,
         method: init.method || 'GET',
         headers,
@@ -444,7 +486,7 @@ declare const __USERSCRIPT_CONFIG__: {
         }),
         onabort: finish(() => {
           clearTimeout(guard);
-          reject(new Error('GM request aborted'));
+          reject(new Error('ABORTED'));
         }),
         ontimeout: finish(() => {
           clearTimeout(guard);
@@ -485,8 +527,14 @@ wTBNePOk1H+LRQokgQIDAQAB
   // --- selection context (shared module) ---
 
   async function refreshSelectionContext() {
+    if (state.contextRefreshPromise && typeof state.contextRefreshPromise.then === 'function') {
+      return await state.contextRefreshPromise;
+    }
+
+    state.contextRefreshPromise = (async () => {
     // 1:1 with app/src/lib/server/jwxt/contextRefresh.ts
     emitLog('debug', 'refreshSelectionContext:start');
+    await yieldToEventLoop();
     const selectionRes = await gmFetch(cfg.selectionIndexUrl, { method: 'GET' });
     if (selectionRes.status !== 200) throw new Error(`Failed to load selection page (${selectionRes.status})`);
     if (String(selectionRes.url || '').includes('/sso/') || String(selectionRes.url || '').includes('newsso.shu.edu.cn')) {
@@ -496,9 +544,18 @@ wTBNePOk1H+LRQokgQIDAQAB
       throw new Error(`Selection page redirected to JWXT local login (${selectionRes.url})`);
     }
     const indexHtml = await selectionRes.text();
+    await yieldToEventLoop();
+    // Fast guards: avoid running heavy parsing over unexpected/SSO HTML (can freeze the tab and prevent timeouts).
+    if (/newsso\.shu\.edu\.cn/i.test(indexHtml) || /统一身份认证|单点登录|登录系统/.test(indexHtml)) {
+      throw new Error('Selection page is SSO HTML (session invalid)');
+    }
     if (looksLikeJwxtLocalLoginHtml(indexHtml)) {
       throw new Error('Selection page is JWXT local login HTML (session invalid)');
     }
+    if (!/firstXkkzId|xkkz_id|queryCourse/i.test(indexHtml)) {
+      throw new Error('Selection page HTML unexpected (missing round/context fields)');
+    }
+    await yieldToEventLoop();
     const parsed = parseSelectionIndexHtml({ indexHtml, preferredXkkzId: state.preferredXkkzId });
     const tabs = parsed.tabs;
     const selectedTab = parsed.selectedTab;
@@ -506,6 +563,7 @@ wTBNePOk1H+LRQokgQIDAQAB
 
     if (selectedTab) {
       const payload = buildSelectionDisplayPayload({ indexFields: parsed.indexFields, selectedTab });
+      await yieldToEventLoop();
       const displayRes = await gmFetch(cfg.selectionDisplayUrl, {
         method: 'POST',
         headers: {
@@ -518,10 +576,12 @@ wTBNePOk1H+LRQokgQIDAQAB
       });
       if (displayRes.status === 200) {
         const displayHtml = await displayRes.text();
+        await yieldToEventLoop();
         const merged = mergeSelectionDisplayHtml({ mergedFieldsBase: mergedFields, displayHtml });
         mergedFields = merged.mergedFields;
       }
     }
+    await yieldToEventLoop();
     const finalized = finalizeSelectionContext({ mergedFields, tabs, activeXkkzId: parsed.activeXkkzId });
     state.fields = finalized.fields;
     state.context = finalized.context;
@@ -531,6 +591,13 @@ wTBNePOk1H+LRQokgQIDAQAB
     state.contextValidatedAtMs = Date.now();
     emitLog('debug', 'refreshSelectionContext:ok', { currentXkkzId: state.currentXkkzId, activeXkkzId: state.activeXkkzId });
     return state.context;
+    })();
+
+    try {
+      return await state.contextRefreshPromise;
+    } finally {
+      state.contextRefreshPromise = null;
+    }
   }
 
   async function ensureContext() {
@@ -539,7 +606,9 @@ wTBNePOk1H+LRQokgQIDAQAB
     // Keep a lightweight "revalidate" on a short TTL to avoid "fake login" / stale round fields.
     //
     // NOTE: This only refreshes hidden fields/round meta; it does not perform any enroll/drop side effects.
-    const ttlMs = 8_000;
+    // Keep this TTL conservative but not too small — frequent context refresh can be expensive
+    // (selection index fetch + HTML parsing) and may freeze low-end devices during polling.
+    const ttlMs = 30_000;
     if (state.context && typeof state.contextValidatedAtMs === 'number' && now - state.contextValidatedAtMs < ttlMs) {
       return state.context;
     }
@@ -578,6 +647,7 @@ wTBNePOk1H+LRQokgQIDAQAB
     const run = (async () => {
       try {
         emitLog('info', 'login:start');
+        await yieldToEventLoop();
         // newsso (2025-12) uses an OAuth-style redirect chain to a login URL like:
         //   https://newsso.shu.edu.cn/login/<opaque-token>
         //
@@ -590,13 +660,30 @@ wTBNePOk1H+LRQokgQIDAQAB
         const entryRes = await step('sso-entry-follow', () => gmFetch(cfg.ssoEntryUrl, { method: 'GET', timeout: 20000 }));
         const finalUrl = String(entryRes.url || cfg.ssoEntryUrl);
         emitLog('debug', 'login:sso-entry', { finalUrl });
+        await yieldToEventLoop();
 
         // Already logged in (SSO cookie still valid) => selection page should work.
         if (finalUrl.startsWith(cfg.jwxtHost) && !isJwxtLocalLoginUrl(finalUrl)) {
           state.account = { userId: String(payload.userId || '').trim() };
           void gmWriteValue(USERSCRIPT_USERID_KEY, state.account.userId);
           void gmWriteValue(USERSCRIPT_LOGGEDIN_AT_KEY, String(Date.now()));
-          await refreshSelectionContext();
+          // Do NOT eagerly refresh selection context here.
+          // It can be expensive and block the tab (preventing timeout guards from firing),
+          // leading to frontend USERSCRIPT_TIMEOUT even when SSO already succeeded.
+          //
+          // Context will be lazily refreshed via `ensureContext()` on demand.
+          state.fields = null;
+          state.context = null;
+          state.roundTabs = null;
+          state.activeXkkzId = null;
+          state.currentXkkzId = null;
+          state.contextValidatedAtMs = 0;
+          setTimeout(() => {
+            void refreshSelectionContext().catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              emitLog('warn', 'login:context-warmup-failed', { message });
+            });
+          }, 0);
           return { ok: true, supported: true, loggedIn: true, account: state.account };
         }
 
@@ -613,18 +700,34 @@ wTBNePOk1H+LRQokgQIDAQAB
         }
 
         const encrypted = await step('encrypt', async () => encryptPassword(String(payload.password || '')));
-        const body = new URLSearchParams({
-          username: String(payload.userId || '').trim(),
-          password: encrypted
+        await yieldToEventLoop();
+
+        // newsso login page may include required hidden fields (execution/_eventId/etc).
+        // Align with the frontend/server implementations: include hidden inputs and honor <form action>.
+        const loginHtml = await step('sso-login-html', async () => {
+          try {
+            return await entryRes.text();
+          } catch {
+            return '';
+          }
         });
-        const loginOrigin = new URL(loginUrl).origin;
+        const hiddenFields = loginHtml ? parseHiddenInputsByName(loginHtml) : {};
+        const action = loginHtml ? parseFormAction(loginHtml) : null;
+        const postUrl = action ? new URL(action, loginUrl).toString() : loginUrl;
+
+        const body = new URLSearchParams();
+        for (const [k, v] of Object.entries(hiddenFields)) {
+          if (k === 'username' || k === 'password') continue;
+          body.set(k, v);
+        }
+        body.set('username', String(payload.userId || '').trim());
+        body.set('password', encrypted);
 
         const loginRes = await step('sso-login-post', () =>
-          gmFetch(loginUrl, {
+          gmFetch(postUrl, {
             method: 'POST',
             headers: {
               'content-type': 'application/x-www-form-urlencoded',
-              origin: loginOrigin,
               referer: loginUrl
             },
             body,
@@ -632,6 +735,7 @@ wTBNePOk1H+LRQokgQIDAQAB
           })
         );
         emitLog('debug', 'login:sso-login-post', { status: loginRes.status, url: loginRes.url });
+        await yieldToEventLoop();
 
         if (loginRes.status >= 500) {
           return { ok: false, supported: true, loggedIn: false, message: `Login failed, last status ${loginRes.status}` };
@@ -639,10 +743,12 @@ wTBNePOk1H+LRQokgQIDAQAB
 
         try {
           const warm = await step('warmup', () => gmFetch(cfg.warmupUrl(), { method: 'GET', timeout: 15000 }));
+          await yieldToEventLoop();
           if (isJwxtLocalLoginUrl(String(warm.url || ''))) {
             return { ok: false, supported: true, loggedIn: false, message: 'WARMUP_REDIRECTED_TO_LOCAL_LOGIN' };
           }
           const warmHtml = await warm.text();
+          await yieldToEventLoop();
           if (looksLikeJwxtLocalLoginHtml(warmHtml)) {
             return { ok: false, supported: true, loggedIn: false, message: 'WARMUP_IS_LOCAL_LOGIN_HTML' };
           }
@@ -656,14 +762,32 @@ wTBNePOk1H+LRQokgQIDAQAB
           return { ok: false, supported: true, loggedIn: false, message: 'SELECTION_REDIRECTED_TO_LOCAL_LOGIN' };
         }
         const selectionHtml = await selectionRes.text();
+        await yieldToEventLoop();
+        if (/newsso\.shu\.edu\.cn/i.test(selectionHtml) || /统一身份认证|单点登录|登录系统/.test(selectionHtml)) {
+          return { ok: false, supported: true, loggedIn: false, message: 'SELECTION_IS_SSO_HTML' };
+        }
         if (looksLikeJwxtLocalLoginHtml(selectionHtml)) {
           return { ok: false, supported: true, loggedIn: false, message: 'SELECTION_IS_LOCAL_LOGIN_HTML' };
+        }
+        if (!/firstXkkzId|xkkz_id|queryCourse/i.test(selectionHtml)) {
+          return { ok: false, supported: true, loggedIn: false, message: 'SELECTION_HTML_UNEXPECTED' };
         }
 
         state.account = { userId: String(payload.userId || '').trim() };
         void gmWriteValue(USERSCRIPT_USERID_KEY, state.account.userId);
         void gmWriteValue(USERSCRIPT_LOGGEDIN_AT_KEY, String(Date.now()));
-        await refreshSelectionContext();
+        state.fields = null;
+        state.context = null;
+        state.roundTabs = null;
+        state.activeXkkzId = null;
+        state.currentXkkzId = null;
+        state.contextValidatedAtMs = 0;
+        setTimeout(() => {
+          void refreshSelectionContext().catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            emitLog('warn', 'login:context-warmup-failed', { message });
+          });
+        }, 0);
         emitLog('info', 'login:ok');
         return { ok: true, supported: true, loggedIn: true, account: state.account };
       } catch (e: any) {
@@ -709,6 +833,13 @@ wTBNePOk1H+LRQokgQIDAQAB
         return { ok: true, supported: true, loggedIn: false, account: uid ? { userId: uid } : undefined };
       }
 
+      // Guard: some deployments return a 200 "error page" (e.g. "无操作权限") instead of a login redirect.
+      // Require the selection page to contain expected context fields; otherwise treat as NOT logged-in / not ready.
+      if (!/firstXkkzId|xkkz_id|queryCourse/i.test(html)) {
+        emitLog('warn', 'status:probe-unexpected-html', { status: statusCode, url: finalUrl });
+        return { ok: true, supported: true, loggedIn: false, account: uid ? { userId: uid } : undefined, message: 'JWXT_SELECTION_UNAVAILABLE' };
+      }
+
       // Treat any non-SSO, non-local-login HTML as logged-in even if status is 3xx.
       // (Some gateways still return a redirect status while presenting the final HTML.)
       if (!(statusCode >= 200 && statusCode < 400)) {
@@ -743,6 +874,42 @@ wTBNePOk1H+LRQokgQIDAQAB
   }
 
   async function rounds() {
+    // Fast path: if we recently refreshed context, serve from cache to avoid extra network + parsing.
+    try {
+      const now = Date.now();
+      const ttlMs = 20_000;
+      if (
+        state.roundTabs &&
+        Array.isArray(state.roundTabs) &&
+        state.fields &&
+        typeof state.contextValidatedAtMs === 'number' &&
+        now - state.contextValidatedAtMs >= 0 &&
+        now - state.contextValidatedAtMs < ttlMs
+      ) {
+        const term = {
+          xkxnm: state.fields ? state.fields.xkxnm : undefined,
+          xkxqm: state.fields ? state.fields.xkxqm : undefined,
+          xkxnmc: state.fields ? state.fields.xkxnmc : undefined,
+          xkxqmc: state.fields ? state.fields.xkxqmc : undefined
+        };
+        const rounds = (state.roundTabs as any[]).map((tab: any) => ({
+          xkkzId: tab.xkkzId,
+          kklxdm: tab.kklxdm,
+          kklxLabel: tab.kklxLabel,
+          active: tab.active
+        }));
+        return {
+          ok: true,
+          term,
+          selectedXkkzId: state.currentXkkzId != null ? state.currentXkkzId : undefined,
+          activeXkkzId: state.activeXkkzId != null ? state.activeXkkzId : undefined,
+          rounds
+        };
+      }
+    } catch {
+      // ignore, fall through
+    }
+
     // Keep this endpoint resilient and consistent with server/dev:
     // - Some deployments render no <li> tabs (single-round UI) => shared parser falls back to hidden fields.
     // - Round meta (xklc/xklcmc) may only exist on the Display page for each tab.
@@ -755,50 +922,33 @@ wTBNePOk1H+LRQokgQIDAQAB
       throw new Error(`Selection page redirected to JWXT local login (${selectionRes.url})`);
     }
     const indexHtml = await selectionRes.text();
+    await yieldToEventLoop();
+    if (/newsso\.shu\.edu\.cn/i.test(indexHtml) || /统一身份认证|单点登录|登录系统/.test(indexHtml)) {
+      return { ok: false, error: 'ROUNDS_IS_SSO_HTML' };
+    }
     if (looksLikeJwxtLocalLoginHtml(indexHtml)) {
       throw new Error('Selection page is JWXT local login HTML (session invalid)');
     }
+    if (!/firstXkkzId|xkkz_id|queryCourse/i.test(indexHtml)) {
+      return { ok: false, error: 'ROUNDS_HTML_UNEXPECTED' };
+    }
+    await yieldToEventLoop();
     const parsed = parseSelectionIndexHtml({ indexHtml, preferredXkkzId: state.preferredXkkzId });
     const indexFields = parsed.indexFields;
     const tabs = parsed.tabs;
 
-    // Parallelize display-page fetch for speed: each round's xklc/xklcmc is more stable on Display page.
-    const concurrency = USERSCRIPT_CONFIG.roundsConcurrency;
-    const rounds: any[] = await mapWithConcurrency(tabs as any[], concurrency, async (tab) => {
-      const payload = buildSelectionDisplayPayload({ indexFields, selectedTab: tab as any });
-      const displayRes = await gmFetch(cfg.selectionDisplayUrl, {
-        method: 'POST',
-        headers: {
-          'x-requested-with': 'XMLHttpRequest',
-          'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          referer: cfg.selectionIndexUrl
-        },
-        body: payload,
-        timeout: 20000
-      });
-      if (displayRes.status !== 200) {
-        return {
-          xkkzId: tab.xkkzId,
-          kklxdm: tab.kklxdm,
-          kklxLabel: tab.kklxLabel,
-          active: tab.active
-        };
-      }
-      const displayHtml = await displayRes.text();
-      const displayFields = parseSelectionPageFields(displayHtml);
-      const displayRoundMeta = extractRoundMetaFromHtml(displayHtml);
-      return {
-        xkkzId: tab.xkkzId,
-        xklc: displayFields.xklc || displayRoundMeta.xklc || undefined,
-        xklcmc: displayFields.xklcmc || displayRoundMeta.xklcmc || undefined,
-        kklxdm: tab.kklxdm,
-        kklxLabel: tab.kklxLabel,
-        active: tab.active
-      };
-    });
+    // UI metadata only — keep it lightweight to avoid freezing the tab.
+    // Detailed xklc/xklcmc can be derived later via `ensureContext()` if needed.
+    const rounds: any[] = (tabs || []).map((tab: any) => ({
+      xkkzId: tab.xkkzId,
+      kklxdm: tab.kklxdm,
+      kklxLabel: tab.kklxLabel,
+      active: tab.active
+    }));
 
     state.roundTabs = tabs;
     state.activeXkkzId = parsed.activeXkkzId != null ? parsed.activeXkkzId : null;
+    state.currentXkkzId = parsed.selectedTab?.xkkzId != null ? parsed.selectedTab.xkkzId : state.currentXkkzId;
     return {
       ok: true,
       term: {
@@ -815,8 +965,21 @@ wTBNePOk1H+LRQokgQIDAQAB
 
   async function selectRound(xkkzId: string) {
     state.preferredXkkzId = String(xkkzId || '').trim();
-    await refreshSelectionContext();
-    return { ok: true, selectedXkkzId: state.currentXkkzId != null ? state.currentXkkzId : '' };
+    // Keep round switching responsive: selecting a round is just preference.
+    // The next `ensureContext()` call will refresh context using the preferred xkkzId.
+    state.fields = null;
+    state.context = null;
+    state.roundTabs = null;
+    state.activeXkkzId = null;
+    state.currentXkkzId = null;
+    state.contextValidatedAtMs = 0;
+    setTimeout(() => {
+      void refreshSelectionContext().catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        emitLog('warn', 'selectRound:context-warmup-failed', { message });
+      });
+    }, 0);
+    return { ok: true, selectedXkkzId: state.preferredXkkzId };
   }
 
   async function search(query: string) {
@@ -852,7 +1015,7 @@ wTBNePOk1H+LRQokgQIDAQAB
     return { ok: true, results };
   }
 
-  async function syncSelected() {
+  async function syncSelected(signal?: AbortSignal) {
     await ensureContext();
     const res = await gmFetch(cfg.selectedCoursesUrl, {
       method: 'POST',
@@ -862,7 +1025,8 @@ wTBNePOk1H+LRQokgQIDAQAB
         referer: cfg.selectedCoursesUrl
       },
       body: new URLSearchParams(state.context),
-      timeout: 20000
+      timeout: 20000,
+      signal
     });
     if (res.status !== 200) return { ok: false, error: `JWXT sync failed (${res.status})` };
     const data = await res.json();
@@ -876,12 +1040,99 @@ wTBNePOk1H+LRQokgQIDAQAB
     return { ok: true, selected };
   }
 
-  async function enroll(kchId: string, jxbId: string) {
+  async function preflightEnroll(input: {
+    kchId: string;
+    jxbIds: string;
+    signal?: AbortSignal;
+  }): Promise<{ ok: true } | { ok: false; error: string; retryable?: boolean }> {
     await ensureContext();
-    const courseBase = await getCourseBaseForKch(String(kchId || ''));
+    const kchId = String(input.kchId || '').trim();
+    const jxbIds = String(input.jxbIds || '').trim();
+    if (!kchId || !jxbIds) return { ok: false, error: 'Missing kchId/jxbIds' };
+
+    const ctx: any = state.context || {};
+    const payloadBase = {
+      jxb_ids: jxbIds,
+      xkxnm: stringify(ctx.xkxnm || ctx.xnm),
+      xkxqm: stringify(ctx.xkxqm || ctx.xqm),
+      kch_id: kchId,
+      njdm_id: stringify(ctx.njdm_id || ctx.njdm_id_1),
+      zyh_id: stringify(ctx.zyh_id || ctx.zyh_id_1),
+      kklxdm: stringify(ctx.kklxdm || ctx.firstKklxdm || '01')
+    };
+
+    // Ref scripts call this endpoint with different `bj` steps depending on term-system rules.
+    // We keep this conservative: try a few common bj codes and accept both "1" and "2" as pass.
+    for (const bj of ['2', '5', '7']) {
+      if (input.signal?.aborted) break;
+      const payload = new URLSearchParams({ ...payloadBase, bj });
+      const res = await gmFetch(cfg.preflightUrl, {
+        method: 'POST',
+        headers: {
+          'x-requested-with': 'XMLHttpRequest',
+          'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          referer: cfg.selectionIndexUrl
+        },
+        body: payload,
+        timeout: 15000,
+        signal: input.signal
+      });
+      if (res.status !== 200) return { ok: false, error: `Preflight failed (${res.status})`, retryable: true };
+      const data = await res.json().catch(() => null);
+      const flag = data && typeof data === 'object' ? String((data as any).flag ?? '').trim() : '';
+      const msg = data && typeof data === 'object' ? String((data as any).msg ?? '').trim() : '';
+
+      if (flag === '1' || flag === '2') {
+        if (flag === '2') emitLog('warn', 'enroll:preflight:confirm-bypassed', { bj, msg: msg || 'confirm-required' });
+        return { ok: true };
+      }
+
+      // -2: refresh required. Treat as retryable so caller can re-ensureContext and try again.
+      if (flag === '-2' || /刷新|重试/.test(msg)) return { ok: false, error: msg || 'REFRESH_REQUIRED', retryable: true };
+      if (flag === '-1' || /非法访问|无操作权限|ILLEGAL_ACCESS/i.test(msg)) {
+        return { ok: false, error: msg || 'ILLEGAL_ACCESS', retryable: false };
+      }
+      // Other flags mean "not allowed" or "unknown"; let the enroll attempt decide if it is transient.
+    }
+
+    // Unknown term-system rules; don't block enroll on missing preflight.
+    return { ok: true };
+  }
+
+  async function enroll(kchId: string, jxbId: string, signalOrXkkzId?: AbortSignal | string, maybeXkkzId?: string) {
+    const signal = (signalOrXkkzId && typeof signalOrXkkzId === 'object' && 'aborted' in signalOrXkkzId)
+      ? (signalOrXkkzId as AbortSignal)
+      : undefined;
+    const targetXkkzId =
+      typeof signalOrXkkzId === 'string'
+        ? signalOrXkkzId
+        : (typeof maybeXkkzId === 'string' ? maybeXkkzId : '');
+    const xkkzId = String(targetXkkzId || '').trim();
+    if (xkkzId && xkkzId !== state.preferredXkkzId) {
+      await selectRound(xkkzId);
+    }
+    await ensureContext();
+
+    const courseBase = await getCourseBaseForKch(String(kchId || ''), String(jxbId || ''));
+    const jxbIds = String(courseBase?.doJxbId || jxbId || '').trim();
+
+    const preflight = await preflightEnroll({ kchId: String(kchId || ''), jxbIds, signal });
+    if (!preflight.ok) {
+      emitLog('warn', 'enroll:preflight:blocked', { kchId: String(kchId), jxbId: String(jxbId), jxbIds, error: preflight.error });
+      if (preflight.retryable) {
+        state.fields = null;
+        state.context = null;
+        state.roundTabs = null;
+        state.activeXkkzId = null;
+        state.currentXkkzId = null;
+        state.contextValidatedAtMs = 0;
+      }
+      return { ok: false, error: preflight.error || 'ENROLL_PREFLIGHT_BLOCKED' };
+    }
+
     const payload = buildEnrollPayload(state.context, {
       kch_id: String(kchId || ''),
-      jxb_ids: String(jxbId || ''),
+      jxb_ids: jxbIds,
       // optional; improves compatibility with ref implementations
       kcmc: courseBase?.kcmc || '',
       cxbj: courseBase?.cxbj || '0',
@@ -897,24 +1148,153 @@ wTBNePOk1H+LRQokgQIDAQAB
         referer: cfg.selectionIndexUrl
       },
       body: payload,
-      timeout: 20000
+      timeout: 20000,
+      signal
     });
     if (res.status !== 200) return { ok: false, error: `Enroll failed (${res.status})` };
     const data = await res.json();
     const parsed = parseEnrollResult(data);
     if (parsed.ok) return { ok: true, message: parsed.msg || 'ok', flag: parsed.flag };
+
+    // Some term-system variants respond with "无操作权限" when the selection context is stale/mismatched
+    // (e.g. round/campus tab changed) even though the session itself is valid.
+    // Try a single forced context refresh + re-submit before failing.
+    const msg = String(parsed.msg || '').trim();
+    if (!signal?.aborted && /无操作权限|非法访问|ILLEGAL_ACCESS/i.test(msg)) {
+      emitLog('warn', 'enroll:permission-denied:debug', {
+        kchId: String(kchId),
+        jxbId: String(jxbId),
+        jxbIds,
+        msg,
+        hasCsrf: Boolean(stringify((state.context as any)?.csrftoken)),
+        hasGnmkdmKey: Boolean(stringify((state.context as any)?.gnmkdmKey)),
+        xkkz_id: stringify((state.context as any)?.xkkz_id),
+        kklxdm: stringify((state.context as any)?.kklxdm),
+        xklc: stringify((state.context as any)?.xklc),
+        xkly: stringify((state.context as any)?.xkly),
+        bklx_id: stringify((state.context as any)?.bklx_id),
+        xqh_id: stringify((state.context as any)?.xqh_id)
+      });
+      emitLog('warn', 'enroll:permission-denied:refresh-context', { kchId: String(kchId), jxbId: String(jxbId) });
+      state.fields = null;
+      state.context = null;
+      state.roundTabs = null;
+      state.activeXkkzId = null;
+      state.currentXkkzId = null;
+      state.contextValidatedAtMs = 0;
+      await ensureContext();
+      const payload2 = buildEnrollPayload(state.context, {
+        kch_id: String(kchId || ''),
+        jxb_ids: jxbIds,
+        kcmc: courseBase?.kcmc || '',
+        cxbj: courseBase?.cxbj || '0',
+        xxkbj: courseBase?.xxkbj || '0',
+        qz: '0',
+        jcxx_id: ''
+      });
+      const res2 = await gmFetch(cfg.enrollUrl, {
+        method: 'POST',
+        headers: {
+          'x-requested-with': 'XMLHttpRequest',
+          'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          referer: cfg.selectionIndexUrl
+        },
+        body: payload2,
+        timeout: 20000,
+        signal
+      });
+      if (res2.status === 200) {
+        const data2 = await res2.json().catch(() => null);
+        const parsed2 = parseEnrollResult(data2);
+        if (parsed2.ok) return { ok: true, message: parsed2.msg || 'ok', flag: parsed2.flag };
+      }
+
+      // If we still get permission denied, try switching rounds.
+      // This typically means the course belongs to a different xkkz round tab.
+      try {
+        const roundsRes: any = await rounds();
+        if (roundsRes?.ok && Array.isArray(roundsRes.rounds) && roundsRes.rounds.length) {
+          const list = roundsRes.rounds as any[];
+          const ordered = list
+            .slice()
+            .sort((a, b) => (b?.active ? 0 : 1) - (a?.active ? 0 : 1));
+          for (const tab of ordered.slice(0, 8)) {
+            if (signal?.aborted) break;
+            const xkkzIdTry = String(tab?.xkkzId || '').trim();
+            if (!xkkzIdTry) continue;
+            if (state.preferredXkkzId === xkkzIdTry) continue;
+            emitLog('info', 'enroll:permission-denied:try-round', { xkkzId: xkkzIdTry });
+            await selectRound(xkkzIdTry);
+            await ensureContext();
+            const payload3 = buildEnrollPayload(state.context, {
+              kch_id: String(kchId || ''),
+              jxb_ids: jxbIds,
+              kcmc: courseBase?.kcmc || '',
+              cxbj: courseBase?.cxbj || '0',
+              xxkbj: courseBase?.xxkbj || '0',
+              qz: '0',
+              jcxx_id: ''
+            });
+            const res3 = await gmFetch(cfg.enrollUrl, {
+              method: 'POST',
+              headers: {
+                'x-requested-with': 'XMLHttpRequest',
+                'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                referer: cfg.selectionIndexUrl
+              },
+              body: payload3,
+              timeout: 20000,
+              signal
+            });
+            if (res3.status !== 200) continue;
+            const data3 = await res3.json().catch(() => null);
+            const parsed3 = parseEnrollResult(data3);
+            if (parsed3.ok) return { ok: true, message: parsed3.msg || 'ok', flag: parsed3.flag };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Best-effort verification: some term-system variants may return non-standard payloads
+    // even when the enroll actually succeeded. Verify by re-syncing selected pairs once.
+    try {
+      if (!signal?.aborted) {
+        const verified: any = await syncSelected(signal);
+        if (verified?.ok && Array.isArray(verified.selected)) {
+          const hit = verified.selected.some((p: any) => String(p?.kchId || '') === String(kchId) && String(p?.jxbId || '') === String(jxbId));
+          if (hit) return { ok: true, message: parsed.msg || 'ok (verified)', flag: parsed.flag };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Ref UI scripts: 校验不通过通常需要刷新页面/重新拉 context 后重试。
+    if (parsed.retryable) {
+      state.fields = null;
+      state.context = null;
+      state.roundTabs = null;
+      state.activeXkkzId = null;
+      state.currentXkkzId = null;
+      state.contextValidatedAtMs = 0;
+    }
     return { ok: false, error: parsed.msg || 'Enroll failed', flag: parsed.flag, retryable: parsed.retryable };
   }
 
-  async function drop(kchId: string, jxbId: string) {
+  async function drop(kchId: string, jxbId: string, signal?: AbortSignal) {
     await ensureContext();
     const kch = String(kchId || '').trim();
     const jxb = String(jxbId || '').trim();
     if (!kch || !jxb) return { ok: false, error: 'Missing kchId/jxbId' };
 
+    const courseBase = await getCourseBaseForKch(kch, jxb);
+    const jxbIds = String(courseBase?.doJxbId || jxb || '').trim();
+
     // Primary: `/xsxk/zzxkyzb_tuikBcZzxkYzb.html` (ref implementation).
     try {
-      const payload = buildDropPayloadTuikBcZzxkYzb(state.context, { kch_id: kch, jxb_ids: jxb });
+      const payload = buildDropPayloadTuikBcZzxkYzb(state.context, { kch_id: kch, jxb_ids: jxbIds });
       const res = await gmFetch(cfg.dropBcUrl, {
         method: 'POST',
         headers: {
@@ -923,7 +1303,8 @@ wTBNePOk1H+LRQokgQIDAQAB
           referer: cfg.selectionIndexUrl
         },
         body: payload,
-        timeout: 20000
+        timeout: 20000,
+        signal
       });
       if (res.status === 200) {
         let raw: any = null;
@@ -935,7 +1316,48 @@ wTBNePOk1H+LRQokgQIDAQAB
         const parsed = parseDropTuikBcResult(raw);
         if (parsed.ok) return { ok: true, message: 'ok', code: parsed.code };
         // If server says "busy" or "validation failed", caller may retry.
-        if (parsed.retryable) return { ok: false, error: parsed.msg || 'Drop failed', code: parsed.code, retryable: true };
+        if (parsed.retryable) {
+          state.fields = null;
+          state.context = null;
+          state.roundTabs = null;
+          state.activeXkkzId = null;
+          state.currentXkkzId = null;
+          state.contextValidatedAtMs = 0;
+          return { ok: false, error: parsed.msg || 'Drop failed', code: parsed.code, retryable: true };
+        }
+        const msg = String(parsed.msg || '').trim();
+        if (!signal?.aborted && /无操作权限|非法访问|ILLEGAL_ACCESS/i.test(msg)) {
+          emitLog('warn', 'drop:permission-denied:refresh-context', { kchId: kch, jxbId: jxb, jxbIds });
+          state.fields = null;
+          state.context = null;
+          state.roundTabs = null;
+          state.activeXkkzId = null;
+          state.currentXkkzId = null;
+          state.contextValidatedAtMs = 0;
+          await ensureContext();
+          const payload2 = buildDropPayloadTuikBcZzxkYzb(state.context, { kch_id: kch, jxb_ids: jxbIds });
+          const res2 = await gmFetch(cfg.dropBcUrl, {
+            method: 'POST',
+            headers: {
+              'x-requested-with': 'XMLHttpRequest',
+              'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              referer: cfg.selectionIndexUrl
+            },
+            body: payload2,
+            timeout: 20000,
+            signal
+          });
+          if (res2.status === 200) {
+            let raw2: any = null;
+            try {
+              raw2 = await res2.json();
+            } catch {
+              raw2 = await res2.text();
+            }
+            const parsed2 = parseDropTuikBcResult(raw2);
+            if (parsed2.ok) return { ok: true, message: 'ok', code: parsed2.code };
+          }
+        }
         // Non-retryable -> fall through to legacy endpoint as a last resort.
       }
     } catch {
@@ -943,7 +1365,7 @@ wTBNePOk1H+LRQokgQIDAQAB
     }
 
     // Fallback: legacy endpoint. Keep the old minimal payload to maximize compatibility.
-    const legacyPayload = new URLSearchParams(Object.assign({}, state.context, { kch_id: kch, jxb_ids: jxb }));
+    const legacyPayload = new URLSearchParams(Object.assign({}, state.context, { kch_id: kch, jxb_ids: jxbIds }));
     const legacyRes = await gmFetch(cfg.dropUrl, {
       method: 'POST',
       headers: {
@@ -952,19 +1374,46 @@ wTBNePOk1H+LRQokgQIDAQAB
         referer: cfg.selectionIndexUrl
       },
       body: legacyPayload,
-      timeout: 20000
+      timeout: 20000,
+      signal
     });
     if (legacyRes.status !== 200) return { ok: false, error: `Drop failed (${legacyRes.status})` };
     const data = await legacyRes.json();
     const parsed = parseEnrollResult(data);
     if (parsed.ok) return { ok: true, message: parsed.msg || 'ok', flag: parsed.flag };
+
+    // Best-effort verification: if drop already took effect (or remote state differs),
+    // do not report it as a hard failure to avoid false freezing.
+    try {
+      if (!signal?.aborted) {
+        const verified: any = await syncSelected(signal);
+        if (verified?.ok && Array.isArray(verified.selected)) {
+          const stillThere = verified.selected.some((p: any) => String(p?.kchId || '') === kch && String(p?.jxbId || '') === jxbIds);
+          if (!stillThere) return { ok: true, message: parsed.msg || 'ok (verified)', flag: parsed.flag };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (parsed.retryable) {
+      state.fields = null;
+      state.context = null;
+      state.roundTabs = null;
+      state.activeXkkzId = null;
+      state.currentXkkzId = null;
+      state.contextValidatedAtMs = 0;
+    }
     return { ok: false, error: parsed.msg || 'Drop failed', flag: parsed.flag, retryable: parsed.retryable };
   }
 
-  async function getCourseBaseForKch(kchId: string): Promise<{ kcmc: string; cxbj: string; xxkbj: string } | null> {
-    const id = String(kchId || '').trim();
-    if (!id) return null;
-    if (state.courseBaseCache && state.courseBaseCache.has(id)) return state.courseBaseCache.get(id) || null;
+  async function getCourseBaseForKch(kchId: string, jxbId?: string): Promise<{ kcmc: string; cxbj: string; xxkbj: string; doJxbId?: string } | null> {
+    const kch = String(kchId || '').trim();
+    const jxb = String(jxbId || '').trim();
+    if (!kch) return null;
+    const pairKey = jxb ? `${kch}::${jxb}` : '';
+    if (state.courseBaseCache && (pairKey ? state.courseBaseCache.has(pairKey) : false)) return state.courseBaseCache.get(pairKey) || null;
+    if (state.courseBaseCache && state.courseBaseCache.has(kch)) return state.courseBaseCache.get(kch) || null;
     try {
       if (!state.courseBaseCachePromise) {
         state.courseBaseCachePromise = (async () => {
@@ -986,12 +1435,19 @@ wTBNePOk1H+LRQokgQIDAQAB
           for (const row of rows) {
             const k = String(row && (row.kch_id || row.kch) || '').trim();
             if (!k) continue;
-            if (map.has(k)) continue;
-            map.set(k, {
+            const j = String(row && row.jxb_id || '').trim();
+            const doJxbId = stringify(row && (row.do_jxb_id || row.doJxbId || row.jxb_id) || '');
+            const base = {
               kcmc: stringify(row.kcmc),
               cxbj: stringify(row.cxbj || '0') || '0',
-              xxkbj: stringify(row.xxkbj || '0') || '0'
-            });
+              xxkbj: stringify(row.xxkbj || '0') || '0',
+              doJxbId: doJxbId || undefined
+            };
+            if (!map.has(k)) map.set(k, base);
+            if (j) {
+              const pk = `${k}::${j}`;
+              if (!map.has(pk)) map.set(pk, base);
+            }
           }
           return map;
         })()
@@ -1005,7 +1461,7 @@ wTBNePOk1H+LRQokgQIDAQAB
       }
 
       const cache = await state.courseBaseCachePromise;
-      const entry = cache && cache.has(id) ? cache.get(id) : null;
+      const entry = cache && (pairKey ? cache.has(pairKey) : false) ? cache.get(pairKey) : (cache && cache.has(kch) ? cache.get(kch) : null);
       return entry || null;
     } catch {
       return null;
@@ -1213,7 +1669,7 @@ wTBNePOk1H+LRQokgQIDAQAB
     }
   }
 
-  async function push(selectionSnapshotBase64: string, dryRun: boolean, options?: { enrollConcurrency?: number }) {
+  async function push(selectionSnapshotBase64: string, dryRun: boolean, options?: { enrollConcurrency?: number }, signal?: AbortSignal) {
     const snapText = atob(String(selectionSnapshotBase64 || ''));
     const decoded = JSON.parse(snapText) || {};
     const desired = Array.isArray(decoded.selected) ? decoded.selected : [];
@@ -1226,7 +1682,8 @@ wTBNePOk1H+LRQokgQIDAQAB
       })
       .filter((p: any) => p.kchId && p.jxbId);
 
-    const syncRes: any = await syncSelected();
+    if (signal?.aborted) return { ok: false, error: 'ABORTED' };
+    const syncRes: any = await syncSelected(signal);
     if (!syncRes.ok) return syncRes;
     const remotePairs = syncRes.selected != null ? syncRes.selected : [];
     const desiredSet = new Set(desiredPairs.map((p: any) => `${p.kchId}::${p.jxbId}`));
@@ -1241,8 +1698,9 @@ wTBNePOk1H+LRQokgQIDAQAB
 
     const results: any[] = [];
     for (const pair of toDrop) {
-      const r: any = await drop(pair.kchId, pair.jxbId);
-      results.push({ op: 'drop', kchId: pair.kchId, jxbId: pair.jxbId, ok: r.ok, message: r.error });
+      if (signal?.aborted) return { ok: false, error: 'ABORTED', plan, results };
+      const r: any = await drop(pair.kchId, pair.jxbId, signal);
+      results.push({ op: 'drop', kchId: pair.kchId, jxbId: pair.jxbId, ok: r.ok, message: r.error, retryable: Boolean(r && r.retryable) });
       if (!r.ok) break;
     }
     if (results.every((r) => r.ok)) {
@@ -1250,14 +1708,16 @@ wTBNePOk1H+LRQokgQIDAQAB
       const concurrency = clampInt(concurrencyRaw, 1, 1, 12);
       if (concurrency <= 1 || toEnroll.length <= 1) {
         for (const pair of toEnroll) {
-          const r: any = await enroll(pair.kchId, pair.jxbId);
-          results.push({ op: 'enroll', kchId: pair.kchId, jxbId: pair.jxbId, ok: r.ok, message: r.error });
+          if (signal?.aborted) return { ok: false, error: 'ABORTED', plan, results };
+          const r: any = await enroll(pair.kchId, pair.jxbId, signal);
+          results.push({ op: 'enroll', kchId: pair.kchId, jxbId: pair.jxbId, ok: r.ok, message: r.error, retryable: Boolean(r && r.retryable) });
           if (!r.ok) break;
         }
       } else {
         const out = await mapWithConcurrency(toEnroll as any[], concurrency, async (pair) => {
-          const r: any = await enroll(String((pair as any).kchId || ''), String((pair as any).jxbId || ''));
-          return { op: 'enroll', kchId: (pair as any).kchId, jxbId: (pair as any).jxbId, ok: r.ok, message: r.error };
+          if (signal?.aborted) return { op: 'enroll', kchId: (pair as any).kchId, jxbId: (pair as any).jxbId, ok: false, message: 'ABORTED' };
+          const r: any = await enroll(String((pair as any).kchId || ''), String((pair as any).jxbId || ''), signal);
+          return { op: 'enroll', kchId: (pair as any).kchId, jxbId: (pair as any).jxbId, ok: r.ok, message: r.error, retryable: Boolean(r && r.retryable) };
         });
         results.push(...out);
       }
@@ -1456,7 +1916,7 @@ wTBNePOk1H+LRQokgQIDAQAB
       const concurrency = clampInt(r?.parallel?.concurrency, 4, 1, 12);
 
       reportProgress({ stage: 'push-preview' });
-      const preview: any = await push(snapshotBase64, true);
+      const preview: any = await push(snapshotBase64, true, undefined, signal);
       if (!preview || !preview.ok) return { ok: false, done: false, error: String(preview?.error || 'PUSH_PREVIEW_FAILED'), retryable: true };
 
       const toEnrollCount = Array.isArray(preview.plan?.toEnroll) ? preview.plan.toEnroll.length : 0;
@@ -1468,11 +1928,26 @@ wTBNePOk1H+LRQokgQIDAQAB
         return { ok: true, done: false, result: { ok: true, synced: true, plan: preview.plan, summary: preview.summary } };
       }
 
-      const out: any = await push(snapshotBase64, false, { enrollConcurrency: concurrency });
+      if (signal.aborted) return { ok: false, done: false, error: 'ABORTED', retryable: false };
+      const out: any = await push(snapshotBase64, false, { enrollConcurrency: concurrency }, signal);
       if (!out || !out.ok) return { ok: false, done: false, error: String(out?.error || out?.message || 'PUSH_FAILED'), retryable: true };
-      const allOk = Array.isArray(out.results) ? out.results.every((x: any) => x && x.ok) : true;
-      if (!allOk) return { ok: false, done: false, error: 'PUSH_NOT_COMPLETE', retryable: true, result: out };
-      return { ok: true, done: false, result: out };
+      const failures = Array.isArray(out.results) ? out.results.filter((x: any) => x && x.ok === false) : [];
+      if (!failures.length) return { ok: true, done: false, result: out };
+
+      const first = failures[0] || {};
+      const op = String(first.op || 'op').toUpperCase();
+      const ref = `${String(first.kchId || '')}::${String(first.jxbId || '')}`;
+      const rawMsg = String(first.message || first.error || 'FAILED').trim();
+      const msg = rawMsg.length > 160 ? `${rawMsg.slice(0, 160)}…` : rawMsg;
+      const hint = `${op} ${ref} ${msg}`.trim();
+      reportProgress({ stage: 'push', message: `fail ${failures.length}/${Array.isArray(out.results) ? out.results.length : '?'} · ${hint}` });
+
+      const hasNonRetryable = failures.some((x: any) => x && x.retryable === false);
+      if (hasNonRetryable) {
+        return { ok: false, done: false, error: `PUSH_FAILED:${hint}`, retryable: false, result: out };
+      }
+      // Retryable partial failures are expected in polling mode (e.g. full/busy); keep running but expose a readable lastError.
+      return { ok: true, done: false, error: `PUSH_RETRY:${hint}`, retryable: true, result: out };
     },
     jwxt_crawl_snapshot: async ({ request, signal, reportProgress }) => {
       const r: any = request as any;

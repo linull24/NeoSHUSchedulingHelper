@@ -23,13 +23,13 @@ const dispatch = createEventDispatcher<{
 	nearBottom: ListSurfaceScrollDetail;
 }>();
 
-let pinned = initialSticky;
-let bodyElement: HTMLElement | null = null;
-let slotElement: HTMLElement | null = null;
-let bottomCheckTimer: number | null = null;
-let resizeObserver: ResizeObserver | null = null;
-let mutationObserver: MutationObserver | null = null;
-let observersReady = false;
+	let pinned = initialSticky;
+	let bodyElement: HTMLElement | null = null;
+	let slotElement: HTMLElement | null = null;
+	let bottomCheckRaf: number | null = null;
+	let resizeObserver: ResizeObserver | null = null;
+	let mutationObserver: MutationObserver | null = null;
+	let observersReady = false;
 
 let t = (key: string) => key;
 $: t = $translator;
@@ -78,17 +78,19 @@ function handleBodyScroll(event: Event) {
 	handleScroll(event);
 }
 
-function scheduleBottomCheck(rawEvent: Event) {
-	if (!bodyScrollable) return;
-	if (!bodyElement) return;
-	if (bottomCheckTimer) clearTimeout(bottomCheckTimer);
-	bottomCheckTimer = window.setTimeout(() => {
-		bottomCheckTimer = null;
+	function scheduleBottomCheck(rawEvent: Event) {
+		if (!bodyScrollable) return;
 		if (!bodyElement) return;
-		const detail = buildScrollDetail(bodyElement, rawEvent);
-		maybeDispatchNearBottom(detail);
-	}, 0);
-}
+		if (bottomCheckRaf != null) cancelAnimationFrame(bottomCheckRaf);
+		// Defer to the next frame so DOM/style changes from mutations can be batched
+		// before we read scroll metrics (avoids forced synchronous layout).
+		bottomCheckRaf = requestAnimationFrame(() => {
+			bottomCheckRaf = null;
+			if (!bodyElement) return;
+			const detail = buildScrollDetail(bodyElement, rawEvent);
+			maybeDispatchNearBottom(detail);
+		});
+	}
 
 function setupNearBottomObservers() {
 	if (observersReady) return;
@@ -103,16 +105,16 @@ function setupNearBottomObservers() {
 	mutationObserver.observe(slotElement, { childList: true, subtree: true });
 }
 
-function teardownNearBottomObservers() {
-	if (!observersReady) return;
-	observersReady = false;
-	if (bottomCheckTimer) clearTimeout(bottomCheckTimer);
-	bottomCheckTimer = null;
-	resizeObserver?.disconnect();
-	resizeObserver = null;
-	mutationObserver?.disconnect();
-	mutationObserver = null;
-}
+	function teardownNearBottomObservers() {
+		if (!observersReady) return;
+		observersReady = false;
+		if (bottomCheckRaf != null) cancelAnimationFrame(bottomCheckRaf);
+		bottomCheckRaf = null;
+		resizeObserver?.disconnect();
+		resizeObserver = null;
+		mutationObserver?.disconnect();
+		mutationObserver = null;
+	}
 
 $: {
 	if (!bodyScrollable) {

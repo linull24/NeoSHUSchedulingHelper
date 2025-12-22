@@ -224,7 +224,7 @@ export type TermAction =
 	| { type: 'JWXT_DROP_NOW'; pair: JwxtPair }
 	| { type: 'JWXT_DROP_OK'; pair: JwxtPair }
 	| { type: 'JWXT_DROP_ERR'; pair: JwxtPair; error: string }
-	| { type: 'JWXT_ENROLL_NOW'; pair: JwxtPair }
+	| { type: 'JWXT_ENROLL_NOW'; pair: JwxtPair; xkkzId?: string }
 	| { type: 'JWXT_ENROLL_OK'; pair: JwxtPair }
 	| { type: 'JWXT_ENROLL_ERR'; pair: JwxtPair; error: string }
 	| {
@@ -283,7 +283,7 @@ export type TermEffect =
 	| { type: 'EFF_JWXT_FETCH_PAIRS' }
 	| { type: 'EFF_JWXT_PUSH_DIFF'; payloadBase64: string; dryRun?: boolean; ttlMs?: 0 | 120_000; baseDigest?: Md5 }
 	| { type: 'EFF_JWXT_DROP'; pair: JwxtPair }
-	| { type: 'EFF_JWXT_ENROLL'; pair: JwxtPair }
+	| { type: 'EFF_JWXT_ENROLL'; pair: JwxtPair; xkkzId?: string }
 	| { type: 'EFF_SOLVER_RUN'; runType: 'auto' | 'manual'; note?: string }
 	| { type: 'EFF_AUTO_SOLVE_ENTRY_FILTER'; runId: string }
 	| { type: 'EFF_AUTO_SOLVE_RUN'; mode: 'merge' | 'replace-all'; runId: string }

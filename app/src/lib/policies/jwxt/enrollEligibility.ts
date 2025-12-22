@@ -1,6 +1,7 @@
 import type { TermState } from '../../data/termState/types';
 import { globalJwxtPolicyRegistry } from './index';
 import { getCachedUserBatchForPair } from './userBatchCache';
+import { getEffectiveMinAcceptableBatchLabel } from './minAcceptablePolicy';
 
 export type JwxtEnrollEligibility =
 	| { ok: true }
@@ -18,7 +19,7 @@ export function evaluateJwxtEnrollEligibility(
 	pair: { kchId: string; jxbId: string }
 ): JwxtEnrollEligibility {
 	if (state.settings.selectionMode !== 'allowOverflowMode') return { ok: false, reason: 'NO_MIN_POLICY' };
-	const minAcceptable = state.settings.jwxt.minAcceptableBatchLabel;
+	const minAcceptable = getEffectiveMinAcceptableBatchLabel(state);
 	if (!minAcceptable) return { ok: false, reason: 'NO_MIN_POLICY' };
 
 	const cached = getCachedUserBatchForPair(state, pair);

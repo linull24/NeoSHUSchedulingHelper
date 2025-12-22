@@ -9,6 +9,7 @@
 	import SolverListCard from '$lib/components/SolverListCard.svelte';
 	import CardActionBar from '$lib/components/CardActionBar.svelte';
 	import CardBulkCheckbox from '$lib/components/CardBulkCheckbox.svelte';
+	import SolverMinBatchControl from '$lib/components/SolverMinBatchControl.svelte';
 	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
 	import AppField from '$lib/primitives/AppField.svelte';
@@ -119,7 +120,8 @@ let solutionCount = 0;
 
 	onMount(() => void ensureTermStateLoaded());
 
-	$: locks = (($termState?.solver.constraints.locks ?? []) as unknown as DesiredLock[]).slice().sort((a, b) => a.id.localeCompare(b.id));
+	// Preserve insertion order so newly added constraints are easy to spot.
+	$: locks = (($termState?.solver.constraints.locks ?? []) as unknown as DesiredLock[]).slice();
 	$: lockById = new Map(locks.map((lock) => [lock.id, lock]));
 	$: hardLocks = locks.filter((lock) => lock.priority === 'hard');
 	$: softLocks = locks.filter((lock) => lock.priority === 'soft');
@@ -145,9 +147,8 @@ let solutionCount = 0;
 	$: visibleSoftLockIds = new Set(visibleSoftLocks.map((lock) => lock.id));
 	$: selectedHardLockIds = new Set(Array.from(selectedLockIds).filter((id) => visibleHardLockIds.has(id)));
 	$: selectedSoftLockIds = new Set(Array.from(selectedLockIds).filter((id) => visibleSoftLockIds.has(id)));
-	$: softConstraints = (($termState?.solver.constraints.soft ?? []) as unknown as SoftConstraint[])
-		.slice()
-		.sort((a, b) => a.id.localeCompare(b.id));
+	// Preserve insertion order so newly added constraints are easy to spot.
+	$: softConstraints = (($termState?.solver.constraints.soft ?? []) as unknown as SoftConstraint[]).slice();
 	$: visibleSoftConstraints = softConstraints;
 	$: catalogBySectionId = (() => {
 		const map = new Map<string, (typeof courseCatalog)[number]>();
@@ -1975,6 +1976,7 @@ function formatScheduleChunks(section: SectionEntry | null): string | null {
 					density="comfortable"
 					class="flex-[1_1_520px] min-w-[min(360px,100%)]"
 				>
+					<SolverMinBatchControl state={$termState} scope="current" selectClass={inputInlineClass} />
 					<div class="flex flex-col gap-3">
 						{#if stagingItems.length === 0}
 							<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
@@ -2609,6 +2611,7 @@ function formatScheduleChunks(section: SectionEntry | null): string | null {
 					density="comfortable"
 					class="flex-[1_1_520px] min-w-[min(360px,100%)]"
 				>
+					<SolverMinBatchControl state={$termState} scope="current" selectClass={inputDenseInlineClass} />
 					{#if selectedHardLockIds.size > 0}
 						<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-2 py-1.5">
 							<div class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">

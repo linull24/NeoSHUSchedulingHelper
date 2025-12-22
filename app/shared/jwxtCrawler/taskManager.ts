@@ -212,7 +212,7 @@ export class TaskManager {
 			const current = this.tasks.get(id);
 			const request = (current?.request || initialReq) as TReq;
 			const pollEnabled = Boolean(request.poll?.enabled);
-			const intervalMs = clampInt(request.poll?.intervalMs, delay, 150, 10_000);
+			const baseIntervalMs = clampInt(request.poll?.intervalMs, delay, 150, 10_000);
 			const maxAttempts = clampInt(request.poll?.maxAttempts, (pollEnabled || initialPollEnabled) ? 10_000 : 1, 1, 200_000);
 			const maxDurationMs = (() => {
 				if (request.poll && 'maxDurationMs' in request.poll && request.poll.maxDurationMs === null) return null;
@@ -266,7 +266,12 @@ export class TaskManager {
 				}
 				this.updateSnapshot(id, { lastError: res.error || undefined });
 
-				delay = intervalMs;
+				// Backoff strategy:
+				// - `poll.intervalMs` is treated as a *base* interval (minimum delay), not a fixed override.
+				// - `delay` carries the backoff-inflated value across attempts.
+				// - When the handler returns an `ok` tick with no error message, reset delay back to base.
+				if (res.ok && !res.error) delay = baseIntervalMs;
+				delay = Math.max(delay, baseIntervalMs);
 
 				const jitter = delay * jitterRatio * (Math.random() * 2 - 1);
 				const wait = Math.min(maxDelayMs, Math.max(0, Math.floor(delay + jitter)));
@@ -282,6 +287,7 @@ export class TaskManager {
 				const msg = stringifyError(e);
 				this.updateSnapshot(id, { lastError: msg });
 				// Fall through to polling delay using the latest poll config.
+				delay = Math.max(delay, clampInt(request.poll?.intervalMs, delay, 150, 10_000));
 				const jitter = delay * (typeof request.poll?.jitterRatio === 'number' ? request.poll.jitterRatio : 0.15) * (Math.random() * 2 - 1);
 				const maxDelayMs = clampInt(request.poll?.maxDelayMs, 8_000, 100, 60_000);
 				const wait = Math.min(maxDelayMs, Math.max(0, Math.floor(delay + jitter)));

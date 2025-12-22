@@ -4,6 +4,7 @@ import { getCachedUserBatchForPair, getLatestAvailableUserBatchLabel, hasAnyAvai
 import { filterJwxtEnrollCoursesByBatchPolicy, type JwxtBatchFilterMode } from './batchFilter';
 import type { FilterScope } from '../filter/types';
 import { JWXT_USERSCRIPT_MARKER_DATASET_KEY } from '../../../../shared/jwxtCrawler/userscriptMarker';
+import { getEffectiveMinAcceptableBatchLabel } from './minAcceptablePolicy';
 
 export function hasJwxtUserscriptBackend(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -77,7 +78,7 @@ export function getJwxtEnrollButtonPolicyState(
 	pair: { kchId: string; jxbId: string }
 ): JwxtEnrollButtonPolicyState {
 	if (state.settings.selectionMode !== 'allowOverflowMode') return { enabled: true };
-	if (!state.settings.jwxt.minAcceptableBatchLabel) return { enabled: true };
+	if (!getEffectiveMinAcceptableBatchLabel(state)) return { enabled: true };
 	const eligibility = evaluateJwxtEnrollEligibility(state, pair);
 	if (eligibility.ok) return { enabled: true };
 	if (eligibility.reason === 'USER_BATCH_MISSING') return { enabled: false, reason: 'USER_BATCH_MISSING' };
@@ -109,7 +110,7 @@ export function filterJwxtEnrollCoursesByPolicy(state: TermState, entries: any[]
  */
 export function shouldPrefetchJwxtUserBatchForEnroll(state: TermState, pair: { kchId: string; jxbId: string }): boolean {
 	if (state.settings.selectionMode !== 'allowOverflowMode') return false;
-	if (!state.settings.jwxt.minAcceptableBatchLabel) return false;
+	if (!getEffectiveMinAcceptableBatchLabel(state)) return false;
 	return getCachedUserBatchForPair(state, pair) == null;
 }
 

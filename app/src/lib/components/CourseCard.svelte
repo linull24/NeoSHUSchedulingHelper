@@ -119,35 +119,26 @@
 	$: courseCodeValue = courseCode ?? t('courseCard.courseCodePending');
 	$: creditValue = typeof credit === 'number' ? credit.toString() : t('courseCard.creditPending');
 	$: teacherValue = teacher?.trim() ?? '';
-	$: teacherLabel = t('courseCard.teacherLabel');
-	$: campusLabel = t('courseCard.campusLabel');
-	$: campusValue = courseCatalogMap.get(id)?.campus ?? '';
+		$: teacherLabel = t('courseCard.teacherLabel');
+		$: campusLabel = t('courseCard.campusLabel');
+		$: campusValue = courseCatalogMap.get(id)?.campus ?? '';
 
-	let titleElement: HTMLDivElement | null = null;
-	let truncatedTitleTooltip: string | null = null;
+		// PERF: Avoid measuring title overflow (scrollWidth/clientWidth) for every card render.
+		// Always expose the full title as tooltip — cheap and predictable.
+		$: titleTooltip = title;
 
-	let kvGridElement: HTMLDivElement | null = null;
-	let ro: ResizeObserver | null = null;
-	let roTimer: ReturnType<typeof setTimeout> | null = null;
-	let kvWantsPills = false;
+		let kvGridElement: HTMLDivElement | null = null;
+		let ro: ResizeObserver | null = null;
+		let roTimer: ReturnType<typeof setTimeout> | null = null;
+		let kvWantsPills = false;
 	let usePills = false;
 
 	$: usePills = density === 'dense' || kvWantsPills;
 
-	$: {
-		if (browser && titleElement) {
-			const overflowX = titleElement.scrollWidth - titleElement.clientWidth > 1;
-			const overflowY = titleElement.scrollHeight - titleElement.clientHeight > 1;
-			truncatedTitleTooltip = overflowX || overflowY ? title : null;
-		} else if (!titleElement) {
-			truncatedTitleTooltip = null;
-		}
-	}
-
-	function recomputeKvLayout() {
-		if (!kvGridElement) return;
-		const items = Array.from(kvGridElement.querySelectorAll<HTMLElement>('.kv'));
-		if (!items.length) {
+		function recomputeKvLayout() {
+			if (!kvGridElement) return;
+			const items = Array.from(kvGridElement.querySelectorAll<HTMLElement>('.kv'));
+			if (!items.length) {
 			kvWantsPills = false;
 			return;
 		}
@@ -232,15 +223,14 @@
 	<div class="card-body">
 		<div class="column title-col">
 			<div class="title-row">
-				<div class="title-main">
-					<div
-						class="title"
-						bind:this={titleElement}
-						title={truncatedTitleTooltip ?? undefined}
-						aria-label={truncatedTitleTooltip ?? undefined}
-					>
-						{title}
-					</div>
+					<div class="title-main">
+						<div
+							class="title"
+							title={titleTooltip}
+							aria-label={titleTooltip}
+						>
+							{title}
+						</div>
 					{#if showConflictBadge}
 						<button type="button" class="conflict-indicator" aria-label={conflictLabel}>
 							<span aria-hidden="true">!</span>

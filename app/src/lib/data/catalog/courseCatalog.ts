@@ -1,7 +1,6 @@
 import type {
 	CalendarConfig,
 	CourseRecord,
-	InsaneCourseData,
 	LocationSlot,
 	ScheduleChunk,
 	SectionEntry,
@@ -14,48 +13,87 @@ import { resolveParser } from '../parsers';
 import { getDatasetConfig } from '../../../config/dataset';
 import type { CourseTaxonomyInfo } from '../../types/taxonomy';
 import { resolveCourseTaxonomy } from './courseTaxonomy';
-import { initializeTaxonomyRegistry } from '../taxonomy/taxonomyRegistry';
+import { initializeTaxonomyRegistry, initializeTaxonomyRegistryAsync } from '../taxonomy/taxonomyRegistry';
 import { t } from '../../i18n/index.ts';
 import { browser } from '$app/environment';
-import { readCloudSnapshot } from './cloudSnapshot';
+import { readCloudSnapshotText } from './cloudSnapshot';
+import { InsaneCourseData, type CourseDatasetPayload } from '../InsaneCourseData';
 
 const datasetConfig = getDatasetConfig();
 
-const RAW_SNAPSHOT_MODULES = import.meta.glob('../../../../static/crawler/data/terms/*.json', {
-	eager: true,
-	import: 'default'
-});
+type CurrentManifestEntry = {
+	termId: string;
+	termCode?: string;
+	jwxtRound?: { xklc?: string | number };
+	generatedAt?: number;
+};
 
-function resolveRawSnapshot(termId: string): RawJwxtCourseSnapshot {
-	if (browser) {
-		const cloud = readCloudSnapshot(termId);
-		if (cloud) return cloud as RawJwxtCourseSnapshot;
+async function fetchTextOrNull(url: string): Promise<string | null> {
+	try {
+		const res = await fetch(url, { cache: 'no-cache' });
+		if (!res.ok) return null;
+		return await res.text();
+	} catch {
+		return null;
 	}
-	const suffix = `/crawler/data/terms/${termId}.json`;
-	for (const [path, value] of Object.entries(RAW_SNAPSHOT_MODULES)) {
-		if (path.endsWith(suffix)) return value as RawJwxtCourseSnapshot;
+}
+
+function pickBestTermIdFromManifest(termIdOrCode: string, manifest: CurrentManifestEntry[]): string | null {
+	const candidates = manifest
+		.filter((entry) => {
+			const termId = String(entry.termId || '').trim();
+			const termCode = String(entry.termCode || '').trim();
+			if (!termId) return false;
+			if (termId === termIdOrCode) return true;
+			if (termCode && termCode === termIdOrCode) return true;
+			if (termId.startsWith(`${termIdOrCode}--xkkz-`)) return true;
+			return false;
+		})
+		.map((entry) => {
+			const xklcRaw = entry.jwxtRound?.xklc ?? '';
+			const xklc = Number.parseInt(String(xklcRaw || '0'), 10);
+			const generatedAt = typeof entry.generatedAt === 'number' ? entry.generatedAt : 0;
+			return {
+				termId: String(entry.termId || '').trim(),
+				xklc: Number.isFinite(xklc) ? xklc : 0,
+				generatedAt
+			};
+		})
+		.filter((entry) => entry.termId.length > 0);
+
+	if (!candidates.length) return null;
+	candidates.sort((a, b) => (b.xklc - a.xklc) || (b.generatedAt - a.generatedAt));
+	return candidates[0]!.termId;
+}
+
+async function resolveBrowserSnapshotText(termIdOrCode: string): Promise<string> {
+	// Prefer explicit snapshotPath if it exists.
+	const hinted = datasetConfig.snapshotPath?.trim();
+	if (hinted) {
+		const text = await fetchTextOrNull(hinted);
+		if (text) return text;
 	}
-	// If the app is configured with a termCode (e.g. `2025-16`), allow matching
-	// round-specific snapshots `terms/<termCode>--xkkz-<id>.json`.
-	const roundPrefix = `/crawler/data/terms/${termId}--xkkz-`;
-	const candidates: Array<{ snapshot: RawJwxtCourseSnapshot; xklc: number; updatedAt: number }> = [];
-	for (const [path, value] of Object.entries(RAW_SNAPSHOT_MODULES)) {
-		if (!path.includes(roundPrefix)) continue;
-		const snapshot = value as RawJwxtCourseSnapshot;
-		const xklcRaw = String(snapshot?.jwxtRound?.xklc ?? '').trim();
-		const xklcNum = Number.parseInt(xklcRaw || '0', 10);
-		const updatedAt = typeof snapshot?.updateTimeMs === 'number' ? snapshot.updateTimeMs : 0;
-		candidates.push({
-			snapshot,
-			xklc: Number.isFinite(xklcNum) ? xklcNum : 0,
-			updatedAt
-		});
+
+	const directUrl = `/crawler/data/terms/${termIdOrCode}.json`;
+	const directText = await fetchTextOrNull(directUrl);
+	if (directText) return directText;
+
+	const manifestText = await fetchTextOrNull('/crawler/data/current.json');
+	if (manifestText) {
+		try {
+			const manifest = JSON.parse(manifestText) as CurrentManifestEntry[];
+			const best = pickBestTermIdFromManifest(termIdOrCode, Array.isArray(manifest) ? manifest : []);
+			if (best) {
+				const url = `/crawler/data/terms/${best}.json`;
+				const text = await fetchTextOrNull(url);
+				if (text) return text;
+			}
+		} catch {
+			// ignore
+		}
 	}
-	if (candidates.length) {
-		candidates.sort((a, b) => (b.xklc - a.xklc) || (b.updatedAt - a.updatedAt));
-		return candidates[0]!.snapshot;
-	}
-	throw new Error(`未找到学期 ${termId} 的原始快照文件（期望路径后缀：${suffix}）`);
+
+	throw new Error(`未找到学期 ${termIdOrCode} 的原始快照文件（尝试：${directUrl} /crawler/data/current.json）`);
 }
 
 function getWeekdayLabels() {
@@ -131,21 +169,146 @@ export interface CourseCatalogEntry {
 	classStatus?: string;
 }
 
-const snapshot = resolveRawSnapshot(datasetConfig.termId);
-const parser = resolveParser(snapshot.termName);
-
-if (!parser) {
-	throw new Error(`未找到匹配 ${snapshot.termName} 的解析器`);
+function parseSnapshotInWorker(snapshotText: string): Promise<{
+	payload: CourseDatasetPayload;
+	parser: { id: string; version: string };
+	termName: string;
+}> {
+	return new Promise((resolve, reject) => {
+		const worker = new Worker(new URL('./courseCatalog.worker.ts', import.meta.url), { type: 'module' });
+		const cleanup = () => worker.terminate();
+		const timer = setTimeout(() => {
+			cleanup();
+			reject(new Error('COURSE_CATALOG_WORKER_TIMEOUT'));
+		}, 120_000);
+		worker.onmessage = (event) => {
+			const msg = event.data as any;
+			if (!msg || typeof msg !== 'object') return;
+			if (msg.ok === true && msg.type === 'parsed') {
+				clearTimeout(timer);
+				cleanup();
+				resolve({ payload: msg.payload as CourseDatasetPayload, parser: msg.parser as any, termName: String(msg.termName || '') });
+				return;
+			}
+			if (msg.ok === false) {
+				clearTimeout(timer);
+				cleanup();
+				reject(new Error(String(msg.error || 'WORKER_FAILED')));
+			}
+		};
+		worker.onerror = (e) => {
+			clearTimeout(timer);
+			cleanup();
+			reject(e instanceof Error ? e : new Error(String((e as any)?.message || 'WORKER_ERROR')));
+		};
+		worker.postMessage({ type: 'parse', snapshotText });
+	});
 }
 
-const insaneData = parser.parse(snapshot);
+async function yieldToEventLoop() {
+	const ric = (globalThis as any).requestIdleCallback as ((cb: () => void, opts?: { timeout: number }) => number) | undefined;
+	if (typeof ric === 'function') {
+		await new Promise<void>((resolve) => {
+			ric(() => resolve(), { timeout: 50 });
+		});
+		return;
+	}
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+async function buildCatalogAsync(data: InsaneCourseData): Promise<CourseCatalogEntry[]> {
+	const entries: CourseCatalogEntry[] = [];
+	const calendar = data.meta.calendarConfig;
+	let budget = 0;
+	let budgetStart = typeof performance !== 'undefined' ? performance.now() : 0;
+
+	for (const course of data.courses) {
+		if (!course.sections.length) {
+			entries.push(
+				createEntry({
+					course,
+					section: {
+						sectionId: 'default',
+						teachers: [],
+						locations: [],
+						classtime: [],
+						scheduleChunks: []
+					},
+					index: 0,
+					calendar
+				})
+			);
+			budget += 1;
+		} else {
+			course.sections.forEach((section, index) => {
+				entries.push(createEntry({ course, section, index, calendar }));
+				budget += 1;
+			});
+		}
+
+		// Keep the UI responsive on large datasets.
+		// Yield based on both item count and time budget to reduce long tasks.
+		const now = typeof performance !== 'undefined' ? performance.now() : 0;
+		if (budget >= 250 || (budgetStart && now - budgetStart > 10)) {
+			budget = 0;
+			budgetStart = now;
+			await yieldToEventLoop();
+		}
+	}
+
+	return entries;
+}
+
+async function buildCatalogMapAsync(entries: CourseCatalogEntry[]): Promise<Map<string, CourseCatalogEntry>> {
+	const map = new Map<string, CourseCatalogEntry>();
+	let budget = 0;
+	let budgetStart = typeof performance !== 'undefined' ? performance.now() : 0;
+	for (const entry of entries) {
+		map.set(entry.id, entry);
+		budget += 1;
+		const now = typeof performance !== 'undefined' ? performance.now() : 0;
+		if (budget >= 800 || (budgetStart && now - budgetStart > 10)) {
+			budget = 0;
+			budgetStart = now;
+			await yieldToEventLoop();
+		}
+	}
+	return map;
+}
+
+const cloudText = browser ? readCloudSnapshotText(datasetConfig.termId) : null;
+
+const parsedResolved = browser
+	? await parseSnapshotInWorker(cloudText ?? (await resolveBrowserSnapshotText(datasetConfig.termId)))
+	: await (async () => {
+			// SSR/SSG: use Vite static imports (server-only module) to avoid relying on fetch.
+			// This keeps the browser bundle from eagerly importing massive JSON snapshots.
+			const { resolveRawSnapshot } = await import('./courseCatalog.node');
+			const snapshot = resolveRawSnapshot(datasetConfig.termId);
+			const parser = resolveParser(snapshot.termName);
+			if (!parser) throw new Error(`未找到匹配 ${snapshot.termName} 的解析器`);
+			const insaneData = parser.parse(snapshot);
+			return { payload: insaneData.payload, parser: { id: parser.id, version: parser.version }, termName: snapshot.termName };
+		})();
+
+const parser = resolveParser(parsedResolved.termName);
+
+if (!parser) {
+	throw new Error(`未找到匹配 ${parsedResolved.termName} 的解析器`);
+}
+
+const insaneData = new InsaneCourseData(parsedResolved.payload);
 
 export const courseDataset = insaneData;
-export const courseCatalog: CourseCatalogEntry[] = buildCatalog(insaneData);
-export const courseCatalogMap = new Map(courseCatalog.map((entry) => [entry.id, entry]));
+export const courseCatalog: CourseCatalogEntry[] = browser && cloudText ? await buildCatalogAsync(insaneData) : buildCatalog(insaneData);
+export const courseCatalogMap = browser && cloudText ? await buildCatalogMapAsync(courseCatalog) : new Map(courseCatalog.map((entry) => [entry.id, entry]));
 export const datasetMeta = insaneData.meta;
-export const datasetParser = { id: parser.id, version: parser.version };
-initializeTaxonomyRegistry(datasetMeta.semester, courseCatalog);
+export const datasetParser = parsedResolved.parser;
+if (browser && cloudText) {
+	await initializeTaxonomyRegistryAsync(datasetMeta.semester, courseCatalog);
+} else {
+	initializeTaxonomyRegistry(datasetMeta.semester, courseCatalog);
+}
 
 export const seedSelectedCourseIds = new Set(
 	(datasetConfig.seedSelectionIds ?? []).filter((id) => courseCatalogMap.has(id))

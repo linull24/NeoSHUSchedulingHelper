@@ -90,8 +90,14 @@ function buildCourseShell(entry: RawCourseSnapshot['courses'][number], backendOr
 	});
 	const credit = Number(entry.credit ?? 0) || 0;
 	const capacity = Number(entry.capacity ?? 0) || 0;
-	const vacancyRaw = Number(entry.number);
-	const vacancy = entry.number === '' || Number.isNaN(vacancyRaw) ? -1 : vacancyRaw;
+	// `entry.number` in 2025-16 snapshots represents "已选人数" (enrolled count), not remaining seats.
+	// UI expects `vacancy` to be "剩余人数".
+	const enrolledRaw = String(entry.number ?? '').trim();
+	const enrolled = enrolledRaw === '' ? NaN : Number(enrolledRaw);
+	const vacancy =
+		capacity > 0 && Number.isFinite(enrolled)
+			? Math.max(capacity - enrolled, 0)
+			: -1;
 	const normalizedCampus = normalizeCampus(entry.campus);
 	const constraints = parseConstraints(entry.limitations);
 	const academy = entry.academy ?? '';

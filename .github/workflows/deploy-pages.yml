@@ -74,6 +74,7 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}
+          PUBLIC_GITHUB_CLIENT_ID: Ov23li8bBbYrU18OaTTn
 
       - uses: actions/upload-pages-artifact@v3
         with:

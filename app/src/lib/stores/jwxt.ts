@@ -2,7 +2,6 @@ import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
 const USER_ID_KEY = 'jwxt.userId';
-const AUTO_PUSH_MUTE_UNTIL_KEY = 'jwxt.autoPush.muteUntil';
 
 function loadString(key: string, fallback: string): string {
 	if (!browser) return fallback;
@@ -24,7 +23,6 @@ function loadNumber(key: string, fallback: number): number {
 }
 
 export const jwxtRememberedUserId = writable(loadString(USER_ID_KEY, ''));
-export const jwxtAutoPushMuteUntil = writable(loadNumber(AUTO_PUSH_MUTE_UNTIL_KEY, 0));
 
 jwxtRememberedUserId.subscribe((value) => {
 	if (!browser) return;
@@ -34,15 +32,6 @@ jwxtRememberedUserId.subscribe((value) => {
 		} else {
 			localStorage.removeItem(USER_ID_KEY);
 		}
-	} catch {
-		// ignore
-	}
-});
-
-jwxtAutoPushMuteUntil.subscribe((value) => {
-	if (!browser) return;
-	try {
-		localStorage.setItem(AUTO_PUSH_MUTE_UNTIL_KEY, String(value));
 	} catch {
 		// ignore
 	}

@@ -29,6 +29,7 @@ import { collapseCoursesByName } from './courseDisplaySettings';
 import { appPolicy } from '../policies';
 import type { PolicyGateModule, PolicyGateResult } from '../policies/solver/types';
 import { buildJwxtBatchHardConstraintsForZ3 } from '../policies/jwxt/batchFilter';
+import { z } from 'zod';
 
 type TermStateStatus =
 	| { kind: 'idle' }
@@ -36,9 +37,22 @@ type TermStateStatus =
 	| { kind: 'ready' }
 	| { kind: 'error'; error: string };
 
+export type TermStatePersistStatus = {
+	pending: boolean;
+	lastPersistedAt: number | null;
+	lastAttemptAt: number | null;
+	lastError: string | null;
+};
+
 const statusStore = writable<TermStateStatus>({ kind: 'idle' });
 const stateStore = writable<TermState | null>(null);
 const alertStore = writable<TermStateAlert | null>(null);
+const persistStatusStore = writable<TermStatePersistStatus>({
+	pending: false,
+	lastPersistedAt: null,
+	lastAttemptAt: null,
+	lastError: null
+});
 
 let currentVersion = 0;
 let loadPromise: Promise<void> | null = null;
@@ -52,6 +66,7 @@ let persistPendingState: TermState | null = null;
 
 function queuePersist(state: TermState) {
 	persistPendingState = state;
+	persistStatusStore.update((s) => ({ ...s, pending: true }));
 	if (persistRunning) return;
 	persistRunning = true;
 	void (async () => {
@@ -60,8 +75,15 @@ function queuePersist(state: TermState) {
 			if (!next) break;
 			persistPendingState = null;
 			try {
+				persistStatusStore.update((s) => ({ ...s, lastAttemptAt: Date.now(), lastError: null }));
 				const committed = await commitTermState(next, currentVersion);
 				currentVersion = committed.version;
+				persistStatusStore.update((s) => ({
+					...s,
+					pending: Boolean(persistPendingState),
+					lastPersistedAt: Date.now(),
+					lastError: null
+				}));
 				// Keep store in sync with persisted canonical state, but avoid unnecessary updates.
 				if (get(stateStore) !== committed.state) stateStore.set(committed.state);
 			} catch (error) {
@@ -70,13 +92,20 @@ function queuePersist(state: TermState) {
 					const loaded = await loadOrInitTermState();
 					currentVersion = loaded.version;
 					stateStore.set(loaded.state);
+					persistStatusStore.update((s) => ({ ...s, pending: Boolean(persistPendingState), lastError: null }));
 					continue;
 				}
+				persistStatusStore.update((s) => ({
+					...s,
+					pending: Boolean(persistPendingState),
+					lastError: message || 'PERSIST_FAILED'
+				}));
 				// Persist failures should not block UI updates; leave the in-memory state as-is.
 				// Next actions may retry persistence naturally.
 				continue;
 			}
 		}
+		persistStatusStore.update((s) => ({ ...s, pending: false }));
 		persistRunning = false;
 	})();
 }
@@ -93,6 +122,7 @@ let dispatchDrainScheduled = false;
 export const termState: Readable<TermState | null> = derived(stateStore, ($state) => $state);
 export const termStateStatus: Readable<TermStateStatus> = derived(statusStore, ($status) => $status);
 export const termStateAlert: Readable<TermStateAlert | null> = derived(alertStore, ($alert) => $alert);
+export const termStatePersistStatus: Readable<TermStatePersistStatus> = derived(persistStatusStore, ($s) => $s);
 
 // PERF: Avoid emitting new Set() objects on every termState update.
 // Svelte's `derived` uses `safe_not_equal`, which treats objects as always-changed and will re-run downstream
@@ -122,6 +152,8 @@ export const wishlistSectionIds: Readable<Set<string>> = readable(new Set<string
 export type TermStateAlert = {
 	kind: 'SOLVER_INVALID_CONSTRAINTS';
 	issues: SolverInvalidIssue[];
+} | {
+	kind: 'JWXT_FROZEN_BLOCKED';
 } | {
 	kind: 'POLICY_CONFIRM';
 	titleKey: string;
@@ -156,6 +188,12 @@ export type TermStateAlert = {
 export function clearTermStateAlert() {
 	alertStore.set(null);
 }
+
+const GIST_BUNDLE_FILENAME = 'term-state.json';
+const GistBundleSchema = z.object({
+	updatedAt: z.number(),
+	payloadBase64: z.string().min(1)
+});
 
 export async function setAutoSolveEnabled(nextEnabled: boolean): Promise<DispatchResult | void> {
 	await ensureTermStateLoaded();
@@ -256,8 +294,20 @@ function buildCourseHashToSectionIdsIndex() {
 	return map;
 }
 
+function buildSectionIdToGroupKeyIndex() {
+	if (cachedSectionIdToGroupKeyIndex) return cachedSectionIdToGroupKeyIndex;
+	const map = new Map<string, string>();
+	for (const entry of courseCatalogMap.values()) {
+		if (!entry.sectionId) continue;
+		map.set(entry.sectionId, deriveGroupKey(entry) as unknown as string);
+	}
+	cachedSectionIdToGroupKeyIndex = map;
+	return map;
+}
+
 let cachedGroupKeyToSectionIdsIndex: Map<string, string[]> | null = null;
 let cachedCourseHashToSectionIdsIndex: Map<string, string[]> | null = null;
+let cachedSectionIdToGroupKeyIndex: Map<string, string> | null = null;
 
 type CachedSelectionMatrix = {
 	key: string;
@@ -446,12 +496,14 @@ function buildSolverBaselineHardConstraints(state: TermState, candidateSectionId
 		if (catalog) selectedGroupKeys.add(deriveGroupKey(catalog) as unknown as string);
 	}
 
+	// Performance: building candidate groups should scale with candidate universe, not the full catalog.
+	const sectionIdToGroupKey = buildSectionIdToGroupKeyIndex();
 	const candidateGroupMap = new Map<string, string[]>();
-	for (const entry of courseCatalogMap.values()) {
-		if (!candidateSet.has(entry.sectionId)) continue;
-		const groupKey = deriveGroupKey(entry) as unknown as string;
+	for (const sectionId of candidateSectionIds) {
+		const groupKey = sectionIdToGroupKey.get(sectionId);
+		if (!groupKey) continue;
 		const list = candidateGroupMap.get(groupKey) ?? [];
-		list.push(entry.sectionId);
+		list.push(sectionId);
 		candidateGroupMap.set(groupKey, list);
 	}
 
@@ -540,7 +592,9 @@ type PreparedAction =
 function prepareAction(state: TermState, action: TermAction): PreparedAction {
 	const preGate = validateActionAllowed(state, action);
 	if (preGate) {
-		return { ok: false, error: { kind: 'VALIDATION', message: formatGateMessage(preGate) } };
+		const setAlert =
+			preGate.kind === 'INVALID_ACTION' && preGate.gateKind === 'frozen-blocked' ? ({ kind: 'JWXT_FROZEN_BLOCKED' } as const) : undefined;
+		return { ok: false, error: { kind: 'VALIDATION', message: formatGateMessage(preGate) }, setAlert };
 	}
 
 	let effectiveAction: TermAction = action;
@@ -605,7 +659,9 @@ function prepareAction(state: TermState, action: TermAction): PreparedAction {
 
 	const gate = validateActionAllowed(state, effectiveAction);
 	if (gate) {
-		return { ok: false, error: { kind: 'VALIDATION', message: formatGateMessage(gate) } };
+		const setAlert =
+			gate.kind === 'INVALID_ACTION' && gate.gateKind === 'frozen-blocked' ? ({ kind: 'JWXT_FROZEN_BLOCKED' } as const) : undefined;
+		return { ok: false, error: { kind: 'VALIDATION', message: formatGateMessage(gate) }, setAlert };
 	}
 
 	if (effectiveAction.type === 'SOLVER_RUN') {
@@ -896,7 +952,7 @@ async function runEffect(effect: TermEffect) {
 			return;
 		}
 		case 'EFF_JWXT_ENROLL': {
-			const response = await jwxtEnroll({ kchId: effect.pair.kchId, jxbId: effect.pair.jxbId });
+			const response = await jwxtEnroll({ kchId: effect.pair.kchId, jxbId: effect.pair.jxbId, xkkzId: effect.xkkzId });
 			if (!response.ok) {
 				await dispatchTermAction({ type: 'JWXT_ENROLL_ERR', pair: effect.pair, error: response.error });
 				return;
@@ -1183,13 +1239,15 @@ async function runEffect(effect: TermEffect) {
 		}
 		case 'EFF_GIST_PUT': {
 			try {
+				const updatedAt = Date.now();
+				const payload = JSON.stringify({ updatedAt, payloadBase64: effect.payloadBase64 } satisfies z.infer<typeof GistBundleSchema>);
 				const result = await syncGist({
 					token: effect.token,
 					gistId: effect.gistId,
-					public: effect.public,
-					description: effect.note ?? 'SHU Course Scheduler TermState Bundle',
+					public: false,
+					description: 'SHU Course Scheduler TermState Bundle',
 					files: {
-						'term-state.base64': effect.payloadBase64
+						[GIST_BUNDLE_FILENAME]: payload
 					}
 				});
 				await dispatchTermAction({ type: 'SYNC_GIST_EXPORT_OK', gistId: result.id, url: result.url });
@@ -1206,9 +1264,11 @@ async function runEffect(effect: TermEffect) {
 				const file = await getGistFileContent({
 					token: effect.token,
 					gistId: effect.gistId,
-					filename: 'term-state.base64'
+					filename: GIST_BUNDLE_FILENAME
 				});
-				const bundle = parseTermStateBundleBase64(file.content.trim());
+				const raw = JSON.parse(file.content.trim()) as unknown;
+				const parsed = GistBundleSchema.parse(raw);
+				const bundle = parseTermStateBundleBase64(parsed.payloadBase64.trim());
 				const current = get(stateStore);
 				if (!current) throw new Error('state not loaded');
 				if (bundle.termId !== current.termId) throw new Error('sync-import-term-mismatch');
@@ -1284,9 +1344,31 @@ async function digestRemotePairs(pairs: JwxtSelectedPair[]) {
 	return digestToMd5LikeHex(normalized);
 }
 
-function canResolveRemotePair(pair: JwxtSelectedPair) {
+type RemotePairResolutionIndex = {
+	pairKeySet: Set<string>;
+	sectionIdSet: Set<string>;
+};
+
+let cachedRemotePairResolutionIndex: RemotePairResolutionIndex | null = null;
+function getRemotePairResolutionIndex(): RemotePairResolutionIndex {
+	if (cachedRemotePairResolutionIndex) return cachedRemotePairResolutionIndex;
+	const pairKeySet = new Set<string>();
+	const sectionIdSet = new Set<string>();
 	for (const entry of courseCatalogMap.values()) {
-		if (entry.courseCode === pair.kchId && entry.sectionId === pair.jxbId) return true;
+		const courseCode = String(entry.courseCode || '').trim();
+		const sectionId = String(entry.sectionId || '').trim();
+		if (sectionId) sectionIdSet.add(sectionId);
+		if (courseCode && sectionId) pairKeySet.add(`${courseCode}::${sectionId}`);
 	}
-	return false;
+	cachedRemotePairResolutionIndex = { pairKeySet, sectionIdSet };
+	return cachedRemotePairResolutionIndex;
+}
+
+function canResolveRemotePair(pair: JwxtSelectedPair) {
+	const { pairKeySet, sectionIdSet } = getRemotePairResolutionIndex();
+	const kchId = String(pair.kchId || '').trim();
+	const jxbId = String(pair.jxbId || '').trim();
+	if (!jxbId) return false;
+	if (kchId && pairKeySet.has(`${kchId}::${jxbId}`)) return true;
+	return sectionIdSet.has(jxbId);
 }

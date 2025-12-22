@@ -27,6 +27,15 @@ function getUserscriptInstallMarkerVersion(): string | null {
 	}
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`USERSCRIPT_TIMEOUT:${label}`)), timeoutMs);
+	});
+	return Promise.race([promise.finally(() => timer && clearTimeout(timer)), timeout]);
+}
+
 async function waitForUserscriptBackend(timeoutMs: number): Promise<UserscriptBackend | null> {
 	const started = Date.now();
 	for (;;) {
@@ -36,6 +45,10 @@ async function waitForUserscriptBackend(timeoutMs: number): Promise<UserscriptBa
 		// Yield so Tampermonkey/Violentmonkey can finish injecting the backend object.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
+}
+
+async function getUserscriptBackendOrWait(timeoutMs: number): Promise<UserscriptBackend | null> {
+	return getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(timeoutMs) : null);
 }
 
 /**
@@ -88,10 +101,14 @@ export type JwxtApiError = { ok: false; error: string; supported?: boolean };
 export type JwxtApiResponse<T> = JwxtApiOk<T> | JwxtApiError;
 
 export async function jwxtGetStatus(): Promise<JwxtApiResponse<JwxtStatus>> {
-	const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
+	const backend = await getUserscriptBackendOrWait(1200);
 	if (backend?.status) {
-		const res = await backend.status();
-		return res.ok === false ? res : { ok: true, ...res };
+		try {
+			const res = await withTimeout(backend.status(), 3000, 'status');
+			return res.ok === false ? res : { ok: true, ...res };
+		} catch (error) {
+			return { ok: false, supported: true, error: error instanceof Error ? error.message : String(error) };
+		}
 	}
 	if (!isDevServerBackendEnabled()) {
 		return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -107,9 +124,9 @@ export async function jwxtPing(): Promise<
 	}>
 > {
 	try {
-		const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.ping) {
-			const res = await backend.ping();
+			const res = await withTimeout(backend.ping(), 8000, 'ping');
 			return res.ok === false ? res : { ok: true, ...res };
 		}
 		if (!isDevServerBackendEnabled()) {
@@ -126,9 +143,11 @@ export async function jwxtLogin(payload: {
 	password: string;
 }): Promise<JwxtApiResponse<JwxtStatus>> {
 	try {
-		const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.login) {
-			const res = await backend.login(payload);
+			// Userscript login may involve multiple redirects + warmup + selection context refresh.
+			// Allow a longer timeout to avoid false negatives on slow networks/devices.
+			const res = await withTimeout(backend.login(payload), 30_000, 'login');
 			return res.loggedIn ? { ok: true, ...res } : { ok: false, error: res.message ?? 'Login failed', supported: res.supported };
 		}
 		if (!isDevServerBackendEnabled()) {
@@ -142,10 +161,23 @@ export async function jwxtLogin(payload: {
 		if (res.ok) return res as any;
 		return res;
 	} catch (error) {
-		return {
-			ok: false,
-			error: error instanceof Error ? error.message : String(error)
-		};
+		const message = error instanceof Error ? error.message : String(error);
+		// If the userscript blocks the event loop during login, the frontend timeout can fire even when
+		// the underlying SSO cookie/session was already set. Try a best-effort status probe to avoid
+		// false negatives ("login succeeded but UI thinks it failed").
+		if (message.startsWith('USERSCRIPT_TIMEOUT:login')) {
+			try {
+				const backend = await getUserscriptBackendOrWait(1200);
+				if (backend?.status) {
+					const status = await withTimeout(backend.status(), 10_000, 'status-after-login');
+					const normalized = status?.ok === false ? status : ({ ok: true, ...status } as any);
+					if (normalized?.ok && normalized.loggedIn) return normalized;
+				}
+			} catch {
+				// ignore and fall back to the original timeout error
+			}
+		}
+		return { ok: false, error: message };
 	}
 }
 
@@ -160,8 +192,13 @@ export async function jwxtExportCookie(): Promise<JwxtApiResponse<{ cookie: stri
 export async function jwxtLogout(): Promise<JwxtApiResponse<JwxtStatus>> {
 	const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
 	if (backend?.logout) {
-		const res = await backend.logout();
-		return { ok: true, ...res };
+		try {
+			const raw = await withTimeout(Promise.resolve(backend.logout()), 10_000, 'logout');
+			const res = (raw && typeof raw === 'object') ? (raw as any) : {};
+			return { ok: true, ...res };
+		} catch (error) {
+			return { ok: false, supported: true, error: error instanceof Error ? error.message : String(error) };
+		}
 	}
 	if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
 	return await callDevJwxtApi('/api/jwxt/logout', {
@@ -195,7 +232,9 @@ export async function jwxtGetRounds(): Promise<JwxtApiResponse<JwxtRoundsPayload
 	try {
 		const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
 		if (backend?.rounds) {
-			const data = await backend.rounds();
+			// The userscript `gmFetch()` has its own internal guard timeout (default 20s).
+			// Keep the frontend timeout >= that to avoid false negatives on slow networks/devices.
+			const data = await withTimeout(backend.rounds(), 30_000, 'rounds');
 			return data.ok === false ? data : { ok: true, ...data };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -211,7 +250,7 @@ export async function jwxtGetRoundPolicy(payload?: {
 	try {
 		const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
 		if (backend?.getRoundPolicy) {
-			const res = await backend.getRoundPolicy();
+			const res = await withTimeout(backend.getRoundPolicy(), 10_000, 'getRoundPolicy');
 			if (res?.ok === false) return res;
 			const policy = (res?.policy ?? null) as RoundPolicy | null;
 			if (!policy) return { ok: false, error: 'ROUND_POLICY_MISSING' };
@@ -240,7 +279,7 @@ export async function jwxtGetEnrollmentBreakdown(payload: {
 	try {
 		const backend = getUserscriptBackend() ?? (getUserscriptInstallMarkerVersion() ? await waitForUserscriptBackend(1200) : null);
 		if (backend?.getEnrollmentBreakdown) {
-			const res = await backend.getEnrollmentBreakdown(payload);
+			const res = await withTimeout(backend.getEnrollmentBreakdown(payload), 12_000, 'getEnrollmentBreakdown');
 			return res?.ok === false
 				? res
 				: { ok: true, breakdown: res.breakdown as JwxtEnrollmentBreakdown, userBatch: (res.userBatch ?? null) as any };
@@ -262,9 +301,9 @@ export async function jwxtTaskStart(request: TaskStartRequest & Record<string, a
 	JwxtApiResponse<{ task: TaskSnapshot }>
 > {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (!backend?.taskStart) return { ok: false, supported: false, error: 'TASK_UNSUPPORTED' };
-		const res = await backend.taskStart(request);
+		const res = await withTimeout(backend.taskStart(request), 8_000, 'taskStart');
 		return res?.ok === false ? res : { ok: true, task: res.task };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -273,9 +312,9 @@ export async function jwxtTaskStart(request: TaskStartRequest & Record<string, a
 
 export async function jwxtTaskStop(taskId: string): Promise<JwxtApiResponse<{}>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (!backend?.taskStop) return { ok: false, supported: false, error: 'TASK_UNSUPPORTED' };
-		const res = await backend.taskStop(taskId);
+		const res = await withTimeout(backend.taskStop(taskId), 8_000, 'taskStop');
 		return res?.ok === false ? res : { ok: true };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -284,9 +323,9 @@ export async function jwxtTaskStop(taskId: string): Promise<JwxtApiResponse<{}>>
 
 export async function jwxtTaskUpdate(taskId: string, patch: Record<string, any>): Promise<JwxtApiResponse<{}>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (!backend?.taskUpdate) return { ok: false, supported: false, error: 'TASK_UNSUPPORTED' };
-		const res = await backend.taskUpdate(taskId, patch);
+		const res = await withTimeout(backend.taskUpdate(taskId, patch), 8_000, 'taskUpdate');
 		return res?.ok === false ? res : { ok: true };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -295,9 +334,9 @@ export async function jwxtTaskUpdate(taskId: string, patch: Record<string, any>)
 
 export async function jwxtTaskGet(taskId: string): Promise<JwxtApiResponse<{ task: TaskSnapshot | null }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (!backend?.taskGet) return { ok: false, supported: false, error: 'TASK_UNSUPPORTED' };
-		const res = await backend.taskGet(taskId);
+		const res = await withTimeout(backend.taskGet(taskId), 8_000, 'taskGet');
 		return res?.ok === false ? res : { ok: true, task: res.task ?? null };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -306,9 +345,9 @@ export async function jwxtTaskGet(taskId: string): Promise<JwxtApiResponse<{ tas
 
 export async function jwxtTaskList(): Promise<JwxtApiResponse<{ tasks: TaskSnapshot[] }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (!backend?.taskList) return { ok: false, supported: false, error: 'TASK_UNSUPPORTED' };
-		const res = await backend.taskList();
+		const res = await withTimeout(backend.taskList(), 8_000, 'taskList');
 		return res?.ok === false ? res : { ok: true, tasks: Array.isArray(res.tasks) ? res.tasks : [] };
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -317,9 +356,9 @@ export async function jwxtTaskList(): Promise<JwxtApiResponse<{ tasks: TaskSnaps
 
 export async function jwxtSelectRound(payload: { xkkzId: string }): Promise<JwxtApiResponse<{ selectedXkkzId: string }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.selectRound) {
-			const res = await backend.selectRound(payload.xkkzId);
+			const res = await withTimeout(backend.selectRound(payload.xkkzId), 15_000, 'selectRound');
 			return res.ok === false ? res : { ok: true, ...res };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -337,9 +376,9 @@ export type JwxtSelectedPair = { kchId: string; jxbId: string };
 
 export async function jwxtSyncFromRemote(): Promise<JwxtApiResponse<{ selected: JwxtSelectedPair[] }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.syncSelected) {
-			const res = await backend.syncSelected();
+			const res = await withTimeout(backend.syncSelected(), 20_000, 'syncSelected');
 			return res.ok ? res : { ok: false, error: res.error ?? 'Sync failed' };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -386,10 +425,10 @@ export async function jwxtPushToRemote(payload: { selectionSnapshotBase64: strin
 	}>
 > {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.push) {
 			const normalizedBase64 = normalizeSelectionSnapshotForUserscriptPush(payload.selectionSnapshotBase64);
-			const res = await backend.push(normalizedBase64, Boolean(payload.dryRun));
+			const res = await withTimeout(backend.push(normalizedBase64, Boolean(payload.dryRun)), 30_000, 'push');
 			return res.ok ? res : { ok: false, error: res.error ?? 'Push failed' };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -446,9 +485,9 @@ export async function jwxtSearch(payload: {
 	}>
 > {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.search) {
-			const res = await backend.search(payload.query);
+			const res = await withTimeout(backend.search(payload.query), 20_000, 'search');
 			return res.ok ? res : { ok: false, error: res.error ?? 'Search failed' };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -462,11 +501,11 @@ export async function jwxtSearch(payload: {
 	}
 }
 
-export async function jwxtEnroll(payload: { kchId: string; jxbId: string }): Promise<JwxtApiResponse<{ message?: string }>> {
+export async function jwxtEnroll(payload: { kchId: string; jxbId: string; xkkzId?: string }): Promise<JwxtApiResponse<{ message?: string }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.enroll) {
-			const res = await backend.enroll(payload.kchId, payload.jxbId);
+			const res = await withTimeout(backend.enroll(payload.kchId, payload.jxbId, payload.xkkzId), 20_000, 'enroll');
 			return res.ok ? res : { ok: false, error: res.error ?? 'Enroll failed' };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -482,9 +521,9 @@ export async function jwxtEnroll(payload: { kchId: string; jxbId: string }): Pro
 
 export async function jwxtDrop(payload: { kchId: string; jxbId: string }): Promise<JwxtApiResponse<{ message?: string }>> {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.drop) {
-			const res = await backend.drop(payload.kchId, payload.jxbId);
+			const res = await withTimeout(backend.drop(payload.kchId, payload.jxbId), 20_000, 'drop');
 			return res.ok ? res : { ok: false, error: res.error ?? 'Drop failed' };
 		}
 		if (!isDevServerBackendEnabled()) return { ok: false, supported: false, error: 'JWXT_USERSCRIPT_REQUIRED' };
@@ -505,9 +544,9 @@ export async function jwxtCrawlSnapshot(payload: { termId?: string; limitCourses
 	}>
 > {
 	try {
-		const backend = getUserscriptBackend();
+		const backend = await getUserscriptBackendOrWait(1200);
 		if (backend?.crawlSnapshot) {
-			const res = await backend.crawlSnapshot(payload);
+			const res = await withTimeout(backend.crawlSnapshot(payload), 60_000, 'crawlSnapshot');
 			if (res?.ok) return { ok: true, termId: String(res.termId || ''), snapshot: res.snapshot };
 			return { ok: false, supported: Boolean(res?.supported), error: String(res?.error ?? res?.message ?? 'Crawl failed') };
 		}

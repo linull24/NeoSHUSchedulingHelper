@@ -50,6 +50,35 @@ export const wishlistGroupKeySet = derived(
 
 const wishlistCoursesSorted = derived(wishlistSet, $set => sortCourses(getCoursesByIds($set)));
 
+const neutralLimitModes: Record<string, any> = (() => {
+	const modes: Record<string, any> = {};
+	for (const key of Object.keys(currentSelectionFiltersConfig.limitRules)) modes[key] = 'default';
+	return modes;
+})();
+
+const neutralAvailabilityFilterState = {
+	keyword: '',
+	regexEnabled: false,
+	matchCase: false,
+	regexTargets: currentSelectionFiltersConfig.regex.targets,
+	campus: '',
+	college: '',
+	minCredit: null,
+	maxCredit: null,
+	capacityMin: null,
+	teachingLanguage: [],
+	specialFilter: 'all',
+	specialTags: [],
+	weekSpanFilter: 'any',
+	weekParityFilter: 'any',
+	statusMode: 'all:none',
+	limitModes: neutralLimitModes,
+	sortOptionId: currentSelectionFiltersConfig.sortOptions[0]?.id ?? 'courseCode',
+	sortOrder: 'asc',
+	conflictMode: 'current',
+	showConflictBadges: true
+} as const;
+
 const courseGroupIndex: Map<GroupKey, CourseCatalogEntry[]> = (() => {
 	const map = new Map<GroupKey, CourseCatalogEntry[]>();
 	for (const entry of courseCatalog) {
@@ -102,6 +131,7 @@ const filterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlist,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
+			termState: $termState,
 			conflictGranularity: $collapse ? 'group' : 'section',
 			filterScope: 'current'
 		})
@@ -129,6 +159,7 @@ const anchorFilterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlist,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
+			termState: $termState,
 			conflictGranularity: $collapse ? 'group' : 'section',
 			filterScope: 'current'
 		})
@@ -159,48 +190,30 @@ export const groupedEntries: Readable<[GroupKey, CourseCatalogEntry[]][]> = deri
 
 export const activeId = derived(hoveredCourse, $hovered => $hovered?.id ?? null);
 
+const EMPTY_AVAILABILITY_META = new Map<string, any>();
+
 const availabilityMeta: Readable<Map<string, any>> = derived(
-	[wishlistSet, wishlistGroupKeySet, selectedSet],
-	([$wishlist, $wishlistGroups, $selected]) => {
+	[expandedGroups, expandedCourse, wishlistSet, wishlistGroupKeySet, selectedSet],
+	([$expandedGroups, $expandedCourse, $wishlist, $wishlistGroups, $selected]) => {
 		const groupKeys = new Set<GroupKey>();
-		for (const id of $wishlist) {
-			const entry = courseCatalogMap.get(id);
+
+		for (const key of $expandedGroups) groupKeys.add(key as any);
+
+		if ($expandedCourse) {
+			const entry = courseCatalogMap.get($expandedCourse);
 			if (entry) groupKeys.add(deriveGroupKey(entry));
 		}
-		for (const key of $wishlistGroups) groupKeys.add(key as any);
+
+		if (!groupKeys.size) return EMPTY_AVAILABILITY_META;
 
 		const unique = new Map<string, CourseCatalogEntry>();
 		for (const groupKey of groupKeys) {
 			for (const entry of getGroupEntries(groupKey)) unique.set(entry.id, entry);
 		}
 
-		const limitModes: Record<string, any> = {};
-		for (const key of Object.keys(currentSelectionFiltersConfig.limitRules)) limitModes[key] = 'default';
+		if (!unique.size) return EMPTY_AVAILABILITY_META;
 
-		const neutralState = {
-			keyword: '',
-			regexEnabled: false,
-			matchCase: false,
-			regexTargets: currentSelectionFiltersConfig.regex.targets,
-			campus: '',
-			college: '',
-			minCredit: null,
-			maxCredit: null,
-			capacityMin: null,
-			teachingLanguage: [],
-			specialFilter: 'all',
-			specialTags: [],
-			weekSpanFilter: 'any',
-			weekParityFilter: 'any',
-			statusMode: 'all:none',
-			limitModes,
-			sortOptionId: currentSelectionFiltersConfig.sortOptions[0]?.id ?? 'courseCode',
-			sortOrder: 'asc',
-			conflictMode: 'current',
-			showConflictBadges: true
-			} as const;
-
-		return applyCourseFilters(Array.from(unique.values()), neutralState as any, {
+		return applyCourseFilters(Array.from(unique.values()), neutralAvailabilityFilterState as any, {
 			selectedIds: $selected,
 			wishlistIds: $wishlist,
 			wishlistGroupKeys: $wishlistGroups,

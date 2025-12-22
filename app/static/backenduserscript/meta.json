@@ -1,7 +1,7 @@
 {
   "name": "SHU Course Scheduler JWXT Backend (Userscript)",
   "namespace": "https://xk.shuosc.com/",
-  "version": "0.5.3",
+  "version": "0.5.12",
   "description": "JWXT backend implemented in userscript; exposes window.__jwxtUserscriptBackend for the frontend (RPC bridge, no popup tabs).",
   "runAt": "document-start",
   "match": [

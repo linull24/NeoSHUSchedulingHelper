@@ -17,7 +17,7 @@
 	import { requestWorkspacePanelFocus } from '$lib/utils/workspaceFocus';
 	import { bulkClear, bulkHas, bulkSetAll, bulkToggle, type CourseBulkItem } from '$lib/utils/courseBulk';
 	import { dispatchTermAction, setAutoSolveEnabled, termState, type DispatchResult } from '$lib/stores/termStateStore';
-	import { dispatchTermActionWithEffects } from '$lib/stores/termStateStore';
+	import { scheduleAutoSolveRun } from '$lib/stores/autoSolveRunScheduler';
 	import { filterOptions } from '$lib/stores/courseFilters';
 	import { paginationMode, pageSize, pageNeighbors } from '$lib/stores/paginationSettings';
 	import { courseCatalogMap } from '$lib/data/catalog/courseCatalog';
@@ -146,14 +146,7 @@
 	}
 
 	function triggerAutoSolveRunNow() {
-		const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'AUTO_SOLVE_RUN', mode: 'merge' });
-		void result.then((dispatched) => {
-			if (!dispatched.ok) {
-				bulkMessage = dispatched.error.message;
-				return;
-			}
-			void effectsDone;
-		});
+		scheduleAutoSolveRun({ mode: 'merge', onError: (message) => (bulkMessage = message) });
 	}
 
 	async function toggleGroupSelection(groupKey: GroupKey) {

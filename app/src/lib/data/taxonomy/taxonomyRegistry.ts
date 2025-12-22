@@ -22,6 +22,12 @@ export function initializeTaxonomyRegistry(termId: string, catalog: CourseCatalo
 	cachedOptions = collectOptions(catalog);
 }
 
+export async function initializeTaxonomyRegistryAsync(termId: string, catalog: CourseCatalogEntry[]) {
+	activeTermId = termId;
+	configuredTaxonomies = loadOverrides(termId);
+	cachedOptions = await collectOptionsAsync(catalog);
+}
+
 export function lookupConfiguredTaxonomy(courseCode: string): CourseTaxonomyInfo | undefined {
 	return configuredTaxonomies.get(courseCode);
 }
@@ -47,6 +53,38 @@ function collectOptions(catalog: CourseCatalogEntry[]): TaxonomyOptions {
 		if (college && college !== '未标注') colleges.add(college);
 		if (major && major !== '未标注') majors.add(major);
 		if (attr && attr !== '未标注') courseAttributes.add(attr);
+	}
+
+	return {
+		colleges: sortStrings(colleges),
+		majors: sortStrings(majors),
+		courseAttributes: sortStrings(courseAttributes)
+	};
+}
+
+async function collectOptionsAsync(catalog: CourseCatalogEntry[]): Promise<TaxonomyOptions> {
+	const colleges = new Set<string>();
+	const majors = new Set<string>();
+	const courseAttributes = new Set<string>();
+
+	const yieldToEventLoop = async () => {
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+	};
+
+	let budget = 0;
+	for (const entry of catalog) {
+		const college = entry.taxonomy?.college ?? entry.college;
+		const major = entry.taxonomy?.major ?? entry.major;
+		const attr = entry.taxonomy?.courseAttribute ?? entry.courseAttribute;
+		if (college && college !== '未标注') colleges.add(college);
+		if (major && major !== '未标注') majors.add(major);
+		if (attr && attr !== '未标注') courseAttributes.add(attr);
+
+		budget += 1;
+		if (budget >= 800) {
+			budget = 0;
+			await yieldToEventLoop();
+		}
 	}
 
 	return {

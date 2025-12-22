@@ -11,6 +11,42 @@ CREATE TABLE IF NOT EXISTS desired_state (
 )`;
 
 const LEGACY_KEY = 'desired';
+const SHADOW_KEY_PREFIX = 'desired_state.shadow.v1:';
+
+function canUseLocalStorage(): boolean {
+	return typeof localStorage !== 'undefined';
+}
+
+function writeShadowDesiredState(args: { termId: string; payload: string }) {
+	if (!canUseLocalStorage()) return;
+	try {
+		localStorage.setItem(
+			`${SHADOW_KEY_PREFIX}${args.termId}`,
+			JSON.stringify({
+				termId: args.termId,
+				payload: args.payload
+			})
+		);
+	} catch {
+		// ignore
+	}
+}
+
+function readShadowDesiredState(termId: string): { termId: string; payload: string } | null {
+	if (!canUseLocalStorage()) return null;
+	try {
+		const raw = localStorage.getItem(`${SHADOW_KEY_PREFIX}${termId}`);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as any;
+		if (!parsed || typeof parsed !== 'object') return null;
+		if (String(parsed.termId || '') !== termId) return null;
+		const payload = typeof parsed.payload === 'string' ? parsed.payload : '';
+		if (!payload) return null;
+		return { termId, payload };
+	} catch {
+		return null;
+	}
+}
 
 export async function saveDesiredState(state: DesiredState, termOverrides?: Partial<TermConfig>) {
 	const layer = await getQueryLayer();
@@ -20,13 +56,29 @@ export async function saveDesiredState(state: DesiredState, termOverrides?: Part
 	await layer.exec(
 		`INSERT OR REPLACE INTO desired_state (termId, payload) VALUES ('${termId}', '${json.replace(/'/g, "''")}')`
 	);
+	writeShadowDesiredState({ termId, payload: json });
 }
 
 export async function loadDesiredState(termOverrides?: Partial<TermConfig>): Promise<DesiredStore> {
 	const layer = await getQueryLayer();
 	await layer.exec(TABLE_SQL);
 	const termId = getTermConfig(termOverrides).currentTermId;
-	const payload = await loadDesiredPayload(layer, termId);
+	let payload = await loadDesiredPayload(layer, termId);
+	if (!payload) {
+		const shadow = readShadowDesiredState(termId);
+		if (shadow) {
+			try {
+				const parsed = JSON.parse(shadow.payload) as unknown;
+				// Validate shape using existing store parsing downstream; here we only ensure it is JSON.
+				await layer.exec(
+					`INSERT OR REPLACE INTO desired_state (termId, payload) VALUES ('${termId}', '${shadow.payload.replace(/'/g, "''")}')`
+				);
+				payload = shadow.payload;
+			} catch {
+				// ignore
+			}
+		}
+	}
 	if (!payload) return new DesiredStore(DEFAULT_DESIRED_STATE);
 	try {
 		const parsed = JSON.parse(payload) as DesiredState;

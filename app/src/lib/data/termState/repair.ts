@@ -9,6 +9,29 @@ export interface DatasetResolveRepair {
 	didRepair: boolean;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeLock(value: unknown): Record<string, unknown> | null {
+	if (!isRecord(value)) return null;
+	const id = typeof value.id === 'string' ? value.id : '';
+	const type = typeof value.type === 'string' ? value.type : '';
+	if (!id || !type) return null;
+	const priority = value.priority === 'soft' ? 'soft' : 'hard';
+	return priority === value.priority ? value : { ...value, priority };
+}
+
+function normalizeSoftConstraint(value: unknown): Record<string, unknown> | null {
+	if (!isRecord(value)) return null;
+	const id = typeof value.id === 'string' ? value.id : '';
+	const type = typeof value.type === 'string' ? value.type : '';
+	if (!id || !type) return null;
+	const weightRaw = (value as any).weight;
+	const weight = typeof weightRaw === 'number' && Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : 10;
+	return weight === weightRaw ? value : { ...value, weight };
+}
+
 function nowEpochMs(): EpochMs {
 	return Date.now() as EpochMs;
 }
@@ -268,6 +291,53 @@ export function repairDatasetResolve(state: TermState): DatasetResolveRepair {
 				};
 			}
 		}
+	}
+
+	// Backward-compat repair: constraints may contain legacy/partial payloads (schema allows unknown[]).
+	// Normalize key fields so UI/invariants don't treat them as "missing" and silently hide them.
+	const rawConstraints = isRecord(next.solver.constraints) ? next.solver.constraints : null;
+	const rawLocks = rawConstraints && Array.isArray((rawConstraints as any).locks) ? ((rawConstraints as any).locks as unknown[]) : null;
+	const rawSoft = rawConstraints && Array.isArray((rawConstraints as any).soft) ? ((rawConstraints as any).soft as unknown[]) : null;
+	const rawTemplates =
+		rawConstraints && Array.isArray((rawConstraints as any).templates) ? ((rawConstraints as any).templates as unknown[]) : null;
+
+	let constraintsChanged = rawConstraints === null || rawLocks === null || rawSoft === null || rawTemplates === null;
+	const nextLocks: unknown[] = [];
+	const nextSoft: unknown[] = [];
+
+	for (const item of rawLocks ?? []) {
+		const normalized = normalizeLock(item);
+		if (!normalized) {
+			constraintsChanged = true;
+			continue;
+		}
+		if (normalized !== item) constraintsChanged = true;
+		nextLocks.push(normalized);
+	}
+
+	for (const item of rawSoft ?? []) {
+		const normalized = normalizeSoftConstraint(item);
+		if (!normalized) {
+			constraintsChanged = true;
+			continue;
+		}
+		if (normalized !== item) constraintsChanged = true;
+		nextSoft.push(normalized);
+	}
+
+	if (constraintsChanged) {
+		didRepair = true;
+		next = {
+			...next,
+			solver: {
+				...next.solver,
+				constraints: {
+					locks: nextLocks as any,
+					soft: nextSoft as any,
+					templates: (rawTemplates ?? []) as any
+				}
+			}
+		};
 	}
 
 	return { ok: true, state: next, didRepair };

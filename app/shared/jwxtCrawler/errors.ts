@@ -22,7 +22,14 @@ export function isRetryableError(error: unknown): boolean {
 		msg.includes('ECONNRESET') ||
 		msg.includes('ETIMEDOUT') ||
 		msg.includes('GM REQUEST TIMEOUT') ||
-		msg.includes('GM REQUEST FAILED')
+		msg.includes('GM REQUEST FAILED') ||
+		// JWXT-specific transient failures
+		msg.includes('SESSION_INVALID') ||
+		msg.includes('SELECTION_IS_LOCAL_LOGIN_HTML') ||
+		msg.includes('SELECTION_REDIRECTED_TO_LOCAL_LOGIN') ||
+		msg.includes('WARMUP_REDIRECTED_TO_LOCAL_LOGIN') ||
+		msg.includes('VALIDATION_FAILED') ||
+		msg.includes('SERVER_BUSY') ||
+		/校验不通过|服务器繁忙|系统繁忙|请刷新|请稍后再试|尚未到|系统维护/.test(stringifyError(error))
 	);
 }
-

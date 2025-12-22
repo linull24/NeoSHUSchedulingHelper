@@ -32,8 +32,50 @@ export interface LoadedTermState {
 	version: number;
 }
 
+const SHADOW_KEY_PREFIX = 'term_state.shadow.v1:';
+
 function nowEpochMs(): EpochMs {
 	return Date.now() as EpochMs;
+}
+
+function canUseLocalStorage(): boolean {
+	return typeof localStorage !== 'undefined';
+}
+
+function writeShadowTermState(args: { termId: string; payload: string; version: number; updatedAt: number }) {
+	if (!canUseLocalStorage()) return;
+	try {
+		localStorage.setItem(
+			`${SHADOW_KEY_PREFIX}${args.termId}`,
+			JSON.stringify({
+				termId: args.termId,
+				version: args.version,
+				updatedAt: args.updatedAt,
+				payload: args.payload
+			})
+		);
+	} catch {
+		// ignore
+	}
+}
+
+function readShadowTermState(termId: string): { termId: string; version: number; updatedAt: number; payload: string } | null {
+	if (!canUseLocalStorage()) return null;
+	try {
+		const raw = localStorage.getItem(`${SHADOW_KEY_PREFIX}${termId}`);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as any;
+		if (!parsed || typeof parsed !== 'object') return null;
+		if (String(parsed.termId || '') !== termId) return null;
+		const payload = typeof parsed.payload === 'string' ? parsed.payload : '';
+		if (!payload) return null;
+		const version = typeof parsed.version === 'number' && Number.isFinite(parsed.version) ? Math.floor(parsed.version) : 0;
+		const updatedAt =
+			typeof parsed.updatedAt === 'number' && Number.isFinite(parsed.updatedAt) ? Math.floor(parsed.updatedAt) : Date.now();
+		return { termId, version, updatedAt, payload };
+	} catch {
+		return null;
+	}
 }
 
 function createInitialState(termId: TermId, datasetSig: string): TermState {
@@ -120,6 +162,7 @@ function createInitialState(termId: TermId, datasetSig: string): TermState {
 					batchFilterMode: 'eligible-or-unknown',
 					// Default policy (can be turned off by the user): treat “高年级已选人数” as the minimum acceptable batch.
 					// Rationale: many users are not in “培养方案” and would otherwise see confusing “不可用/不满足” states.
+					// NOTE: "其他已选人数" is treated as "no filtering" by policy (UX rule).
 					minAcceptableBatchLabel: '高年级已选人数',
 					minAcceptableBatchLabelOverrides: {}
 			}
@@ -161,15 +204,39 @@ async function computeSelectedSig(selected: string[]) {
 		{ termId }
 	);
 	if (!rows.length) {
+		// Engine-switch recovery: if DuckDB/sql.js DB is empty (e.g. after switching engines),
+		// try restoring from an engine-neutral localStorage shadow snapshot.
+		const shadow = readShadowTermState(termId);
+		if (shadow) {
+			try {
+				const parsed = parseTermState(JSON.parse(shadow.payload));
+				if (parsed.termId === termId) {
+					const repaired = repairDatasetResolve(parsed);
+					const canonical = await canonicalizeForCommit(repaired.state);
+					const payload = JSON.stringify(canonical);
+					await layer.exec(
+						'INSERT INTO term_state (term_id, version, payload, updated_at) VALUES (:termId, :version, :payload, :updatedAt)',
+						{ termId, version: shadow.version, payload, updatedAt: shadow.updatedAt }
+					);
+					writeShadowTermState({ termId, payload, version: shadow.version, updatedAt: shadow.updatedAt });
+					return { state: canonical, version: shadow.version };
+				}
+			} catch {
+				// ignore shadow parse errors and fall back to initial state.
+			}
+		}
+
 		const datasetSig = getDatasetSig(termId);
 		const initial = createInitialState(termId, datasetSig);
 		const selectedSig = await computeSelectedSig(initial.selection.selected);
 		initial.selection.selectedSig = selectedSig as any;
 		const payload = JSON.stringify(initial);
+		const updatedAt = Date.now();
 		await layer.exec(
 			'INSERT INTO term_state (term_id, version, payload, updated_at) VALUES (:termId, 0, :payload, :updatedAt)',
-			{ termId, payload, updatedAt: Date.now() }
+			{ termId, payload, updatedAt }
 		);
+		writeShadowTermState({ termId, payload, version: 0, updatedAt });
 		return { state: initial, version: 0 };
 		}
 		const [row] = rows;
@@ -302,6 +369,7 @@ export async function commitTermState(
 
 	const canonical = await canonicalizeForCommit(nextState);
 	const payload = JSON.stringify(canonical);
+	const updatedAt = Date.now();
 
 	await layer.exec('BEGIN TRANSACTION');
 	try {
@@ -315,9 +383,10 @@ export async function commitTermState(
 		}
 		await layer.exec(
 			'UPDATE term_state SET version = :nextVersion, payload = :payload, updated_at = :updatedAt WHERE term_id = :termId',
-			{ termId, nextVersion: expectedVersion + 1, payload, updatedAt: Date.now() }
+			{ termId, nextVersion: expectedVersion + 1, payload, updatedAt }
 		);
 		await layer.exec('COMMIT');
+		writeShadowTermState({ termId, payload, version: expectedVersion + 1, updatedAt });
 		return { state: canonical, version: expectedVersion + 1 };
 	} catch (error) {
 		await layer.exec('ROLLBACK');

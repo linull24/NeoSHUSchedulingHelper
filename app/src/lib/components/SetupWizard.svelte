@@ -9,6 +9,7 @@
 		import AppTextArea from '$lib/primitives/AppTextArea.svelte';
 		import AppTextField from '$lib/primitives/AppTextField.svelte';
 		import JwxtRoundSelector from '$lib/components/JwxtRoundSelector.svelte';
+		import JwxtUserscriptActions from '$lib/components/JwxtUserscriptActions.svelte';
 			import WizardDialog from './WizardDialog.svelte';
 			import {
 				localeSetting as localeSettingStore,
@@ -29,6 +30,7 @@
 	import { jwxtRememberedUserId } from '$lib/stores/jwxt';
 	import { hasStoredJwxtCookieVault, loadJwxtCookieFromVault, saveJwxtCookieToVault } from '$lib/stores/jwxtCookieVault';
 	import { getDatasetConfig } from '../../config/dataset';
+	import { getUserscriptConfig } from '../../config/userscript';
 	import { activateRoundSnapshot, fetchCloudRoundIndex, hasCloudSnapshot, hasRoundSnapshot } from '$lib/data/catalog/cloudSnapshot';
 	import { datasetMeta } from '$lib/data/catalog/courseCatalog';
 	import { resolveTermDisplayLabel } from '$lib/utils/termDisplay';
@@ -42,19 +44,20 @@
 		type JwxtStatus
 	} from '$lib/data/jwxt/jwxtApi';
 	import { ensureTermStateLoaded } from '$lib/stores/termStateStore';
-	import { jwxtCrawlState, startJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
+	import { jwxtCrawlState, startJwxtCrawl, stopJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
 
 	export let open = false;
 
 	const datasetConfig = getDatasetConfig();
 	const termId = datasetConfig.termId;
 	const termLabel = resolveTermDisplayLabel({ termId, snapshotLabel: datasetMeta.semester });
+	const userscriptConfig = getUserscriptConfig();
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
 
-		type StepId = 'language' | 'welcome' | 'selectionMode' | 'login' | 'cloud' | 'homeCampus';
-		const stepOrder: StepId[] = ['language', 'welcome', 'selectionMode', 'login', 'cloud', 'homeCampus'];
+		type StepId = 'language' | 'userscript' | 'welcome' | 'selectionMode' | 'login' | 'cloud' | 'homeCampus';
+		const stepOrder: StepId[] = ['language', 'userscript', 'welcome', 'selectionMode', 'login', 'cloud', 'homeCampus'];
 
 		let step: StepId = 'language';
 		let busy = false;
@@ -385,6 +388,10 @@
 			try {
 				const res = await startJwxtCrawl(termId);
 				if (!res.ok) {
+					if (res.error === 'CANCELED') {
+						cloudFetchStatus = t('setupWizard.cloud.status.canceled');
+						return;
+					}
 					cloudFetchStatus = `${t('setupWizard.cloud.status.failed')}: ${res.error}`;
 					return;
 				}
@@ -394,6 +401,13 @@
 					error_ instanceof Error ? error_.message : String(error_)
 				}`;
 			}
+		}
+
+		async function stopCloudFetch() {
+			resetErrors();
+			const res = await stopJwxtCrawl();
+			if (!res.ok) cloudFetchStatus = `${t('setupWizard.cloud.status.failed')}: ${res.error}`;
+			else cloudFetchStatus = t('setupWizard.cloud.status.canceled');
 		}
 
 	function finish() {
@@ -436,6 +450,7 @@
 								localeChoice = 'auto';
 								refreshDetectedLocale();
 								setLocaleSetting('auto');
+								step = 'userscript';
 							}}
 						>
 							{t('setupWizard.language.options.auto')}
@@ -446,6 +461,7 @@
 							on:click={() => {
 								localeChoice = 'zh-CN';
 								setLocaleSetting('zh-CN');
+								step = 'userscript';
 							}}
 						>
 							{t('setupWizard.language.options.zh')}
@@ -456,12 +472,24 @@
 							on:click={() => {
 								localeChoice = 'en-US';
 								setLocaleSetting('en-US');
+								step = 'userscript';
 							}}
 						>
 							{t('setupWizard.language.options.en')}
 						</AppButton>
 					</div>
 					<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t('setupWizard.language.hint')}</p>
+				</div>
+			{:else if step === 'userscript'}
+				<div class="flex flex-col gap-3">
+					<p class="m-0 text-[var(--app-text-sm)]">{t('setupWizard.userscript.body')}</p>
+					<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t('setupWizard.userscript.hint')}</p>
+					<JwxtUserscriptActions
+						config={userscriptConfig}
+						size="sm"
+						installLabel={t('panels.jwxt.helpUserscript')}
+						helpLabel={t('panels.jwxt.helpLink')}
+					/>
 				</div>
 			{:else if step === 'welcome'}
 				<div class="flex flex-col gap-2">
@@ -592,6 +620,11 @@
 					<AppButton variant="primary" size="sm" disabled={busy || $jwxtCrawlState.running} on:click={fetchCloudTermSnapshot}>
 						{t('setupWizard.cloud.actions.fetch')}
 					</AppButton>
+					{#if $jwxtCrawlState.running}
+						<AppButton variant="secondary" size="sm" disabled={busy} on:click={stopCloudFetch}>
+							{t('setupWizard.cloud.actions.stop')}
+						</AppButton>
+					{/if}
 					{#if cloudHasSnapshot}
 						<span class="self-center text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 							{t('setupWizard.cloud.status.cached')}

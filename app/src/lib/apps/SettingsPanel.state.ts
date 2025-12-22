@@ -4,6 +4,7 @@ import { materialSeedColor, setMaterialSeedColor } from '../stores/materialTheme
 import { fluentAccentColor, setFluentAccentColor } from '../stores/fluentThemeColor';
 import { collapseCoursesByName, hideFilterStatusControl } from '../stores/courseDisplaySettings';
 import { minAcceptableBatchLabel, setMinAcceptableBatchLabel } from '../stores/batchPolicySettings';
+import { OTHER_BATCH_LABEL } from '../policies/jwxt/minAcceptablePolicy';
 import {
 	crossCampusAllowed,
 	homeCampus,
@@ -97,7 +98,7 @@ export function setHomeCampusSetting(value: string) {
 
 export function setMinAcceptableBatchSetting(value: any) {
 	const raw = typeof value === 'string' ? value.trim() : '';
-	const next = raw ? (raw as any) : null;
+	const next = raw && raw !== OTHER_BATCH_LABEL ? (raw as any) : null;
 	void setMinAcceptableBatchLabel(next);
 }
 

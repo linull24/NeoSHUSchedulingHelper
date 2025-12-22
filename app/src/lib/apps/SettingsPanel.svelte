@@ -44,8 +44,10 @@
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
 	import AppField from '$lib/primitives/AppField.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
+	import AppDialog from '$lib/primitives/AppDialog.svelte';
 	import { getFilterOptionsForScope } from '$lib/stores/courseFilters';
 	import { ensureServiceWorkerRegistered, type ServiceWorkerStatus } from '$lib/pwa/serviceWorker';
+	import { resetAllLocalData } from '$lib/utils/resetLocalData';
 	import { ENROLLMENT_BATCH_ORDER } from '../../../shared/jwxtCrawler/batchPolicy';
 
 	let t = (key: string) => key;
@@ -68,6 +70,28 @@
 	let pwaInstallStatus: 'idle' | 'prompted' | 'accepted' | 'dismissed' | 'error' = 'idle';
 
 	let swStatus: ServiceWorkerStatus = { supported: false, registered: false, controlled: false };
+	let resetOpen = false;
+	let resetBusy = false;
+	let resetError = '';
+
+	async function confirmResetAllLocalData() {
+		if (!browser) return;
+		if (resetBusy) return;
+		resetBusy = true;
+		resetError = '';
+		try {
+			const res = await resetAllLocalData();
+			if (!res.ok) {
+				resetError = res.errors.slice(0, 3).join('; ');
+				return;
+			}
+			window.location.reload();
+		} catch (e) {
+			resetError = e instanceof Error ? e.message : String(e);
+		} finally {
+			resetBusy = false;
+		}
+	}
 
 	function openExternalLink(href: string) {
 		if (!browser) return;
@@ -543,13 +567,27 @@
 						{/if}
 					</div>
 				</AppField>
-			</AppControlPanel>
+				</AppControlPanel>
 
-			<AppControlPanel
-				title={t('settings.aboutSection')}
-				density="comfortable"
-				class="flex-[1_1_520px] min-w-[min(360px,100%)] max-w-[860px]"
-			>
+				<AppControlPanel
+					title={t('settings.resetSection')}
+					density="comfortable"
+					class="flex-[1_1_520px] min-w-[min(360px,100%)] max-w-[860px]"
+				>
+					<div class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('settings.resetDesc')}</div>
+					<AppControlRow>
+						<AppButton variant="danger" size="sm" on:click={() => (resetOpen = true)}>
+							{t('settings.resetAction')}
+						</AppButton>
+						<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t('settings.resetHint')}</span>
+					</AppControlRow>
+				</AppControlPanel>
+
+				<AppControlPanel
+					title={t('settings.aboutSection')}
+					density="comfortable"
+					class="flex-[1_1_520px] min-w-[min(360px,100%)] max-w-[860px]"
+				>
 				<div class="text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
 					{t(metaConfig.about.descriptionKey)}
 				</div>
@@ -594,13 +632,30 @@
 				{/each}
 			</AppControlPanel>
 		</div>
-	</ListSurface>
+		</ListSurface>
 	</DockPanelShell>
 
-<style>
-	.theme-swatch {
-		transition: transform var(--app-transition-fast);
-	}
+	<AppDialog open={resetOpen} title={t('settings.resetDialogTitle')} on:close={() => (resetOpen = false)}>
+		<div class="flex flex-col gap-3">
+			<div class="text-[var(--app-text-sm)] text-[var(--app-color-fg)]">{t('settings.resetDialogDesc')}</div>
+			{#if resetError}
+				<div class="text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{resetError}</div>
+			{/if}
+			<div class="flex flex-wrap justify-end gap-2">
+				<AppButton variant="secondary" size="sm" disabled={resetBusy} on:click={() => (resetOpen = false)}>
+					{t('common.cancel')}
+				</AppButton>
+				<AppButton variant="danger" size="sm" loading={resetBusy} on:click={confirmResetAllLocalData}>
+					{t('settings.resetDialogConfirm')}
+				</AppButton>
+			</div>
+		</div>
+	</AppDialog>
+
+	<style>
+		.theme-swatch {
+			transition: transform var(--app-transition-fast);
+		}
 
 	.theme-swatch:hover {
 		transform: scale(var(--app-interaction-scale-hover));

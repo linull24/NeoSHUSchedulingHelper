@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { base } from '$app/paths';
 
 export type TimeTemplate = {
 	id: string;
@@ -18,7 +19,10 @@ function readCookie(): string | null {
 
 function writeCookie(value: string) {
 	if (typeof document === 'undefined') return;
-	document.cookie = `${COOKIE_KEY}=${encodeURIComponent(value)}; max-age=${MAX_COOKIE_AGE}; path=/`;
+	const path = base && base !== '/' ? base : '/';
+	const attrs = [`max-age=${MAX_COOKIE_AGE}`, `path=${path}`, `SameSite=Lax`];
+	if (typeof location !== 'undefined' && location.protocol === 'https:') attrs.push('Secure');
+	document.cookie = `${COOKIE_KEY}=${encodeURIComponent(value)}; ${attrs.join('; ')}`;
 }
 
 function parseTemplates(raw: string | null): TimeTemplate[] {

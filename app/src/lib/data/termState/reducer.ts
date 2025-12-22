@@ -331,12 +331,14 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 				if (!courseCatalogMap.has(action.entryId)) throw new Error(`UNKNOWN_ENTRY_ID:${action.entryId}`);
 				if (!state.selection.selected.includes(action.entryId)) return { state, effects: [] };
 
-				const next = appendHistory(
+				const base = appendHistory(
 					{
 						...state,
 						selection: {
 							...state.selection,
-							selected: removeSelected(state, action.entryId)
+							// Keep dropped sections in wishlist by default so users can re-select later.
+							selected: removeSelected(state, action.entryId),
+							wishlistSections: addWishlistSection(state, action.entryId)
 						}
 					},
 					{
@@ -344,10 +346,10 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 						at: nowEpochMs(),
 						type: 'selection',
 						label: '退课',
-						details: { entryId: action.entryId }
+						details: { entryId: action.entryId, keepInWishlist: true }
 					}
 				);
-				return { state: next, effects: [] };
+				return { state: ensureWishlistAnchorsForEntry(base, action.entryId), effects: [] };
 			}
 			case 'SEL_UNWISHLIST_SECTION': {
 				if (!courseCatalogMap.has(action.entryId)) throw new Error(`UNKNOWN_ENTRY_ID:${action.entryId}`);
@@ -748,7 +750,26 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 			return { state: next, effects: [] };
 		}
 		case 'JWXT_CONFIRM_PUSH': {
-			if (!state.jwxt.pushTicket) throw new Error('INVALID_ACTION:missing-push-ticket');
+			// `pushTicket` is normally created by `JWXT_PREVIEW_PUSH` right before confirm.
+			// In practice, the ticket can be missing due to races (e.g. other JWXT actions
+			// clearing it) or UX flows that re-enter confirm. Fall back to the latest
+			// remoteSnapshot digest with TTL=0 (forces a re-pull check in EFF_JWXT_PUSH_DIFF).
+			const ticket =
+				state.jwxt.pushTicket ??
+				(state.jwxt.remoteSnapshot
+					? {
+							createdAt: nowEpochMs(),
+							baseDigest: state.jwxt.remoteSnapshot.digest,
+							selectedSig: state.selection.selectedSig,
+							datasetSig: state.dataset.sig,
+							ttlMs: 0 as const,
+							diff: computeDiff(
+								state.jwxt.remoteSnapshot.pairs,
+								(state.selection.selected.map((id) => mapEntryIdToJwxtPair(id)).filter(Boolean) as JwxtPair[])
+							)
+					  }
+					: null);
+			if (!ticket) throw new Error('NEEDS_PULL');
 			const payload = await encodeSelectionPayloadBase64(state);
 			const next = appendHistory(state, {
 				id: `jwxt:confirm:${state.history.entries.length}`,
@@ -763,8 +784,8 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 						type: 'EFF_JWXT_PUSH_DIFF',
 						payloadBase64: payload,
 						dryRun: false,
-						ttlMs: state.jwxt.pushTicket.ttlMs,
-						baseDigest: state.jwxt.pushTicket.baseDigest
+						ttlMs: ticket.ttlMs,
+						baseDigest: ticket.baseDigest
 					}
 				]
 			};
@@ -866,9 +887,21 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 			return { state: next, effects: [{ type: 'EFF_JWXT_DROP', pair: action.pair }] };
 		}
 		case 'JWXT_DROP_OK': {
+			const entryId = resolveEntryIdFromJwxtPair(action.pair);
+			const baseState: TermState = entryId
+				? {
+						...state,
+						selection: {
+							...state.selection,
+							selected: removeSelected(state, entryId as any),
+							wishlistSections: addWishlistSection(state, entryId as any)
+						}
+				  }
+				: state;
+
 			const next = appendHistory(
 				{
-					...state,
+					...baseState,
 					jwxt: { ...state.jwxt, baseline: null, pushTicket: null, syncState: 'NEEDS_PULL' }
 				},
 				{
@@ -876,10 +909,10 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 					at: nowEpochMs(),
 					type: 'jwxt',
 					label: '退课成功',
-					details: { pair: action.pair }
+					details: { pair: action.pair, keepInWishlist: true, entryId: entryId ?? undefined }
 				}
 			);
-			return { state: next, effects: [] };
+			return { state: entryId ? ensureWishlistAnchorsForEntry(next, entryId) : next, effects: [] };
 		}
 		case 'JWXT_DROP_ERR': {
 			const next = appendHistory(state, {
@@ -897,9 +930,9 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 				at: nowEpochMs(),
 				type: 'jwxt',
 				label: '立即选课',
-				details: { pair: action.pair }
+				details: { pair: action.pair, xkkzId: action.xkkzId }
 			});
-			return { state: next, effects: [{ type: 'EFF_JWXT_ENROLL', pair: action.pair }] };
+			return { state: next, effects: [{ type: 'EFF_JWXT_ENROLL', pair: action.pair, xkkzId: action.xkkzId }] };
 		}
 		case 'JWXT_ENROLL_OK': {
 			const next = appendHistory(
