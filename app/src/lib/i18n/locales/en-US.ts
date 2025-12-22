@@ -1357,7 +1357,8 @@ export const enUS = {
     githubMissingClientId: 'Missing GitHub Client ID. Cannot start login. Please set PUBLIC_GITHUB_CLIENT_ID',
     githubMissingCode: 'Missing code',
     githubPkceMissingVerifier: 'PKCE verifier missing or invalid',
-    githubPkceUnsupported: 'OAuth PKCE is unsupported in this runtime',
+    githubPkceUnsupported:
+      'OAuth PKCE is unavailable in this deployment. On GitHub Pages you must configure PUBLIC_GITHUB_OAUTH_PROXY_URL for the token exchange proxy.',
     githubPopupBlocked: 'Popup blocked; please allow popups and retry',
     githubStateValidation: 'State validation failed',
     githubServerConfig: 'Server GitHub OAuth credentials not configured',

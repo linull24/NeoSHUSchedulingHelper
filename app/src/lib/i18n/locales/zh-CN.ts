@@ -1344,7 +1344,7 @@ export const zhCN = {
     githubMissingClientId: '缺少 GitHub Client ID，无法发起登录。请设置 PUBLIC_GITHUB_CLIENT_ID',
     githubMissingCode: '缺少 code',
     githubPkceMissingVerifier: 'PKCE verifier 缺失或无效',
-    githubPkceUnsupported: '当前运行环境不支持 OAuth PKCE',
+    githubPkceUnsupported: '此部署无法使用 OAuth PKCE：在 GitHub Pages 上需配置 token 交换代理（PUBLIC_GITHUB_OAUTH_PROXY_URL）。',
     githubPopupBlocked: '弹窗被拦截，请允许弹窗后重试',
     githubStateValidation: 'state 校验失败',
     githubServerConfig: '服务器未配置 GitHub OAuth 凭据',

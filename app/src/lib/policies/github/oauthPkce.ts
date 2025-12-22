@@ -15,30 +15,38 @@ export type GithubPkceAvailability =
 	| { supported: true; clientId: string; redirectUri: string }
 	| { supported: false; reason: 'missingClientId' | 'unsupportedRuntime' };
 
-function isGithubPagesStaticHost() {
+function isGithubPagesHost() {
 	if (!browser) return false;
 	const host = String(window.location.hostname || '').toLowerCase();
-	// GitHub Pages is a static host, and GitHub's access_token endpoint is not CORS-enabled.
-	// Pure frontend PKCE token exchange will fail with `TypeError: Failed to fetch`.
 	return host.endsWith('.github.io');
+}
+
+function getOauthProxyUrl() {
+	const raw = publicEnv.PUBLIC_GITHUB_OAUTH_PROXY_URL;
+	if (!raw) return null;
+	try {
+		return new URL(raw).toString();
+	} catch {
+		return null;
+	}
 }
 
 export function getGithubPkceAvailability(): GithubPkceAvailability {
 	if (!browser) return { supported: false, reason: 'unsupportedRuntime' };
-	if (isGithubPagesStaticHost()) return { supported: false, reason: 'unsupportedRuntime' };
 	const clientId = publicEnv.PUBLIC_GITHUB_CLIENT_ID;
 	if (!clientId) return { supported: false, reason: 'missingClientId' };
 	if (!globalThis.crypto?.subtle) return { supported: false, reason: 'unsupportedRuntime' };
+
+	// GitHub Pages needs an OAuth proxy (GitHub's token endpoint is not CORS-enabled).
+	if (isGithubPagesHost() && !getOauthProxyUrl()) return { supported: false, reason: 'unsupportedRuntime' };
 
 	const redirectUri = new URL(`${base}/auth/callback`, window.location.origin).toString();
 	return { supported: true, clientId, redirectUri };
 }
 
 export function getGithubManualTokenAllowed() {
-	// GitHub Pages is static; OAuth code->token exchange cannot be done in the browser (CORS).
-	// Provide a stable manual token fallback in that environment.
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN) || isGithubPagesStaticHost();
+	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN);
 }
 
 export type GithubPkceStartResult =
@@ -141,13 +149,18 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 	}
 
 	try {
-		const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+		const proxyUrl = getOauthProxyUrl();
+		if (!proxyUrl) {
+			return { ok: false, errorKey: 'errors.githubPkceUnsupported' };
+		}
+
+		const tokenResponse = await fetch(proxyUrl, {
 			method: 'POST',
 			headers: {
 				Accept: 'application/json',
-				'Content-Type': 'application/x-www-form-urlencoded'
+				'Content-Type': 'application/json'
 			},
-			body: new URLSearchParams({
+			body: JSON.stringify({
 				client_id: availability.clientId,
 				code,
 				redirect_uri: session.redirectUri,
