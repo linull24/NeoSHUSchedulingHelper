@@ -21,6 +21,8 @@
 		const result = await completeGithubPkceCallback(new URL(window.location.href));
 		if (!result.ok) {
 			status = t(result.errorKey, result.values);
+			// Even on failure, avoid leaving users stuck in a popup/tab.
+			setTimeout(() => tryCloseOrFallback(), 700);
 			return;
 		}
 

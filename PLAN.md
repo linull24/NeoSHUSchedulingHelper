@@ -44,6 +44,10 @@
 
 ---
 
+## Notes (2025-12-22)
+
+- GitHub Pages（静态部署）环境下，浏览器端无法对 `https://github.com/login/oauth/access_token` 进行 CORS token exchange（`TypeError: Failed to fetch`），因此暂时禁用纯前端 PKCE 登录并启用手动 token（PAT, scope: `gist`）作为稳定方案。refs: `spec://core-mcp#chunk-01`, `spec://change/GIST-OAUTH-PKCE-1#chunk-01`
+
 ## Handoff Notes (2025-12-20)
 
 本分支目前 **可 build**（`npm --prefix app run check` PASS），但有两类用户可感知问题仍未闭环：

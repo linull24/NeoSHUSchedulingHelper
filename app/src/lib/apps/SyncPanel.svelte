@@ -33,7 +33,7 @@
 	const tokenInputId = 'sync-github-token';
 	let githubLoginAvailability: GithubPkceAvailability = { supported: false, reason: 'unsupportedRuntime' };
 	let githubLoginHintKey: string = 'panels.sync.loginUnavailableHint';
-	const allowManualGithubToken = getGithubManualTokenAllowed();
+	let allowManualGithubToken = false;
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
@@ -56,6 +56,7 @@
 	}
 
 	onMount(() => {
+		allowManualGithubToken = getGithubManualTokenAllowed();
 		githubLoginAvailability = getGithubPkceAvailability();
 		githubLoginHintKey =
 			githubLoginAvailability.supported
@@ -333,7 +334,6 @@
 											{t('panels.sync.tokenSave')}
 										</AppButton>
 									</div>
-									<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t('panels.sync.tokenHint')}</p>
 								</div>
 							{/if}
 						</div>

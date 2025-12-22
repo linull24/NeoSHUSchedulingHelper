@@ -221,7 +221,8 @@
 		try {
 			// Cookie size limit is ~4KB; keep best-effort.
 			if (value.length > 3800) return;
-			document.cookie = `${encodeURIComponent(key)}=${value}; Max-Age=31536000; Path=/; SameSite=Lax`;
+			const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+			document.cookie = `${encodeURIComponent(key)}=${value}; Max-Age=31536000; Path=/; SameSite=Lax${secure}`;
 		} catch {
 			// ignore
 		}
@@ -230,7 +231,8 @@
 	function deleteCookie(key: string) {
 		if (!browser) return;
 		try {
-			document.cookie = `${encodeURIComponent(key)}=; Max-Age=0; Path=/; SameSite=Lax`;
+			const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+			document.cookie = `${encodeURIComponent(key)}=; Max-Age=0; Path=/; SameSite=Lax${secure}`;
 		} catch {
 			// ignore
 		}

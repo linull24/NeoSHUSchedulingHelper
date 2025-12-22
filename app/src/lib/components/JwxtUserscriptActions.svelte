@@ -19,13 +19,9 @@
 		// Cache-bust in dev so updating the userscript triggers reinstall.
 		if (dev) url.searchParams.set('t', String(Date.now()));
 
-		// Prefer an actual link-click (some userscript managers only hook on *.user.js navigations).
-		const anchor = document.createElement('a');
-		anchor.href = url.toString();
-		anchor.rel = 'noopener noreferrer';
-		document.body.appendChild(anchor);
-		anchor.click();
-		anchor.remove();
+		// Force a real top-level navigation (bypass SvelteKit client-side routing interception),
+		// otherwise some script managers won't show the install UI.
+		window.location.assign(url.toString());
 	}
 
 	function openHelp() {

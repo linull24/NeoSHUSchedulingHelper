@@ -3,6 +3,9 @@
 // @namespace    https://xk.shuosc.com/
 // @version      0.5.12
 // @description  JWXT backend implemented in userscript; exposes window.__jwxtUserscriptBackend for the frontend (RPC bridge, no popup tabs).
+// @homepageURL  https://linull24.github.io/NeoSHUSchedulingHelper/
+// @updateURL    https://raw.githubusercontent.com/linull24/NeoSHUSchedulingHelper/main/app/static/backenduserscript/backend.user.js
+// @downloadURL  https://raw.githubusercontent.com/linull24/NeoSHUSchedulingHelper/main/app/static/backenduserscript/backend.user.js
 // @match        https://jwxt.shu.edu.cn/*
 // @match        https://newsso.shu.edu.cn/*
 // @match        https://linull24.github.io/*

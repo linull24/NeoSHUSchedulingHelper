@@ -15,8 +15,17 @@ export type GithubPkceAvailability =
 	| { supported: true; clientId: string; redirectUri: string }
 	| { supported: false; reason: 'missingClientId' | 'unsupportedRuntime' };
 
+function isGithubPagesStaticHost() {
+	if (!browser) return false;
+	const host = String(window.location.hostname || '').toLowerCase();
+	// GitHub Pages is a static host, and GitHub's access_token endpoint is not CORS-enabled.
+	// Pure frontend PKCE token exchange will fail with `TypeError: Failed to fetch`.
+	return host.endsWith('.github.io');
+}
+
 export function getGithubPkceAvailability(): GithubPkceAvailability {
 	if (!browser) return { supported: false, reason: 'unsupportedRuntime' };
+	if (isGithubPagesStaticHost()) return { supported: false, reason: 'unsupportedRuntime' };
 	const clientId = publicEnv.PUBLIC_GITHUB_CLIENT_ID;
 	if (!clientId) return { supported: false, reason: 'missingClientId' };
 	if (!globalThis.crypto?.subtle) return { supported: false, reason: 'unsupportedRuntime' };
@@ -26,11 +35,10 @@ export function getGithubPkceAvailability(): GithubPkceAvailability {
 }
 
 export function getGithubManualTokenAllowed() {
-	// For local debugging only; production should use OAuth (PKCE) by default.
-	// If you really need to enable manual token input on static deployments, wire it via PUBLIC_ env.
-	// (We keep this gate here to avoid UI drift.)
+	// GitHub Pages is static; OAuth code->token exchange cannot be done in the browser (CORS).
+	// Provide a stable manual token fallback in that environment.
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN);
+	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN) || isGithubPagesStaticHost();
 }
 
 export type GithubPkceStartResult =

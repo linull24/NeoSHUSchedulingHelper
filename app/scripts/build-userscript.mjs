@@ -25,6 +25,9 @@ function makeMetadata(meta) {
   lines.push(line('namespace', meta.namespace));
   lines.push(line('version', meta.version));
   lines.push(line('description', meta.description));
+  if (meta.homepageURL) lines.push(line('homepageURL', meta.homepageURL));
+  if (meta.updateURL) lines.push(line('updateURL', meta.updateURL));
+  if (meta.downloadURL) lines.push(line('downloadURL', meta.downloadURL));
 
   for (const pattern of meta.match || []) lines.push(line('match', pattern));
   for (const pattern of meta.include || []) lines.push(line('include', pattern));
