@@ -74,6 +74,7 @@
 	const panelApis = new Map<WorkspacePanelType, DockviewPanelApi>();
 	const LAYOUT_COOKIE_KEY = 'dockview_layout_v1';
 	const LAYOUT_COOKIE_CHUNK_SIZE = 3600;
+	const LAYOUT_LS_KEY = 'dockview_layout_v1';
 
 	let t = (key: string) => key;
 	$: t = $translator;
@@ -294,7 +295,7 @@
 	}
 
 	function restoreLayout(target: DockviewComponent): boolean {
-		const raw = readCookieChunks(LAYOUT_COOKIE_KEY) ?? readCookie(LAYOUT_COOKIE_KEY);
+		const raw = readLayoutString();
 		if (!raw) return false;
 		try {
 			const parsed = JSON.parse(raw) as unknown;
@@ -307,15 +308,41 @@
 		}
 	}
 
+	function readLayoutString(): string | null {
+		if (!browser) return null;
+		try {
+			const fromLs = localStorage.getItem(LAYOUT_LS_KEY);
+			if (fromLs && fromLs.trim()) return fromLs;
+		} catch {
+			// ignore
+		}
+		return readCookieChunks(LAYOUT_COOKIE_KEY) ?? readCookie(LAYOUT_COOKIE_KEY);
+	}
+
+	function writeLayoutString(value: string) {
+		if (!browser) return;
+		try {
+			localStorage.setItem(LAYOUT_LS_KEY, value);
+		} catch {
+			// ignore
+		}
+		// Best-effort cookie mirror for users who want cookie persistence.
+		writeCookieChunks(LAYOUT_COOKIE_KEY, value);
+	}
+
 	function registerLayoutPersistence(target: DockviewComponent) {
 		layoutPersistenceDisposables.forEach((disposable) => disposable.dispose());
 		layoutPersistenceDisposables = [];
 
 		let pending = 0;
+		let lastWritten = '';
 		const flush = () => {
 			pending = 0;
 			try {
-				writeCookieChunks(LAYOUT_COOKIE_KEY, JSON.stringify(target.toJSON()));
+				const next = JSON.stringify(target.toJSON());
+				if (next === lastWritten) return;
+				lastWritten = next;
+				writeLayoutString(next);
 			} catch {
 				// ignore
 			}
@@ -332,6 +359,18 @@
 			target.onDidRemovePanel(() => schedule()),
 			target.onDidMaximizedGroupChange(() => schedule())
 		);
+
+		const onUserInteractionEnd = () => schedule();
+		window.addEventListener('mouseup', onUserInteractionEnd);
+		window.addEventListener('touchend', onUserInteractionEnd);
+		window.addEventListener('pointerup', onUserInteractionEnd);
+		layoutPersistenceDisposables.push({
+			dispose() {
+				window.removeEventListener('mouseup', onUserInteractionEnd);
+				window.removeEventListener('touchend', onUserInteractionEnd);
+				window.removeEventListener('pointerup', onUserInteractionEnd);
+			}
+		});
 
 		// Save once after initial layout is ready.
 		schedule();

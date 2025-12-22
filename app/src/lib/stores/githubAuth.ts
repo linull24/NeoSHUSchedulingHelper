@@ -14,7 +14,7 @@ function readInitialToken() {
 const tokenStore = writable<string | null>(readInitialToken());
 
 if (typeof window !== 'undefined') {
-	tokenStore.subscribe(value => {
+	tokenStore.subscribe((value) => {
 		try {
 			if (value) {
 				localStorage.setItem(TOKEN_KEY, value);
@@ -24,6 +24,12 @@ if (typeof window !== 'undefined') {
 		} catch {
 			// ignore
 		}
+	});
+
+	window.addEventListener('storage', (event) => {
+		if (event.key !== TOKEN_KEY) return;
+		const next = typeof event.newValue === 'string' ? event.newValue : null;
+		tokenStore.set(next && next.trim() ? next : null);
 	});
 }
 
