@@ -73,6 +73,10 @@ export async function startGithubPkceLoginPopup(): Promise<GithubPkceStartResult
 
 	const popup = openCenteredPopup(authorizeUrl.toString(), 'github-login', 520, 640);
 	if (!popup) return { ok: false, errorKey: 'errors.githubPopupBlocked' };
+
+	// Best-effort: close popup from the opener side once the token is delivered.
+	// (Callback page may be unable to close itself depending on browser policies.)
+	attachPopupAutoClose(popup);
 	return { ok: true };
 }
 
@@ -190,6 +194,77 @@ function openCenteredPopup(url: string, name: string, width: number, height: num
 	const left = window.screenX + (window.outerWidth - width) / 2;
 	const top = window.screenY + (window.outerHeight - height) / 2;
 	return window.open(url, name, `width=${width},height=${height},left=${left},top=${top}`);
+}
+
+function attachPopupAutoClose(popup: Window) {
+	if (!browser) return;
+
+	const channelName = 'neoxk:github-oauth';
+	const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(channelName);
+
+	let done = false;
+	const closePopup = () => {
+		try {
+			popup.close();
+		} catch {
+			// ignore
+		}
+	};
+
+	const cleanup = () => {
+		if (done) return;
+		done = true;
+		window.removeEventListener('message', handleMessage);
+		window.removeEventListener('storage', handleStorage);
+		channel?.removeEventListener('message', handleChannelMessage as any);
+		channel?.close();
+		clearInterval(interval);
+		clearTimeout(timeout);
+	};
+
+	const onToken = (token: unknown) => {
+		const value = typeof token === 'string' ? token.trim() : '';
+		if (!value) return;
+		closePopup();
+		// A second close attempt helps on some browsers.
+		setTimeout(closePopup, 100);
+		cleanup();
+	};
+
+	const handleMessage = (event: MessageEvent) => {
+		if (event.origin !== window.location.origin) return;
+		if (event.data?.type === 'github-token' && event.data.token) onToken(event.data.token);
+	};
+
+	const handleStorage = (event: StorageEvent) => {
+		if (event.key !== 'githubToken') return;
+		if (event.newValue) onToken(event.newValue);
+	};
+
+	const handleChannelMessage = (event: MessageEvent) => {
+		const data = (event as MessageEvent).data as any;
+		if (data?.type === 'github-token' && data.token) onToken(data.token);
+	};
+
+	window.addEventListener('message', handleMessage);
+	window.addEventListener('storage', handleStorage);
+	channel?.addEventListener('message', handleChannelMessage as any);
+
+	const interval = window.setInterval(() => {
+		if (done) return;
+		if (popup.closed) {
+			cleanup();
+			return;
+		}
+		try {
+			const token = localStorage.getItem('githubToken');
+			if (token) onToken(token);
+		} catch {
+			// ignore
+		}
+	}, 350);
+
+	const timeout = window.setTimeout(() => cleanup(), 2 * 60 * 1000);
 }
 
 function randomBase64UrlString(byteLength: number) {

@@ -961,7 +961,7 @@ export const enUS = {
       reloginGithub: 'Re-login',
       logoutGithub: 'Log out',
       gistLoggedIn: 'GitHub logged in',
-      loginHint: 'OAuth login (PKCE, opens a popup) or paste a token below.',
+      loginHint: 'OAuth login (PKCE, opens a popup).',
       loginUnavailableHint: 'GitHub OAuth is not configured for this deployment. Set PUBLIC_GITHUB_CLIENT_ID in build/deploy env.',
       tokenLabel: 'GitHub token (local only)',
       tokenPlaceholder: 'Paste a token (requires Gist access)',

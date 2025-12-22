@@ -949,7 +949,7 @@ export const zhCN = {
       reloginGithub: '重新登录',
       logoutGithub: '退出',
       gistLoggedIn: '已登录 GitHub',
-      loginHint: '使用 OAuth 登录（PKCE，会打开弹窗），或在下方粘贴 token。',
+      loginHint: '使用 OAuth 登录（PKCE，会打开弹窗）。',
       loginUnavailableHint: '此部署未配置 GitHub OAuth。请在构建/部署环境中设置 PUBLIC_GITHUB_CLIENT_ID。',
       tokenLabel: 'GitHub token（仅本地保存）',
       tokenPlaceholder: '粘贴 token（需要 Gist 权限）',

@@ -62,6 +62,7 @@
 	let dockview: DockviewComponent | null = null;
 	let widthObserver: ResizeObserver | null = null;
 	let dndAssistDisposables: DockviewIDisposable[] = [];
+	let layoutPersistenceDisposables: DockviewIDisposable[] = [];
 	let isSashAssistActive = false;
 	let workspaceFocusListener: ((event: Event) => void) | null = null;
 	let autoFallback = false;
@@ -71,6 +72,7 @@
 	export let className = '';
 
 	const panelApis = new Map<WorkspacePanelType, DockviewPanelApi>();
+	const LAYOUT_COOKIE_KEY = 'dockview_layout_v1';
 
 	let t = (key: string) => key;
 	$: t = $translator;
@@ -165,7 +167,9 @@
 			});
 
 			registerSashAssist(dockview);
-			buildDefaultLayout();
+			const restored = restoreLayout(dockview);
+			if (!restored) buildDefaultLayout();
+			registerLayoutPersistence(dockview);
 			layoutError = false;
 		} catch (error) {
 			layoutError = true;
@@ -176,6 +180,8 @@
 
 	function teardownDockview() {
 		teardownSashAssist();
+		layoutPersistenceDisposables.forEach((disposable) => disposable.dispose());
+		layoutPersistenceDisposables = [];
 		if (dockview) {
 			try {
 				dockview.dispose();
@@ -191,6 +197,77 @@
 		dndAssistDisposables.forEach((disposable) => disposable.dispose());
 		dndAssistDisposables = [];
 		isSashAssistActive = false;
+	}
+
+	function readCookie(key: string): string | null {
+		if (!browser) return null;
+		try {
+			const target = `${encodeURIComponent(key)}=`;
+			const parts = document.cookie.split(';');
+			for (const part of parts) {
+				const trimmed = part.trim();
+				if (trimmed.startsWith(target)) return decodeURIComponent(trimmed.slice(target.length));
+			}
+		} catch {
+			// ignore
+		}
+		return null;
+	}
+
+	function writeCookie(key: string, value: string) {
+		if (!browser) return;
+		try {
+			const encoded = encodeURIComponent(value);
+			// Cookie size limit is ~4KB; keep best-effort.
+			if (encoded.length > 3800) return;
+			document.cookie = `${encodeURIComponent(key)}=${encoded}; Max-Age=31536000; Path=/; SameSite=Lax`;
+		} catch {
+			// ignore
+		}
+	}
+
+	function restoreLayout(target: DockviewComponent): boolean {
+		const raw = readCookie(LAYOUT_COOKIE_KEY);
+		if (!raw) return false;
+		try {
+			const parsed = JSON.parse(raw) as unknown;
+			target.fromJSON(parsed as any);
+			if (dockHost) (target as any).layout?.(dockHost.clientWidth, dockHost.clientHeight);
+			return true;
+		} catch (error) {
+			console.warn('Failed to restore Dockview layout cookie; falling back to default layout:', error);
+			return false;
+		}
+	}
+
+	function registerLayoutPersistence(target: DockviewComponent) {
+		layoutPersistenceDisposables.forEach((disposable) => disposable.dispose());
+		layoutPersistenceDisposables = [];
+
+		let pending = 0;
+		const flush = () => {
+			pending = 0;
+			try {
+				writeCookie(LAYOUT_COOKIE_KEY, JSON.stringify(target.toJSON()));
+			} catch {
+				// ignore
+			}
+		};
+		const schedule = () => {
+			if (pending) return;
+			pending = window.setTimeout(flush, 250);
+		};
+
+		layoutPersistenceDisposables.push(
+			target.onDidDrop(() => schedule()),
+			target.onDidMovePanel(() => schedule()),
+			target.onDidAddPanel(() => schedule()),
+			target.onDidRemovePanel(() => schedule()),
+			target.onDidMaximizedGroupChange(() => schedule())
+		);
+
+		// Save once after initial layout is ready.
+		schedule();
 	}
 
 	function registerSashAssist(target: DockviewComponent) {
