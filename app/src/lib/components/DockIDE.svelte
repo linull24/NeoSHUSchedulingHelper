@@ -73,6 +73,7 @@
 
 	const panelApis = new Map<WorkspacePanelType, DockviewPanelApi>();
 	const LAYOUT_COOKIE_KEY = 'dockview_layout_v1';
+	const LAYOUT_COOKIE_CHUNK_SIZE = 3400;
 
 	let t = (key: string) => key;
 	$: t = $translator;
@@ -226,8 +227,58 @@
 		}
 	}
 
+	function deleteCookie(key: string) {
+		if (!browser) return;
+		try {
+			document.cookie = `${encodeURIComponent(key)}=; Max-Age=0; Path=/; SameSite=Lax`;
+		} catch {
+			// ignore
+		}
+	}
+
+	function readCookieChunks(baseKey: string): string | null {
+		const countRaw = readCookie(`${baseKey}__count`);
+		const count = Number.parseInt(String(countRaw || ''), 10);
+		if (!Number.isFinite(count) || count <= 0 || count > 50) return null;
+
+		let joined = '';
+		for (let i = 0; i < count; i += 1) {
+			const part = readCookie(`${baseKey}__${i}`);
+			if (part == null) return null;
+			joined += part;
+		}
+		try {
+			return decodeURIComponent(joined);
+		} catch {
+			return null;
+		}
+	}
+
+	function writeCookieChunks(baseKey: string, rawValue: string) {
+		const encoded = encodeURIComponent(rawValue);
+		const chunks: string[] = [];
+		for (let i = 0; i < encoded.length; i += LAYOUT_COOKIE_CHUNK_SIZE) {
+			chunks.push(encoded.slice(i, i + LAYOUT_COOKIE_CHUNK_SIZE));
+		}
+
+		// Defensive cleanup: remove stale chunks.
+		const prevCountRaw = readCookie(`${baseKey}__count`);
+		const prevCount = Number.parseInt(String(prevCountRaw || ''), 10);
+		if (Number.isFinite(prevCount) && prevCount > 0 && prevCount <= 50) {
+			for (let i = 0; i < prevCount; i += 1) deleteCookie(`${baseKey}__${i}`);
+			deleteCookie(`${baseKey}__count`);
+		}
+
+		if (!chunks.length || chunks.length > 50) return;
+
+		writeCookie(`${baseKey}__count`, String(chunks.length));
+		for (let i = 0; i < chunks.length; i += 1) {
+			writeCookie(`${baseKey}__${i}`, chunks[i]!);
+		}
+	}
+
 	function restoreLayout(target: DockviewComponent): boolean {
-		const raw = readCookie(LAYOUT_COOKIE_KEY);
+		const raw = readCookieChunks(LAYOUT_COOKIE_KEY) ?? readCookie(LAYOUT_COOKIE_KEY);
 		if (!raw) return false;
 		try {
 			const parsed = JSON.parse(raw) as unknown;
@@ -248,7 +299,7 @@
 		const flush = () => {
 			pending = 0;
 			try {
-				writeCookie(LAYOUT_COOKIE_KEY, JSON.stringify(target.toJSON()));
+				writeCookieChunks(LAYOUT_COOKIE_KEY, JSON.stringify(target.toJSON()));
 			} catch {
 				// ignore
 			}

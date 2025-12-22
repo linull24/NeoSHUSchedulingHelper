@@ -51,7 +51,7 @@ export async function startGithubPkceLoginPopup(): Promise<GithubPkceStartResult
 
 	const sessionKey = `${SESSION_PREFIX}${state}`;
 	try {
-		sessionStorage.setItem(
+		localStorage.setItem(
 			sessionKey,
 			JSON.stringify({
 				verifier,
@@ -114,7 +114,7 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 	if (!state) return { ok: false, errorKey: 'errors.githubStateValidation' };
 
 	const sessionKey = `${SESSION_PREFIX}${state}`;
-	const rawSession = safeReadSessionStorage(sessionKey);
+	const rawSession = safeReadLocalStorage(sessionKey);
 	if (!rawSession) return { ok: false, errorKey: 'errors.githubStateValidation' };
 
 	let session: z.infer<typeof GithubPkceSessionSchema>;
@@ -123,7 +123,7 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 	} catch {
 		return { ok: false, errorKey: 'errors.githubPkceMissingVerifier' };
 	} finally {
-		safeRemoveSessionStorage(sessionKey);
+		safeRemoveLocalStorage(sessionKey);
 	}
 
 	const availability = getGithubPkceAvailability();
@@ -174,17 +174,17 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 	}
 }
 
-function safeReadSessionStorage(key: string) {
+function safeReadLocalStorage(key: string) {
 	try {
-		return sessionStorage.getItem(key);
+		return localStorage.getItem(key);
 	} catch {
 		return null;
 	}
 }
 
-function safeRemoveSessionStorage(key: string) {
+function safeRemoveLocalStorage(key: string) {
 	try {
-		sessionStorage.removeItem(key);
+		localStorage.removeItem(key);
 	} catch {
 		// ignore
 	}
