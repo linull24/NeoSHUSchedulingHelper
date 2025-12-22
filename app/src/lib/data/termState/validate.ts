@@ -1,76 +1,36 @@
 import { courseCatalogMap } from '../catalog/courseCatalog';
 import { deriveGroupKey } from './groupKey';
 import type { TermAction, TermState } from './types';
+import { evaluateEdgeActionAllowed } from '../../policies/edge/runtime';
 
 export type TermStateValidationError =
 	| { kind: 'UNKNOWN_ENTRY_ID'; entryId: string }
 	| { kind: 'DUPLICATE_SELECTED_GROUP'; groupKey: string; entryIds: string[] }
-	| { kind: 'FROZEN_BLOCKED'; message: string }
-	| { kind: 'DATASET_FATAL_BLOCKED'; message: string }
-	| { kind: 'NEEDS_PULL_BLOCKED'; message: string }
 	| { kind: 'INVALID_ACTION'; message: string };
 
+let cachedCampusSet: { datasetSig: string; campuses: Set<string> } | null = null;
+
+function normalizeCampusForFilter(value: string) {
+	const normalized = value.trim();
+	if (!normalized) return '';
+	if (normalized.includes('宝山主区') || normalized.includes('宝山东区')) return '宝山';
+	return normalized;
+}
+
+function getCampusSetForDataset(datasetSig: string): Set<string> {
+	if (cachedCampusSet?.datasetSig === datasetSig) return cachedCampusSet.campuses;
+	const campusSet = new Set<string>();
+	for (const entry of courseCatalogMap.values()) {
+		const campus = (entry.campus ?? '').trim();
+		if (campus) campusSet.add(normalizeCampusForFilter(campus));
+	}
+	cachedCampusSet = { datasetSig, campuses: campusSet };
+	return campusSet;
+}
+
 export function validateActionAllowed(state: TermState, action: TermAction): TermStateValidationError | null {
-	if (state.settings.selectionMode === 'overflowSpeedRaceMode') {
-		const enablingAutoSolve =
-			action.type === 'SETTINGS_UPDATE' && action.patch.autoSolveEnabled === true;
-		const isAutoSolveAction = action.type.startsWith('AUTO_SOLVE_');
-			if (enablingAutoSolve || isAutoSolveAction) {
-				return { kind: 'INVALID_ACTION', message: '先到先得模式下禁用自动模式' };
-			}
-	}
-
-	if (state.jwxt.syncState === 'FROZEN') {
-		const solverSafe =
-			action.type === 'SOLVER_ADD_LOCK' ||
-			action.type === 'SOLVER_REMOVE_LOCK' ||
-			action.type === 'SOLVER_REMOVE_LOCK_MANY' ||
-			action.type === 'SOLVER_UPDATE_LOCK' ||
-			action.type === 'SOLVER_ADD_SOFT' ||
-			action.type === 'SOLVER_REMOVE_SOFT' ||
-			action.type === 'SOLVER_REMOVE_SOFT_MANY' ||
-			action.type === 'SOLVER_UPDATE_SOFT' ||
-			action.type === 'SOLVER_STAGING_ADD' ||
-			action.type === 'SOLVER_STAGING_ADD_MANY' ||
-			action.type === 'SOLVER_STAGING_REMOVE' ||
-			action.type === 'SOLVER_STAGING_CLEAR';
-		if (!solverSafe && !action.type.startsWith('JWXT_') && !action.type.startsWith('DATASET_')) {
-			return { kind: 'FROZEN_BLOCKED', message: '冻结中：仅允许 JWXT / 数据集修复操作' };
-		}
-	}
-
-	if (state.dataset.fatalResolve) {
-		if (action.type.startsWith('DATASET_')) return null;
-		if (action.type === 'HIST_TOGGLE_TO_INDEX') return null;
-		if (action.type.startsWith('JWXT_')) return null;
-		if (
-			action.type === 'SOLVER_ADD_LOCK' ||
-			action.type === 'SOLVER_REMOVE_LOCK' ||
-			action.type === 'SOLVER_REMOVE_LOCK_MANY' ||
-			action.type === 'SOLVER_UPDATE_LOCK' ||
-			action.type === 'SOLVER_ADD_SOFT' ||
-			action.type === 'SOLVER_REMOVE_SOFT' ||
-			action.type === 'SOLVER_REMOVE_SOFT_MANY' ||
-			action.type === 'SOLVER_UPDATE_SOFT' ||
-			action.type === 'SOLVER_STAGING_ADD' ||
-			action.type === 'SOLVER_STAGING_ADD_MANY' ||
-			action.type === 'SOLVER_STAGING_REMOVE' ||
-			action.type === 'SOLVER_STAGING_CLEAR'
-		) {
-			return null;
-		}
-		return { kind: 'DATASET_FATAL_BLOCKED', message: '数据集已变化：请先在线更新数据集或切换为班次模式' };
-	}
-
-	if (action.type === 'HIST_TOGGLE_TO_INDEX') {
-		if (action.index < 0 || action.index > state.history.cursor) {
-			return { kind: 'INVALID_ACTION', message: 'history-index-out-of-range' };
-		}
-	}
-
-	if ((action.type === 'JWXT_PREVIEW_PUSH' || action.type === 'JWXT_CONFIRM_PUSH') && state.jwxt.syncState === 'NEEDS_PULL') {
-		return { kind: 'NEEDS_PULL_BLOCKED', message: '需要先 Pull 远端状态' };
-	}
+	const gate = evaluateEdgeActionAllowed(state, action);
+	if (!gate.ok) return { kind: 'INVALID_ACTION', message: gate.message };
 
 	return null;
 }
@@ -113,11 +73,7 @@ export function validateStateInvariants(state: TermState): TermStateValidationEr
 		return { kind: 'INVALID_ACTION', message: 'settings-homeCampus-missing' };
 	}
 	const normalizedHomeCampus = normalizeCampusForFilter(homeCampusRaw);
-	const campusSet = new Set<string>();
-	for (const entry of courseCatalogMap.values()) {
-		const campus = (entry.campus ?? '').trim();
-		if (campus) campusSet.add(normalizeCampusForFilter(campus));
-	}
+	const campusSet = getCampusSetForDataset(state.dataset.sig);
 	if (campusSet.size > 0 && !campusSet.has(normalizedHomeCampus)) {
 		return { kind: 'INVALID_ACTION', message: 'settings-homeCampus-unknown' };
 	}
@@ -155,11 +111,4 @@ export function validateStateInvariants(state: TermState): TermStateValidationEr
 	}
 
 	return null;
-}
-
-function normalizeCampusForFilter(value: string) {
-	const normalized = value.trim();
-	if (!normalized) return '';
-	if (normalized.includes('宝山主区') || normalized.includes('宝山东区')) return '宝山';
-	return normalized;
 }

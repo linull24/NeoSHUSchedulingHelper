@@ -17,7 +17,7 @@
 	import { requestWorkspacePanelFocus } from '$lib/utils/workspaceFocus';
 	import { bulkClear, bulkHas, bulkSetAll, bulkToggle, type CourseBulkItem } from '$lib/utils/courseBulk';
 	import { dispatchTermAction, setAutoSolveEnabled, termState } from '$lib/stores/termStateStore';
-	import { filterOptions } from '$lib/stores/courseFilters';
+	import { getFilterOptionsForScope } from '$lib/stores/courseFilters';
 	import { paginationMode, pageSize, pageNeighbors } from '$lib/stores/paginationSettings';
 	import { courseCatalogMap } from '$lib/data/catalog/courseCatalog';
 	import { selectedCourseIds } from '$lib/stores/courseSelection';
@@ -62,7 +62,6 @@
 	let t = (key: string) => key;
 	$: t = $translator;
 	$: autoSolveEnabled = $termState?.settings.autoSolveEnabled ?? false;
-	$: autoSolveDisabled = ($termState?.settings.selectionMode ?? null) === 'overflowSpeedRaceMode';
 	$: bulkCount = bulkSelection.size;
 
 	const actionBarClass = 'flex flex-wrap items-center gap-2 justify-end';
@@ -174,7 +173,11 @@
 	}
 
 	function toggleAutoSolveEnabled() {
-		void setAutoSolveEnabled(!autoSolveEnabled);
+		void (async () => {
+			bulkMessage = '';
+			const res = await setAutoSolveEnabled(!autoSolveEnabled);
+			if (res && !res.ok) bulkMessage = res.error.message;
+		})();
 	}
 
 	function clearBulkSelection() {
@@ -282,8 +285,6 @@
 			<AppButton
 				variant={autoSolveEnabled ? 'primary' : 'secondary'}
 				size="sm"
-				disabled={autoSolveDisabled}
-				title={autoSolveDisabled ? t('dialogs.autoSolve.disabledSpeedRace') : undefined}
 				on:click={toggleAutoSolveEnabled}
 			>
 				{t('panels.common.autoSolve.toggle')}
@@ -294,7 +295,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="filters">
-			<CourseFiltersToolbar {filters} options={filterOptions} mode="selected" hasOrphanSelected={$hasOrphanSelected} />
+			<CourseFiltersToolbar {filters} options={getFilterOptionsForScope('current')} mode="selected" hasOrphanSelected={$hasOrphanSelected} />
 		</svelte:fragment>
 
 		<div class={contentContainerClass}>

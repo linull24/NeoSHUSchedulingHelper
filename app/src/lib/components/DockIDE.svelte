@@ -53,6 +53,7 @@
 		{ id: 'action-log', reference: 'solver', direction: 'within' },
 		{ id: 'sync', reference: 'solver', direction: 'within' },
 		{ id: 'jwxt', reference: 'solver', direction: 'within' },
+		{ id: 'jwxt-io', reference: 'solver', direction: 'within' },
 		{ id: 'settings', reference: 'solver', direction: 'within' }
 	];
 
@@ -130,6 +131,7 @@
 			'action-log': translate('panels.actionLog.title'),
 			sync: translate('panels.sync.title'),
 			jwxt: translate('panels.jwxt.title'),
+			'jwxt-io': translate('panels.jwxtIo.title'),
 			settings: translate('settings.title')
 		};
 	}

@@ -3,6 +3,7 @@ import { currentTheme, availableThemes, setTheme } from '../stores/uiTheme';
 import { materialSeedColor, setMaterialSeedColor } from '../stores/materialThemeColor';
 import { fluentAccentColor, setFluentAccentColor } from '../stores/fluentThemeColor';
 import { collapseCoursesByName, hideFilterStatusControl } from '../stores/courseDisplaySettings';
+import { minAcceptableBatchLabel, setMinAcceptableBatchLabel } from '../stores/batchPolicySettings';
 import {
 	crossCampusAllowed,
 	homeCampus,
@@ -36,6 +37,7 @@ export {
 	crossCampusAllowed,
 	homeCampus,
 	selectionMode,
+	minAcceptableBatchLabel,
 	paginationMode,
 	pageSize,
 	pageNeighbors,
@@ -91,6 +93,12 @@ export function setSelectionModeSetting(mode: SelectionMode) {
 
 export function setHomeCampusSetting(value: string) {
 	setHomeCampus(value);
+}
+
+export function setMinAcceptableBatchSetting(value: any) {
+	const raw = typeof value === 'string' ? value.trim() : '';
+	const next = raw ? (raw as any) : null;
+	void setMinAcceptableBatchLabel(next);
 }
 
 export function setPaginationMode(mode: 'paged' | 'continuous') {

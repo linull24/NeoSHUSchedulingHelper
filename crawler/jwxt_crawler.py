@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+LEGACY (server-side fallback)
+
+This Python crawler exists as an occasional, server-side/CI fallback to generate static JWXT
+course snapshots under `app/static/crawler/data/` for SSG deployments.
+
+Primary path: browser-first JWXT access via the Userscript backend bridge:
+- `app/static/backenduserscript/src/index.ts`
+- Output snapshots are consumed by `app/src/lib/data/catalog/cloudSnapshot.ts`
+
+Do NOT treat this crawler as the main runtime backend. Prefer the frontend-first flow and keep
+credentials out of logs/sync bundles per `spec://cluster/jwxt#chunk-01`.
+"""
+
 import argparse
 import base64
 import getpass

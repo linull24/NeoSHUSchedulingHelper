@@ -14,7 +14,7 @@
 	import AppField from '$lib/primitives/AppField.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
 	import { translator, type TranslateFn } from '$lib/i18n';
-	import { filterOptions } from '$lib/stores/courseFilters';
+	import { getFilterOptionsForScope } from '$lib/stores/courseFilters';
 	import {
 		courseCatalog,
 		courseCatalogMap,
@@ -38,6 +38,8 @@ import type { SolverResultRecord } from '$lib/data/solver/resultTypes';
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
+
+	const filterOptions = getFilterOptionsForScope('current');
 
 	let message = '';
 	let solving = false;

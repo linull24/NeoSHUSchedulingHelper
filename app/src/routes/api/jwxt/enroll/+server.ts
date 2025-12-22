@@ -4,13 +4,18 @@ import { createJwxtHttpClient, readJson } from '../../../../lib/server/jwxt/clie
 import { refreshSelectionContext } from '../../../../lib/server/jwxt/contextRefresh';
 import { buildEnrollUrl, buildSelectionIndexUrl } from '../../../../lib/server/jwxt/selectionContext';
 import { getSession, touchSession } from '../../../../lib/server/jwxt/sessionStore';
+import { buildEnrollPayload, parseEnrollResult } from '../../../../../shared/jwxtCrawler/enroll';
 
-type EnrollBody = { kchId: string; jxbId: string };
+type EnrollBody = { kchId: string; jxbId: string; courseName?: string };
 
 function isEnrollBody(value: unknown): value is EnrollBody {
 	if (!value || typeof value !== 'object') return false;
 	const raw = value as Partial<EnrollBody>;
-	return typeof raw.kchId === 'string' && typeof raw.jxbId === 'string';
+	return (
+		typeof raw.kchId === 'string' &&
+		typeof raw.jxbId === 'string' &&
+		(raw.courseName === undefined || typeof raw.courseName === 'string')
+	);
 }
 
 export const POST: RequestHandler = async ({ cookies, request }) => {
@@ -26,10 +31,14 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 	const client = createJwxtHttpClient(session.jar);
 	try {
-		const payload = new URLSearchParams({
-			...session.context,
+		const payload = buildEnrollPayload(session.context as any, {
 			kch_id: body.kchId.trim(),
-			jxb_ids: body.jxbId.trim()
+			jxb_ids: body.jxbId.trim(),
+			kcmc: body.courseName ? `(${body.kchId.trim()})${body.courseName.trim()}` : '',
+			cxbj: '0',
+			xxkbj: '0',
+			qz: '0',
+			jcxx_id: ''
 		});
 
 		const res = await client.fetch(buildEnrollUrl(), {
@@ -49,10 +58,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		const data = await readJson<any>(res);
 		touchSession(session);
 
-		if (data?.flag === '1' || data?.flag === 1) {
-			return json({ ok: true, supported: true, message: data?.msg ?? 'ok' });
-		}
-		return json({ ok: false, supported: true, error: String(data?.msg ?? 'Enroll failed') }, { status: 400 });
+		const parsed = parseEnrollResult(data);
+		if (parsed.ok) return json({ ok: true, supported: true, message: parsed.msg ?? 'ok' });
+		return json({ ok: false, supported: true, error: String(parsed.msg ?? 'Enroll failed') }, { status: 400 });
 	} catch (error) {
 		return json(
 			{ ok: false, supported: true, error: error instanceof Error ? error.message : String(error) },

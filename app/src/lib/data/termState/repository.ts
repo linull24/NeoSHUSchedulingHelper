@@ -78,7 +78,8 @@ function createInitialState(termId: TermId, datasetSig: string): TermState {
 			syncState: 'NEEDS_PULL',
 			baseline: null,
 			pushTicket: null,
-			frozen: null
+			frozen: null,
+			userBatchCache: {}
 		},
 		history: {
 			cursor: 0,
@@ -110,9 +111,17 @@ function createInitialState(termId: TermId, datasetSig: string): TermState {
 				calendar: { showWeekends: false },
 				jwxt: {
 					autoSyncEnabled: false,
-				autoSyncIntervalSec: 120,
-				autoPreviewEnabled: true,
-				autoPushEnabled: false
+					autoSyncIntervalSec: 120,
+					autoPreviewEnabled: true,
+					autoPushEnabled: false,
+					roundsConcurrency: 12,
+					snapshotConcurrency: 32,
+					selectableIncludeBreakdown: true,
+					batchFilterMode: 'eligible-or-unknown',
+					// Default policy (can be turned off by the user): treat “高年级已选人数” as the minimum acceptable batch.
+					// Rationale: many users are not in “培养方案” and would otherwise see confusing “不可用/不满足” states.
+					minAcceptableBatchLabel: '高年级已选人数',
+					minAcceptableBatchLabelOverrides: {}
 			}
 		}
 	};

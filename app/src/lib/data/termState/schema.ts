@@ -1,8 +1,33 @@
 import { z } from 'zod';
 import type { TermState } from './types';
 import { courseCatalogMap } from '../catalog/courseCatalog';
+import { ENROLLMENT_BATCH_ORDER } from '../../../../shared/jwxtCrawler/batchPolicy';
 
 const zEpochMs = z.number().int().nonnegative();
+
+const zUserBatchState = z.union([
+	z.object({
+		kind: z.literal('available'),
+		label: z.enum(ENROLLMENT_BATCH_ORDER as any)
+	}),
+	z.object({
+		kind: z.literal('unavailable'),
+		reason: z.enum(['NO_USERSCRIPT', 'NO_MARKER', 'PARSE_FAILED'])
+	})
+]);
+
+const zUserBatchCacheItem = z.object({
+	userBatch: zUserBatchState,
+	source: z.enum(['userscript', 'server']),
+	fetchedAt: zEpochMs,
+	// Optional derived facts (best-effort, userscript-only):
+	// - If `impossible === true`, user's cohort rank is already beyond capacity => no hope.
+	// - Used by policy to block enroll/solver candidates deterministically.
+	impossible: z.boolean().optional(),
+	capacity: z.number().int().nonnegative().nullable().optional(),
+	rankStart: z.number().int().nonnegative().optional(),
+	rankEnd: z.number().int().nonnegative().optional()
+});
 
 const zJwxtPair = z.object({
 	kchId: z.string(),
@@ -95,6 +120,7 @@ const zTermState = z.object({
 			})
 			.nullable()
 			.optional(),
+		userBatchCache: z.record(z.string(), zUserBatchCacheItem).optional().default({}),
 		pushTicket: z
 			.object({
 				createdAt: zEpochMs,
@@ -214,7 +240,27 @@ const zTermState = z.object({
 			autoSyncEnabled: z.boolean(),
 			autoSyncIntervalSec: z.number().int().positive(),
 			autoPreviewEnabled: z.boolean(),
-			autoPushEnabled: z.boolean()
+			autoPushEnabled: z.boolean(),
+			roundsConcurrency: z.number().int().positive().optional().default(12),
+			snapshotConcurrency: z.number().int().positive().optional().default(32),
+			selectableIncludeBreakdown: z.boolean().optional().default(true),
+			batchFilterMode: z
+				.enum(['all', 'eligible-or-unknown', 'eligible-only'])
+				.optional()
+				.default('eligible-or-unknown'),
+			minAcceptableBatchLabel: z
+				.enum(ENROLLMENT_BATCH_ORDER as any)
+				.nullable()
+				.optional()
+				.default('高年级已选人数' as any)
+			,
+			minAcceptableBatchLabelOverrides: z
+				.object({
+					all: z.enum(ENROLLMENT_BATCH_ORDER as any).nullable().optional(),
+					current: z.enum(ENROLLMENT_BATCH_ORDER as any).nullable().optional()
+				})
+				.optional()
+				.default({})
 		})
 	})
 });

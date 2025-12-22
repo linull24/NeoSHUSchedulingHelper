@@ -7,10 +7,16 @@
 	import AppField from '$lib/primitives/AppField.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
-	import { translator } from '$lib/i18n';
-	import type { LimitMode, LimitRuleKey } from '../../config/selectionFilters';
+	import { translator, type TranslateFn } from '$lib/i18n';
+	import type { LimitMode } from '../../config/selectionFilters';
 	import { hideFilterStatusControl } from '$lib/stores/courseDisplaySettings';
 	import { crossCampusAllowed, homeCampus } from '$lib/stores/coursePreferences';
+	import { dispatchTermAction, termState } from '$lib/stores/termStateStore';
+	import { appPolicy } from '$lib/policies';
+	import type { FilterScope } from '$lib/policies';
+	import { ENROLLMENT_BATCH_ORDER, type EnrollmentBatchLabel } from '../../../shared/jwxtCrawler/batchPolicy';
+	import { getJwxtUserBatchUiState, shouldShowBatchControlsInFilterScope } from '$lib/policies/jwxt/ui';
+	import { resolveMinAcceptableBatchLabelForScope, setMinAcceptableBatchLabelOverride } from '$lib/policies/jwxt/minBatchByScope';
 
 export let filters: Writable<CourseFilterState>;
 export let options: CourseFilterOptions;
@@ -24,7 +30,7 @@ let showLangMode = false;
 let showWeekFold = false;
 	let appliedDefaultCampus = false;
 
-	let t = (key: string) => key;
+	let t: TranslateFn = (key) => key;
 	$: t = $translator;
 
 	const parityOptionValues = ['any', 'odd', 'even', 'all'] as const;
@@ -38,9 +44,6 @@ let showWeekFold = false;
 		hard: 'filters.conflictJudgeOptions.hard',
 		soft: 'filters.conflictJudgeOptions.soft'
 	};
-
-	const controlClass =
-		'h-9 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 text-[var(--app-color-fg)] outline-none transition-shadow focus:ring-2 focus:ring-[color:var(--app-color-primary)] focus:ring-offset-0';
 
 	$: viewModeLabel =
 		mode === 'wishlist'
@@ -122,8 +125,18 @@ let showWeekFold = false;
 			? $filters.teachingLanguage.join(t('filters.listSeparator'))
 			: t('filters.noLimit');
 
-	const abnormalRuleKeys: LimitRuleKey[] = ['selectionForbidden', 'locationClosed', 'classClosed'];
+	let filterScope: FilterScope = 'all';
+	$: filterScope = (effectiveStatusModeScope === 'jwxt' ? 'jwxt' : mode === 'all' ? 'all' : 'current') as FilterScope;
+	$: abnormalRuleKeys = appPolicy.courseFilters.getPolicy(filterScope).abnormalLimitRuleKeys;
 	type AbnormalFilterMode = 'default-hidden' | 'show-all' | 'only-abnormal' | 'mixed';
+
+	function updateScopeMinBatch(scope: 'all' | 'current', raw: string) {
+		if (!$termState) return;
+		const trimmed = raw.trim();
+		const next = trimmed === '__inherit__' ? 'inherit' : (trimmed ? (trimmed as EnrollmentBatchLabel) : null);
+		const patch = setMinAcceptableBatchLabelOverride($termState, scope, next as any);
+		void dispatchTermAction({ type: 'SETTINGS_UPDATE', patch });
+	}
 
 	$: abnormalFilterMode = (() => {
 		const modes = abnormalRuleKeys.map((key) => $filters.limitModes[key]);
@@ -204,7 +217,7 @@ let showWeekFold = false;
 	<svelte:fragment slot="simple">
 		<AppField label={t('filters.search')} class="w-full">
 			<input
-				class={`${controlClass} w-full`}
+				class="app-control w-full"
 				type="search"
 				placeholder={t('filters.searchPlaceholder')}
 				title={t('filters.searchHelp')}
@@ -237,40 +250,68 @@ let showWeekFold = false;
 		</div>
 	</svelte:fragment>
 
-		<svelte:fragment slot="settings">
-			<AppControlRow>
-				<AppField label={t('filters.sort')} class="flex-1 min-w-[min(220px,100%)] w-auto">
-					<div class="flex items-center gap-2">
-						<select
-							class={`${controlClass} flex-1 min-w-0`}
-							value={$filters.sortOptionId}
-							on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}
-						>
-							{#each options.sortOptions as opt}
-								<option value={opt.id}>{opt.label}</option>
-							{/each}
-						</select>
-						<AppButton
-							variant="secondary"
-							size="sm"
-							iconOnly
-							title={sortOrderToggleLabel}
-							aria-label={sortOrderToggleLabel}
-							on:click={toggleSortOrder}
-						>
-							{$filters.sortOrder === 'asc' ? '↑' : '↓'}
-						</AppButton>
-					</div>
-				</AppField>
-			</AppControlRow>
-		</svelte:fragment>
+	<svelte:fragment slot="settings">
+		<AppControlRow>
+			<AppField label={t('filters.sort')} class="flex-1 min-w-[min(220px,100%)] w-auto">
+				<div class="flex items-center gap-2">
+					<select
+						class="app-control flex-1 min-w-0"
+						value={$filters.sortOptionId}
+						on:change={(e) => updateFilter('sortOptionId', (e.currentTarget as HTMLSelectElement).value)}
+					>
+						{#each options.sortOptions as opt}
+							<option value={opt.id}>{opt.label}</option>
+						{/each}
+					</select>
+					<AppButton
+						variant="secondary"
+						size="sm"
+						iconOnly
+						title={sortOrderToggleLabel}
+						aria-label={sortOrderToggleLabel}
+						on:click={toggleSortOrder}
+					>
+						{$filters.sortOrder === 'asc' ? '↑' : '↓'}
+					</AppButton>
+				</div>
+			</AppField>
+		</AppControlRow>
+	</svelte:fragment>
 
 	<svelte:fragment slot="view-controls">
 		<AppControlRow class="w-full items-end">
+			{#if $termState && shouldShowBatchControlsInFilterScope($termState, filterScope)}
+				{@const userBatchUi = getJwxtUserBatchUiState($termState)}
+				{@const scopeKey = (filterScope === 'current' ? 'current' : 'all') as any}
+				{@const effectiveMin = resolveMinAcceptableBatchLabelForScope($termState, scopeKey)}
+				<div class="flex-1 min-w-[min(220px,100%)] w-auto text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+					{#if userBatchUi.kind === 'need-userscript'}
+						{t('panels.jwxt.userBatchNeedUserscript')}
+					{:else if userBatchUi.kind === 'missing'}
+						{t('panels.jwxt.userBatchMissing')}
+					{/if}
+				</div>
+				<AppField label={t('settings.minAcceptableBatchLabel')} class="flex-1 min-w-[min(220px,100%)] w-auto">
+					<select
+						class="app-control w-full"
+						value={(($termState.settings.jwxt as any).minAcceptableBatchLabelOverrides?.[scopeKey] ?? '__inherit__') as any}
+						on:change={(event) => updateScopeMinBatch(scopeKey, String((event.currentTarget as HTMLSelectElement).value || ''))}
+					>
+						<option value="__inherit__">{t('filters.displayOptions.all')}</option>
+						<option value="">{t('settings.minAcceptableBatchOff')}</option>
+						{#each ENROLLMENT_BATCH_ORDER as label (label)}
+							<option value={label}>
+								{label}{effectiveMin === label ? ' ✓' : ''}
+							</option>
+						{/each}
+					</select>
+				</AppField>
+			{/if}
+
 			{#if !$hideFilterStatusControl && effectiveStatusModeScope !== 'none' && statusModeChoices.length}
 				<AppField label={t('filters.status')} class="flex-1 min-w-[min(220px,100%)] w-auto">
 					<select
-						class={`${controlClass} w-full`}
+						class="app-control w-full"
 						value={$filters.statusMode}
 						on:change={(e) => updateFilter('statusMode', (e.currentTarget as HTMLSelectElement).value as any)}
 					>
@@ -283,7 +324,7 @@ let showWeekFold = false;
 			{#if $crossCampusAllowed}
 				<AppField label={t('filters.campus')} class="flex-1 min-w-[min(220px,100%)] w-auto">
 					<select
-						class={`${controlClass} w-full`}
+						class="app-control w-full"
 						value={$filters.campus}
 						on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}
 					>
@@ -296,7 +337,7 @@ let showWeekFold = false;
 			{/if}
 			<AppField label={t('filters.conflict')} class="flex-1 min-w-[min(220px,100%)] w-auto">
 				<select
-					class={`${controlClass} w-full`}
+					class="app-control w-full"
 					disabled={Boolean(lockConflictMode)}
 					value={lockConflictMode ?? $filters.conflictMode}
 					on:change={(e) => {
@@ -351,7 +392,7 @@ let showWeekFold = false;
 					<div title={!$crossCampusAllowed ? t('filters.campusLockedHint') : undefined}>
 						<select
 							disabled={!$crossCampusAllowed}
-							class={`${controlClass} ${!$crossCampusAllowed ? 'cursor-not-allowed opacity-60' : ''}`}
+							class={`app-control ${!$crossCampusAllowed ? 'cursor-not-allowed opacity-60' : ''}`}
 							value={$filters.campus}
 							on:change={(e) => updateFilter('campus', (e.currentTarget as HTMLSelectElement).value)}
 						>
@@ -369,7 +410,7 @@ let showWeekFold = false;
 				</AppField>
 				<AppField label={t('filters.college')}>
 					<select
-						class={controlClass}
+						class="app-control"
 						value={$filters.college}
 						on:change={(e) => updateFilter('college', (e.currentTarget as HTMLSelectElement).value)}
 					>
@@ -381,7 +422,7 @@ let showWeekFold = false;
 				</AppField>
 				<AppField label={t('filters.specialFilter')}>
 					<select
-						class={controlClass}
+						class="app-control"
 						value={$filters.specialFilter}
 						on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}
 					>
@@ -416,7 +457,7 @@ let showWeekFold = false;
 				<AppField label={t('filters.creditRange')}>
 					<div class="flex items-center gap-2">
 						<input
-							class={`${controlClass} flex-1`}
+							class="app-control flex-1"
 							type="number"
 							min="0"
 							placeholder={t('filters.minPlaceholder')}
@@ -431,7 +472,7 @@ let showWeekFold = false;
 						/>
 						<span class="text-[var(--app-color-fg-muted)]">—</span>
 						<input
-							class={`${controlClass} flex-1`}
+							class="app-control flex-1"
 							type="number"
 							min="0"
 							placeholder={t('filters.maxPlaceholder')}
@@ -448,7 +489,7 @@ let showWeekFold = false;
 				</AppField>
 				<AppField label={t('filters.capacityMin')}>
 					<input
-						class={controlClass}
+						class="app-control"
 						type="number"
 						min="0"
 						value={$filters.capacityMin ?? ''}
@@ -493,7 +534,7 @@ let showWeekFold = false;
 							</ChipGroup>
 							<AppField label={t('filters.teachingModeLabel')} class="w-full">
 								<select
-									class={`${controlClass} w-full`}
+									class="app-control w-full"
 									value={abnormalFilterMode}
 									on:change={(e) => {
 										const value = (e.currentTarget as HTMLSelectElement).value as AbnormalFilterMode;

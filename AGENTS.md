@@ -24,6 +24,10 @@
 - 任务开始前阅读 Core Layer 并确认 change scope；保持最小上下文、幂等与安全边界。
 - 任何决策、不确定点写入 `PLAN.md` 或相关 `openspec/changes/<id>/project.md`，等待人类确认后再推进。
 - 输出应精简且可审计；引用 memory 时注明 URI，便于回溯。
+- **Policy 单一入口**：任何“能否显示/能否筛选/能否求解/能否执行（含 JWXT 选退课）”的判断，必须集中在 `app/src/lib/policies/**`，禁止在 UI/stores/data 中散落条件判断导致漂移；JWXT 模块应保持最简（仅协议/解析/接口），并通过 policy 暴露可配置项给前端使用。
+- **Filter Scope 覆盖边界**：涉及筛选器（非高级筛选）的功能扩展应以 policy 为唯一入口；默认 **JWXT scope 的筛选器不参与这类通用功能覆盖**（例如“最低可选批次”属于全局/当前视图的体验，不应悄悄塞进 JWXT 专用筛选器）。UI 只按 policy 渲染，不得在组件里硬编码 scope 例外。
+- **Filter / Solver / Z3 集中入口**：任何会影响筛选（filter）、求解器入参（solver input）、Z3 约束构建/调用（Z3 hard/soft constraints）的逻辑，必须集中在 `app/src/lib/policies/**`；UI 层只负责展示与把用户输入写入 state，不得在组件内自行推导策略或复制条件判断。
+- **UI 仅做接入**：UI/组件层不得通过 `app/src/lib/data/**` 直接探测“是否支持/是否可用/是否展示”（例如 userscript backend 是否存在），必须由 `app/src/lib/policies/**` 提供统一探测与展示策略，避免“看起来一样但细节漂移”。
 - **临时文件管理**：agent 生成的临时文件（日志、中间产物、调试输出等）统一放置在项目根目录 `agentTemps/`，禁止散落各处（该目录应被 `.gitignore` 排除）。
 - **i18n 自检**：凡触及 UI / 文案 / i18n 资源，提交前必须运行 `python3 scripts/check_i18n.py all` 并在 change / `PLAN.md` 记录结果；脚本契约见 `openspec/specs/rules-tools/check-i18n/spec.md`。
 

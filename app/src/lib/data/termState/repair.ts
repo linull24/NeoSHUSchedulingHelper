@@ -170,7 +170,13 @@ export function repairDatasetResolve(state: TermState): DatasetResolveRepair {
 			jwxt:
 				next.jwxt.syncState === 'FROZEN'
 					? { ...next.jwxt, baseline: null, pushTicket: null }
-					: { syncState: 'NEEDS_PULL', baseline: null, pushTicket: null, frozen: null }
+					: {
+							syncState: 'NEEDS_PULL',
+							baseline: null,
+							pushTicket: null,
+							frozen: null,
+							userBatchCache: next.jwxt.userBatchCache ?? {}
+						}
 		};
 	}
 

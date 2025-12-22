@@ -1,0 +1,25 @@
+export type UserscriptBackend = {
+	login: (payload: { userId: string; password: string }) => Promise<any>;
+	status: () => Promise<any>;
+	rounds: () => Promise<any>;
+	selectRound: (xkkzId: string) => Promise<any>;
+	search: (query: string) => Promise<any>;
+	enroll: (kchId: string, jxbId: string) => Promise<any>;
+	drop: (kchId: string, jxbId: string) => Promise<any>;
+	syncSelected: () => Promise<any>;
+	ping: () => Promise<any>;
+	crawlSnapshot?: (payload?: { termId?: string; limitCourses?: number }) => Promise<any>;
+	push: (snapshotBase64: string, dryRun?: boolean) => Promise<any>;
+	checkSelectable?: (payload: { kchId: string; jxbId: string }) => Promise<any>;
+	getEnrollmentBreakdown?: (payload: { kchId: string; jxbId: string }) => Promise<any>;
+	getUserProfileSignals?: () => Promise<any>;
+	getRoundPolicy?: () => Promise<any>;
+	taskStart?: (request: any) => Promise<any>;
+	taskStop?: (taskId: string) => Promise<any>;
+	taskUpdate?: (taskId: string, patch: any) => Promise<any>;
+	taskGet?: (taskId: string) => Promise<any>;
+	taskList?: () => Promise<any>;
+	logout: () => any;
+	debugLocal?: () => Promise<any>;
+	fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+};

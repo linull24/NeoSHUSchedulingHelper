@@ -1,8 +1,33 @@
-# Crawler Configuration
+# Crawler Configuration (Userscript-first, SSG-friendly)
 
 ## Purpose
-Specify how crawler data sources are configured for local and remote term snapshots with override-friendly defaults.
+Specify how crawler data sources are configured and how JWXT snapshots are generated/served for SSG deployments.
+
+This repo’s primary runtime model is **SSG** (GitHub Pages / static hosting). Therefore:
+
+- Course snapshots MUST be readable as static assets (`/crawler/data/**`).
+- Snapshot generation SHOULD happen in CI (Node crawler) or locally (Userscript crawl), not via a persistent backend.
+- `crawler/jwxt_crawler.py` is deprecated and kept only as historical reference (not in the supported pipeline).
+
+Contract refs:
+- Scoped MCP query rule: `spec://core-mcp#chunk-01`
+- JWXT write ops and credential constraints: `spec://cluster/jwxt#chunk-01`
+- Data pipeline hash/cache semantics: `spec://cluster/data-pipeline#chunk-01`
+
 ## Requirements
+
+### Requirement: The crawler core is reusable across Userscript and Node
+Crawler logic MUST be implemented as shared JS/TS modules reusable by:
+
+- Userscript backend (`GM_xmlhttpRequest` / GM cookie session)
+- Node crawler (CI job, same logic different HTTP/cookie adapter)
+
+Python implementations MAY exist only as deprecated reference and MUST NOT be required by CI/SSG builds.
+
+#### Scenario: Fix a JWXT parsing break
+- **WHEN** JWXT page structure changes,
+- **THEN** the shared crawler core is updated once, and both Userscript + Node CI paths inherit the fix.
+
 ### Requirement: Crawler sources support local and object storage locations
 Crawler configuration MUST describe local roots and optional object-storage endpoints for term snapshots and index files.
 
@@ -10,12 +35,41 @@ Crawler configuration MUST describe local roots and optional object-storage endp
 - **WHEN** a term id is provided
 - **THEN** helper functions can resolve the local path under the configured root or construct the remote object key using prefix/index settings.
 
+### Requirement: Snapshot filenames are round-stable
+Snapshots MUST be stored in a round-stable filename so the app can select the latest round or a specific round:
+
+- Canonical: `terms/<termCode>--xkkz-<xkkzId>.json` (e.g. `2025-16--xkkz-<id>.json`)
+- Bundled path MUST be under `app/static/crawler/data/terms/`
+
+#### Scenario: Multiple rounds for a term
+- **WHEN** a term has multiple JWXT rounds (`xkkz_id`),
+- **THEN** each round becomes its own snapshot file and the app can choose via `current.json`.
+
 ### Requirement: Default configuration is overridable without code changes
 Deployments MUST be able to override crawler roots and remote endpoints via environment variables or overrides while keeping a stable shape.
 
 #### Scenario: Switching sources
 - **WHEN** environment variables or explicit overrides are supplied
 - **THEN** `getCrawlerConfig` returns the adjusted paths/endpoints without requiring application code changes.
+
+### Requirement: `current.json` is the round index
+The crawler pipeline MUST maintain a `current.json` file as the authoritative index for:
+
+- Term code (`termCode`, e.g. `2025-16`)
+- Round snapshot `termId` (the filename stem, e.g. `2025-16--xkkz-<id>`)
+- Round metadata (`jwxtRound: { xkkzId, xklc, xklcmc }`)
+- Generation timestamp (`generatedAt`)
+
+`current.json` MUST be a JSON array of objects (legacy `string[]` is not supported by the app runtime).
+
+### Requirement: CI can generate snapshots for SSG builds
+The repository SHOULD provide a Node crawler entrypoint that can run in GitHub Actions:
+
+- Triggered on push / workflow_dispatch (at least same cadence as Pages deploy)
+- Uses GitHub Secrets for credentials
+- Writes snapshots into `app/static/crawler/data/` so `vite build` bundles them
+
+Credentials MUST NOT be printed to logs and MUST NOT be written to Action Log / sync bundles.
 
 ### Requirement: Crawler captures teaching and language modes with notes
 Crawler outputs MUST include delivery mode (线上/线下/混合等), language mode (中文/双语/全英/非中英文), and selection notes for each teaching class when present in responses.
@@ -186,4 +240,3 @@ Crawler MUST identify and document the login process and authentication APIs use
   - Encrypted password using RSA algorithm
   - CSRF token retrieved from login page
   - Session management through cookies
-

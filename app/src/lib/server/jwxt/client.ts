@@ -11,6 +11,14 @@ export function createJwxtHttpClient(jar: CookieJar): JwxtHttpClient {
 		const cookieHeader = jar.getCookieHeader(url);
 		const headers = new Headers(init?.headers ?? {});
 		if (cookieHeader) headers.set('cookie', cookieHeader);
+		if (!headers.has('user-agent')) {
+			headers.set(
+				'user-agent',
+				'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+			);
+		}
+		if (!headers.has('accept')) headers.set('accept', '*/*');
+		if (!headers.has('accept-language')) headers.set('accept-language', 'zh-CN,zh;q=0.9,en;q=0.8');
 		const response = await fetch(url, {
 			...init,
 			headers,
@@ -24,7 +32,7 @@ export function createJwxtHttpClient(jar: CookieJar): JwxtHttpClient {
 		let current = initial;
 		let remaining = limit;
 		while (remaining > 0) {
-			if (![301, 302, 303].includes(current.status)) break;
+			if (![301, 302, 303, 307, 308].includes(current.status)) break;
 			const location = current.headers.get('location');
 			if (!location) break;
 			const nextUrl = new URL(location, current.url).toString();
@@ -46,4 +54,3 @@ export async function readJson<T>(response: Response): Promise<T> {
 	if (!text) return {} as T;
 	return JSON.parse(text) as T;
 }
-

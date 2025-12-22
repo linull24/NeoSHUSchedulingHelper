@@ -4,6 +4,14 @@ export const zhCN = {
     subtitle: '切换 Dock 主题 / 全局配置。',
     displaySection: '显示',
     behaviorSection: '行为',
+    filtersSection: '筛选器',
+    minAcceptableBatchLabel: '最低可选批次（顺位排序）',
+    minAcceptableBatchOff: '不限制',
+    minAcceptableBatchHint: '用于顺位排序模式：若已识别到 ★ 当前批次，则低于该底线的班次会被阻止选课。',
+    userscriptSnapshotConcurrencyLabel: 'userscript 并发：课程详情抓取',
+    userscriptSnapshotConcurrencyHint: '影响“爬取云端数据”的速度；过大可能触发教务限流/失败。',
+    userscriptRoundsConcurrencyLabel: 'userscript 并发：轮次信息抓取',
+    userscriptRoundsConcurrencyHint: '影响轮次/Display 页并行获取速度。',
     pwaSection: '应用（PWA）',
     theme: '主题',
     themeColorLabel: '主题颜色（MD3）',
@@ -83,6 +91,8 @@ export const zhCN = {
     dockTitle: '课程工具',
     settings: '设置',
     optional: '可选',
+    refresh: '刷新',
+    cancel: '取消',
     selectPlaceholder: '请选择',
     crawlStages: {
       context: '读取选课页面…',
@@ -179,6 +189,10 @@ export const zhCN = {
       hint: '组选课必须落到具体班次（教务只接受班次）。',
       cancel: '取消',
       confirm: '选择该班次'
+    },
+    policyConfirm: {
+      cancel: '取消',
+      confirm: '继续'
     }
   },
   lists: {
@@ -632,6 +646,8 @@ export const zhCN = {
       refresh: '刷新',
       ping: '测试连接',
       login: '登录',
+      helpUserscript: '安装后端 Userscript',
+      helpLink: 'Userscript 帮助',
       logout: '退出登录',
       loginHint: '密码仅发送到本地后端用于登录。可选：本地加密保存会话 Cookie 以支持自动登录。',
       loginMethodLabel: '登录方式',
@@ -668,6 +684,46 @@ export const zhCN = {
       autoPush: '自动推送（会弹窗确认）',
       autoPushHint: '已开启自动推送：本地已选发生变化时会自动弹窗提示 diff。',
       autoPushMutedUntil: '自动推送提醒已静默至 {time}',
+      pollPush: {
+        toggle: '轮询推送',
+        hint: '轮询推送运行中：会周期性尝试把本地“已选”推送到教务（需要 userscript）。',
+        confirmTitle: '确认启动轮询推送',
+        confirmStart: '开始轮询推送',
+        started: '已启动轮询推送',
+        taskLabel: 'Task: {id}',
+        parallelLabel: '并行',
+        applyParallel: '应用并行',
+        stop: '停止轮询推送'
+      },
+      batchPolicyLabel: '最低可选批次',
+      batchPolicyOff: '不限制',
+      batchFilterLabel: '批次筛选',
+      batchFilterOptions: {
+        all: '不过滤',
+        eligibleOrUnknown: '隐藏已知不满足（保留未缓存）',
+        eligibleOnly: '仅显示满足（需要已缓存）'
+      },
+      batchPolicyAllowed: '允许',
+      batchPolicyDeniedShort: '不满足',
+      batchPolicyDenied: '当前 ★ 批次低于底线（{min}），将阻止选课操作。',
+      batchPolicyNeedUserBatch: '用户批次不可用：需要 userscript 登录态并拉取一次“人数明细”。',
+      batchPolicyUnavailable: '★ 用户所在批次不可用（需要 userscript 登录态），无法应用批次底线。',
+      batchPolicyImpossible: '无希望：你的批次排位已超过该班次容量（满员）。',
+      breakdownButton: '人数明细',
+      breakdownTitle: '已选人数明细：{course}',
+      breakdownLoading: '加载中…',
+      breakdownEmpty: '暂无明细数据。',
+      breakdownHint: '数据来源：教务系统“已选人数明细”。',
+      breakdownNoUserBatch: '用户批次不可用（需要 userscript 登录态）。',
+      breakdownUserBatch: '当前批次：{batch}',
+      userBatchStatus: '当前批次：{batch}',
+      userBatchMissing: '用户批次不可用：未获取（需 userscript 登录态）。',
+      userBatchNeedUserscript: '用户批次不可用：需要 userscript 登录态。',
+      breakdownMinBatch: '底线：{min}',
+      breakdownRankHint: '估算排位区间：{start}-{end}',
+      breakdownColType: '类型',
+      breakdownColValue: '数值',
+      breakdownColMarker: '所属类型',
       localCounts: '本地状态：已选 {selected} 门，待选 {wishlist} 门',
       lastSyncAt: '上次同步：{time}',
       lastPushAt: '上次推送：{time}',
@@ -788,6 +844,41 @@ export const zhCN = {
         vaultPasswordMismatch: '两次输入的加密密码不一致',
         persistSaved: '已保存会话，用于后续登录',
         persistFailed: '保存会话失败：{error}'
+      }
+    },
+    jwxtIo: {
+      title: '抢课/IO',
+      description: '集中展示 userscript 任务与交互日志（可停止/可调参）。轮询推送在“教务面板”配置。',
+      status: {
+        unavailable: '教务能力不可用（请安装 userscript）。',
+        notLoggedIn: '未登录教务系统。',
+        loggedIn: '已登录（{userId}）'
+      },
+      entry: {
+        title: '入口',
+        description: '轮询推送在教务面板的“同步”里开启。',
+        hint: '此处用于观察与管理（停止任务/调整并行）。'
+      },
+      openJwxtPanel: '打开教务面板',
+      runtime: {
+        title: '运行状态',
+        updatedAt: '更新于 {time}'
+      },
+      tasks: {
+        title: '任务',
+        subtitle: '来自 userscript TaskManager（可停止）。',
+        empty: '暂无任务。',
+        stop: '停止',
+        parallelLabel: '并行：',
+        applyConcurrency: '应用',
+        invalidConcurrency: '并行数无效。'
+      },
+      logs: {
+        title: '日志',
+        subtitle: '来自 userscript ↔ 页面交互。',
+        clear: '清空',
+        empty: '暂无日志。',
+        count: '{count} 条'
       }
     },
     sync: {

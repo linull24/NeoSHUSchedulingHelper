@@ -5,6 +5,8 @@
 | ID        | Title                                              | Bucket    | Kind           | Status      | DependsOn | Notes |
 |-----------|----------------------------------------------------|-----------|----------------|-------------|-----------|-------|
 | termState-IMPL-1 | 按 `docs/STATE.md` 落地 termState（唯一真相 + dispatch/effect + OCC） | NOW | code/core | TODO | ENROLL-1 (DONE) | 细节见 change：`openspec/changes/termState-IMPL-1/`；覆盖/收口 UNDO-SM-IMPL-1 |
+| JWXT-LOGIN-PERSIST-2 | Userscript：登录态探测/持久化加固（刷新不掉线） | NOW | code/jwxt | WIP | USERSCRIPT-ENHANCE-1 (TODO) | 仍未完全解决：用户反馈刷新/回到站点后偶发显示未登录；已加 probe + GM 记录 + 前端等待 userscript 注入（见 handoff）。 |
+| PERF-WISHLIST-JANK-1 | 性能：加入待选/已选后 UI 卡顿 | NOW | code/ui+core | WIP | TERMSTATE-COMMIT-BATCH-1 (DONE) | 仍未完全解决：加入待选 10+ 后仍可卡顿；已做多处去重/缓存/异步落盘（见 handoff）。需要进一步 profile 找剩余热点。 |
 | TERMSTATE-COMMIT-BATCH-1 | term_state commit 批量/节流写入 | NOW | code/core | DONE | - | change：`openspec/changes/TERMSTATE-COMMIT-BATCH-1/`；refs: `spec://core-mcp#chunk-01`, `spec://change/TERMSTATEV1-IMPL-1#chunk-01` |
 | TERMSTATE-BULK-ACTIONS-1 | 用批量 Action 降低 bulk 操作开销 | NOW | code/core | DONE | TERMSTATE-COMMIT-BATCH-1 (DONE) | change：`openspec/changes/TERMSTATE-BULK-ACTIONS-1/`；refs: `spec://core-mcp#chunk-01`, `spec://change/TERMSTATEV1-IMPL-1#chunk-01` |
 | UI-THEME-MDUI-1 | Dock 边框清理 + Material/mdui 主题接入 + MD3 主题色 | NOW | code/ui | TODO | DOCKVIEW-1 (DONE) | change：`openspec/changes/UI-THEME-MDUI-1/` |
@@ -35,8 +37,30 @@
 | AUTO-SOLVE-GROUP-SELECT-1 | 自动模式：待选面板内直接设置课程组目标 | NOW | code/ui+core | TODO | AUTO-SOLVE-MODE-1 (DONE) | change：`openspec/changes/AUTO-SOLVE-GROUP-SELECT-1/`；refs: `spec://core-mcp#chunk-01`, `docs/STATE.md` |
 | HOME-CAMPUS-1 | 常驻校区：Wizard/设置 + 校区模式联动 | NOW | code/core+ui | TODO | SETUP-WIZARD-1 (DONE) | change：`openspec/changes/HOME-CAMPUS-1/`；refs: `spec://core-mcp#chunk-01`, `spec://cluster/ui-filters#chunk-02` |
 | JWXT-ROUND-TERM-1 | JWXT 轮次对齐 + 在线爬取（进度/全校区） | NOW | code/jwxt | WIP | - | change：`openspec/changes/JWXT-ROUND-TERM-1/`；refs: `spec://core-mcp#chunk-01`, `spec://cluster/jwxt#chunk-01` |
+| USERSCRIPT-ENHANCE-1 | Userscript：轮询/重试加固 + 学期信息自动处理 | NOW | code/jwxt | WIP | JWXT-ROUND-TERM-1 (WIP) | change：`openspec/changes/USERSCRIPT-ENHANCE-1/`；refs: `spec://core-mcp#chunk-01`, `spec://cluster/jwxt#chunk-01`, `spec://cluster/data-pipeline#chunk-01` |
+| JWXT-IO-DOCK-1 | 抢课/IO Dock（任务 + 日志 + 轮询模式） | NOW | code/jwxt+ui | WIP | USERSCRIPT-ENHANCE-1 (WIP) | change：`openspec/changes/JWXT-IO-DOCK-1/`；refs: `spec://core-mcp#chunk-01`, `spec://cluster/jwxt#chunk-01`, `spec://cluster/ui-templates#chunk-01` |
+| GIST-SYNC-HARDEN-1 | Gist：同步流程打磨（SSG 站点下可用、失败可诊断） | NOW | code/sync | TODO | termState-IMPL-1 (TODO) | 目标：明确 secret/权限；避免把凭据写入 bundle/log；为 userscript/SSG 增加稳定的手动同步路径。 |
 
 ---
+
+## Handoff Notes (2025-12-20)
+
+本分支目前 **可 build**（`npm --prefix app run check` PASS），但有两类用户可感知问题仍未闭环：
+
+1) **JWXT 登录态不稳定（WIP）**
+   - Userscript 侧已做：`status()` 通过 selection index HTML probe 判定登录态；GM 持久化 `userId`/`loggedInAt`；失败时短暂乐观窗口避免 UI 抖动。
+   - 前端侧已做：若检测到 userscript 安装 marker，会等待最多 ~1.2s 让 `window.__jwxtUserscriptBackend` 注入后再调用（减少“脚本已装但 backend 未就绪”的误判）。
+   - 仍需：在真实 Tampermonkey/Violentmonkey 环境下复现并定位“probe 误判 / cookie 丢失 / 注入时序”中的具体原因；必要时增加更细的脱敏 debug（绝不写 cookie/密码）。
+   - 关键文件：`app/static/backenduserscript/src/index.ts`, `app/src/lib/data/jwxt/jwxtApi.ts`.
+
+2) **加入待选/已选后卡顿（WIP）**
+   - 已做优化：termState 落盘改为后台队列（不阻塞 UI）；多个 O(N) 计算改成 map/set 缓存；避免 derived store 每次都 new Set 导致全站重算；校园集合校验缓存（避免每次扫描全 catalog）。
+   - 仍需：对“加入待选 10+ 后极度卡顿”做 profile（可能在 Candidates/solver staging、过滤引擎 meta 重建或渲染路径），再做针对性缓存/节流。
+   - 关键文件：`app/src/lib/stores/termStateStore.ts`, `app/src/lib/utils/courseFilterEngine.ts`, `app/src/lib/apps/CandidateExplorerPanel.state.ts`.
+
+未开始/未完成：
+3) **轮询/任务系统打磨**：策略与 UI 已有骨架，但需要继续对齐 ref、补齐 stop/parallel/日志与告警策略（refs: `spec://cluster/jwxt#chunk-01`）。
+4) **Gist 同步打磨**：仍是 TODO（SSG + userscript 的稳定手动路径需设计+实现）。
 
 ## Completed & Archived (2025-12-15)
 

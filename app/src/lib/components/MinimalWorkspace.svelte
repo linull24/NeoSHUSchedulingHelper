@@ -21,6 +21,7 @@
     "action-log": "panels.actionLog.description",
     "sync": "panels.sync.description",
     "jwxt": "panels.jwxt.description",
+    "jwxt-io": "panels.jwxtIo.description",
     "settings": "settings.subtitle"
   };
 

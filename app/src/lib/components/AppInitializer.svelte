@@ -4,6 +4,7 @@
 	import {
 		clearTermStateAlert,
 		dispatchTermAction,
+		dispatchTermActionWithPolicyBypass,
 		ensureTermStateLoaded,
 		termState,
 		termStateAlert
@@ -18,6 +19,9 @@
 	import { setupWizardDone } from '$lib/stores/setupWizard';
 	import { hasStoredJwxtCookieVault } from '$lib/stores/jwxtCookieVault';
 	import { hasStoredJwxtCookieDeviceVault } from '$lib/stores/jwxtCookieDeviceVault';
+	import { hasAnyAvailableCachedUserBatch } from '$lib/policies/jwxt/userBatchCache';
+	import { jwxtGetEnrollmentBreakdown, jwxtGetStatus } from '$lib/data/jwxt/jwxtApi';
+	import { computeUserRankInterval, isUserImpossibleGivenCapacity } from '../../../shared/jwxtCrawler/batchPolicy';
 
 	let wizardOpen = false;
 	let wizardSuppressed = false;
@@ -35,8 +39,7 @@
 		const blocked = alertOpen || datasetFatalOpen;
 		const hasLocalJwxtCookie = hasStoredJwxtCookieVault() || hasStoredJwxtCookieDeviceVault();
 		const termReady = Boolean($termState);
-		const shouldPrompt =
-			termReady && ($selectionModeNeedsPrompt || (!$setupWizardDone && !hasLocalJwxtCookie));
+		const shouldPrompt = termReady && !$setupWizardDone && ($selectionModeNeedsPrompt || !hasLocalJwxtCookie);
 
 		if (!shouldPrompt) {
 			wizardSuppressed = false;
@@ -60,6 +63,65 @@
 	}
 	$: if (($termState?.settings.autoSolveEnabled ?? false) && !$collapseCoursesByName) collapseCoursesByName.set(true);
 
+	let prefetchBatchBusy = false;
+	let prefetchedBatchForTermId: string | null = null;
+
+	async function maybePrefetchUserBatch() {
+		if (prefetchBatchBusy) return;
+		if (!$termState) return;
+		if ($termState.termId === (prefetchedBatchForTermId as any)) return;
+
+		// Only meaningful for ranked (allow-overflow) rounds.
+		if (($termState.settings.selectionMode ?? null) !== 'allowOverflowMode') return;
+		if (!$termState.settings.jwxt.minAcceptableBatchLabel) return;
+		if (hasAnyAvailableCachedUserBatch($termState)) {
+			prefetchedBatchForTermId = $termState.termId as any;
+			return;
+		}
+
+		// Userscript-only: do nothing if no JWXT userscript backend / not logged in.
+		prefetchBatchBusy = true;
+		try {
+			const status = await jwxtGetStatus();
+			if (!status.ok || !status.supported || !status.loggedIn) return;
+
+			// Heuristic: fetch breakdown for one *selected* section first, because it is most likely a real course.
+			const first = $termState.selection.selected[0] ?? null;
+			if (!first) return;
+			// We only have entryId here, but breakdown API needs kchId/jxbId.
+			// TermState selected entries are catalog IDs; resolve lazily via global map on the page.
+			const entry = (await import('$lib/data/catalog/courseCatalog')).courseCatalogMap.get(first as any) as any;
+			const kchId = String(entry?.courseCode || '').trim();
+			const jxbId = String(entry?.sectionId || '').trim();
+			const capacity = typeof entry?.capacity === 'number' && Number.isFinite(entry.capacity) ? entry.capacity : null;
+			if (!kchId || !jxbId) return;
+
+			const res = await jwxtGetEnrollmentBreakdown({ kchId, jxbId });
+			if (!res.ok) return;
+			if (res.userBatch) {
+				const { source, ...userBatch } = res.userBatch as any;
+				const breakdown = res.breakdown ?? null;
+				const interval = breakdown && capacity != null ? computeUserRankInterval({ breakdown, capacity }) : null;
+				const impossible = breakdown && capacity != null ? isUserImpossibleGivenCapacity({ breakdown, capacity }).impossible : false;
+				await dispatchTermAction({
+					type: 'JWXT_USERBATCH_CACHE_SET',
+					pair: { kchId, jxbId },
+					userBatch,
+					source,
+					impossible,
+					capacity,
+					rankStart: interval?.start,
+					rankEnd: interval?.end
+				});
+			}
+			prefetchedBatchForTermId = $termState.termId as any;
+		} finally {
+			prefetchBatchBusy = false;
+		}
+	}
+
+	$: if ($termState) void maybePrefetchUserBatch();
+
 	onMount(() => {
 		void ensureTermStateLoaded();
 	});
@@ -78,6 +140,17 @@
 
 	function closeSelectionImpactDialog() {
 		clearTermStateAlert();
+	}
+
+	function closePolicyConfirm() {
+		clearTermStateAlert();
+	}
+
+	function confirmPolicy() {
+		if ($termStateAlert?.kind !== 'POLICY_CONFIRM') return;
+		void dispatchTermActionWithPolicyBypass($termStateAlert.after, $termStateAlert.bypassKey).finally(() =>
+			clearTermStateAlert()
+		);
 	}
 
 	function handleClearWishlistWithPrune(lockIds: string[]) {
@@ -184,6 +257,21 @@
 			</AppButton>
 			<AppButton variant="danger" size="sm" on:click={() => handleClearWishlistWithPrune($termStateAlert.lockIds)}>
 				{t('dialogs.selectionClear.confirm')}
+			</AppButton>
+		</svelte:fragment>
+	</AppDialog>
+{/if}
+
+{#if $termStateAlert?.kind === 'POLICY_CONFIRM'}
+	<AppDialog open={alertOpen} title={t($termStateAlert.titleKey, $termStateAlert.titleParams)} on:close={closePolicyConfirm}>
+		<p class="m-0">{t($termStateAlert.bodyKey, $termStateAlert.bodyParams)}</p>
+
+		<svelte:fragment slot="actions">
+			<AppButton variant="secondary" size="sm" on:click={closePolicyConfirm}>
+				{t($termStateAlert.cancelLabelKey ?? 'dialogs.policyConfirm.cancel')}
+			</AppButton>
+			<AppButton variant="primary" size="sm" on:click={confirmPolicy}>
+				{t($termStateAlert.confirmLabelKey ?? 'dialogs.policyConfirm.confirm')}
 			</AppButton>
 		</svelte:fragment>
 	</AppDialog>

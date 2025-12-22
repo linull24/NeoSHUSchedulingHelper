@@ -8,6 +8,21 @@ export interface RawCourseSnapshot {
 	courses: RawCourseEntry[];
 }
 
+/**
+ * JWXT crawler snapshots may include round metadata (xklc/xklcmc/xkkzId).
+ *
+ * IMPORTANT:
+ * - This is *crawler* metadata only; it must NOT embed any user-specific signals (e.g. ★ user batch).
+ * - The parser consumes `RawCourseSnapshot`; this type exists purely to keep the raw-vs-JWXT distinction explicit.
+ */
+export interface RawJwxtCourseSnapshot extends RawCourseSnapshot {
+	jwxtRound?: {
+		xkkzId: string;
+		xklc?: string;
+		xklcmc?: string;
+	};
+}
+
 export interface RawCourseEntry {
 	courseId: string;
 	courseName: string;

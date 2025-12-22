@@ -5,8 +5,10 @@ import { refreshSelectionContext } from '../../../../lib/server/jwxt/contextRefr
 import {
 	buildSelectionDisplayUrl,
 	buildSelectionIndexUrl,
+	parseSelectionIndexHtml,
+	buildSelectionDisplayPayload,
 	parseSelectionPageFields,
-	parseSelectionRoundTabs
+	extractRoundMetaFromHtml
 } from '../../../../lib/server/jwxt/selectionContext';
 import { getSession, touchSession } from '../../../../lib/server/jwxt/sessionStore';
 
@@ -42,27 +44,14 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		return json({ ok: false, supported: true, error: `Failed to load selection page (${selectionRes.status})` }, { status: 502 });
 	}
 	const indexHtml = await selectionRes.text();
-	const indexFields = parseSelectionPageFields(indexHtml);
-	const tabs = parseSelectionRoundTabs(indexHtml);
-	if (!tabs.length) {
-		return json(
-			{ ok: false, supported: true, error: 'Failed to parse round tabs (tabs=0)' },
-			{ status: 502 }
-		);
-	}
+	const parsed = parseSelectionIndexHtml({ indexHtml, preferredXkkzId: session.selectedXkkzId || null });
+	const indexFields = parsed.indexFields;
+	const tabs = parsed.tabs;
 
 	const displayUrl = buildSelectionDisplayUrl();
 	const rounds: RoundsResponse['rounds'] = [];
 	for (const tab of tabs) {
-		const payload = new URLSearchParams({
-			xkkz_id: tab.xkkzId,
-			xszxzt: indexFields.xszxzt || '1',
-			kklxdm: tab.kklxdm,
-			njdm_id: tab.njdmId,
-			zyh_id: tab.zyhId,
-			kspage: '0',
-			jspage: '0'
-		});
+		const payload = buildSelectionDisplayPayload({ indexFields, selectedTab: tab });
 		const displayRes = await client.fetch(displayUrl, {
 			method: 'POST',
 			headers: {
@@ -83,10 +72,11 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		}
 		const displayHtml = await displayRes.text();
 		const displayFields = parseSelectionPageFields(displayHtml);
+		const displayRoundMeta = extractRoundMetaFromHtml(displayHtml);
 		rounds.push({
 			xkkzId: tab.xkkzId,
-			xklc: displayFields.xklc || undefined,
-			xklcmc: displayFields.xklcmc || undefined,
+			xklc: displayFields.xklc || displayRoundMeta.xklc || undefined,
+			xklcmc: displayFields.xklcmc || displayRoundMeta.xklcmc || undefined,
 			kklxdm: tab.kklxdm,
 			kklxLabel: tab.kklxLabel,
 			active: tab.active

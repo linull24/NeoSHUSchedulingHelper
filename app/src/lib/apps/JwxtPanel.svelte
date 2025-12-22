@@ -18,11 +18,19 @@
 	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
 	import AppField from '$lib/primitives/AppField.svelte';
-	import AppButton from '$lib/primitives/AppButton.svelte';
-	import AppDialog from '$lib/primitives/AppDialog.svelte';
-	import AppPagination from '$lib/primitives/AppPagination.svelte';
-	import AppTextArea from '$lib/primitives/AppTextArea.svelte';
-	import { translator, type TranslateFn } from '$lib/i18n';
+import AppButton from '$lib/primitives/AppButton.svelte';
+import AppDialog from '$lib/primitives/AppDialog.svelte';
+import AppPagination from '$lib/primitives/AppPagination.svelte';
+import AppTextArea from '$lib/primitives/AppTextArea.svelte';
+import { translator, type TranslateFn } from '$lib/i18n';
+	import { getUserscriptConfig } from '../../config/userscript';
+	import {
+		jwxtPushPollingEnabled,
+		jwxtPushPollingTaskId,
+		startJwxtPushPolling,
+		stopJwxtPushPolling,
+		updateJwxtPushPollingConcurrency
+	} from '$lib/stores/jwxtPushPolling';
 	import {
 		jwxtAutoPushMuteUntil,
 		jwxtRememberedUserId
@@ -48,31 +56,48 @@
 	import { courseCatalog, courseCatalogMap, type CourseCatalogEntry } from '$lib/data/catalog/courseCatalog';
 	import type { WeekDescriptor } from '$lib/data/InsaneCourseData';
 	import { selectedEntryIds, termState, dispatchTermAction, ensureTermStateLoaded } from '$lib/stores/termStateStore';
-	import { createCourseFilterStore, filterOptions, type CourseFilterState } from '$lib/stores/courseFilters';
+	import { createCourseFilterStoreForScope, getFilterOptionsForScope, type CourseFilterState } from '$lib/stores/courseFilters';
 	import { applyCourseFilters } from '$lib/utils/courseFilterEngine';
 	import { paginationMode, pageNeighbors, pageSize } from '$lib/stores/paginationSettings';
 	import { deriveGroupKey } from '$lib/data/termState/groupKey';
 	import {
-		jwxtGetStatus,
-		jwxtGetRounds,
-		jwxtPing,
-		jwxtLogin,
-		jwxtImportCookie,
+	jwxtGetStatus,
+	jwxtGetRounds,
+	jwxtPing,
+	jwxtLogin,
+	jwxtImportCookie,
 		jwxtExportCookie,
 		jwxtSelectRound,
 		jwxtLogout,
+		jwxtGetEnrollmentBreakdown,
 		type JwxtStatus,
-		type JwxtRoundInfo,
-		type JwxtSelectedPair
-	} from '$lib/data/jwxt/jwxtApi';
-	import { getDatasetConfig } from '../../config/dataset';
-	import { jwxtCrawlState, startJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
-	import { activateRoundSnapshot, fetchCloudRoundIndex, hasRoundSnapshot } from '$lib/data/catalog/cloudSnapshot';
+	type JwxtRoundInfo,
+	type JwxtSelectedPair
+} from '$lib/data/jwxt/jwxtApi';
+import { getDatasetConfig } from '../../config/dataset';
+import { jwxtCrawlState, startJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
+import { activateRoundSnapshot, fetchCloudRoundIndex, hasRoundSnapshot } from '$lib/data/catalog/cloudSnapshot';
+import type { EnrollmentBatchLabel } from '../../../shared/jwxtCrawler/batchPolicy';
+	import { ENROLLMENT_BATCH_ORDER, computeUserRankInterval, isUserImpossibleGivenCapacity } from '../../../shared/jwxtCrawler/batchPolicy';
+import type { JwxtEnrollmentBreakdown } from '../../../shared/jwxtCrawler/enrollmentBreakdown';
+import { globalJwxtPolicyRegistry } from '$lib/policies/jwxt';
+import {
+	classifyJwxtEnrollPolicyError,
+	filterJwxtEnrollCoursesByPolicy,
+	getJwxtBatchFilterMode,
+	isJwxtBatchFilterModeAvailable,
+	getJwxtEnrollButtonPolicyState,
+	shouldPrefetchJwxtUserBatchForEnroll
+} from '$lib/policies/jwxt/ui';
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
 
 	const datasetTermId = getDatasetConfig().termId;
+	const userscriptConfig = getUserscriptConfig();
+	const userscriptLink = browser
+		? new URL(userscriptConfig.scriptUrl, window.location.origin).toString()
+		: userscriptConfig.scriptUrl;
 
 	let status: JwxtStatus | null = null;
 	let statusMessage = '';
@@ -121,6 +146,8 @@
 	let autoSyncEnabled = false;
 	let autoSyncIntervalSec = 120;
 	let autoPushEnabled = false;
+	let minAcceptableBatchLabel: EnrollmentBatchLabel | null = null;
+	let batchFilterMode: 'all' | 'eligible-or-unknown' | 'eligible-only' = 'eligible-or-unknown';
 
 	let remoteSelected: JwxtSelectedPair[] = [];
 	let remoteSelectedKeySet = new Set<string>();
@@ -133,7 +160,7 @@
 	}> = [];
 	let scrollRoot: HTMLElement | null = null;
 
-	const enrollFiltersBase = createCourseFilterStore({ statusMode: 'all:no-status', conflictMode: 'time' });
+	const enrollFiltersBase = createCourseFilterStoreForScope('jwxt', { statusMode: 'all:no-status', conflictMode: 'time' });
 	const enrollFilters: Writable<CourseFilterState> = {
 		subscribe: enrollFiltersBase.subscribe,
 		set: (value) => enrollFiltersBase.set({ ...value, conflictMode: 'time' }),
@@ -165,7 +192,18 @@
 	let confirmError = '';
 	let confirmAction: (() => Promise<void>) | null = null;
 	let confirmSections: Array<{ title: string; items: string[] }> = [];
-	let confirmKind: 'default' | 'jwxt-push' = 'default';
+	let confirmKind: 'default' | 'jwxt-push' | 'jwxt-poll-push' = 'default';
+	let confirmMute2m = false;
+
+	let pushPollEnrollConcurrency = 4;
+
+	let breakdownOpen = false;
+	let breakdownBusy = false;
+	let breakdownError = '';
+	let breakdownEntryLabel = '';
+	let breakdown: JwxtEnrollmentBreakdown | null = null;
+	let breakdownUserBatch: any = null;
+	let breakdownCapacity: number | null = null;
 
 	const inputClass =
 		'w-full min-w-0 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]';
@@ -174,6 +212,8 @@
 	$: autoSyncEnabled = $termState?.settings.jwxt.autoSyncEnabled ?? false;
 	$: autoSyncIntervalSec = $termState?.settings.jwxt.autoSyncIntervalSec ?? 120;
 	$: autoPushEnabled = $termState?.settings.jwxt.autoPushEnabled ?? false;
+	$: minAcceptableBatchLabel = ($termState?.settings.jwxt.minAcceptableBatchLabel ?? null) as any;
+	$: batchFilterMode = $termState ? (getJwxtBatchFilterMode($termState) as any) : 'eligible-or-unknown';
 	$: cookieHasDeviceVault = hasStoredJwxtCookieDeviceVault();
 	$: cookieHasPasswordVault = hasStoredJwxtCookieVault();
 	$: if (browser) {
@@ -377,15 +417,20 @@
 		}
 	}
 
-	async function persistCurrentSession() {
-		if (!browser) return;
-		if (persistMode === 'none') return;
+	async function persistCurrentSession(): Promise<'saved' | 'skipped' | 'none'> {
+		if (!browser) return 'none';
+		if (persistMode === 'none') return 'none';
 		const exported = await jwxtExportCookie();
-		if (!exported.ok) throw new Error(exported.error);
+		if (!exported.ok) {
+			// SSG/userscript runtime: the browser cookie jar already persists the session for jwxt.shu.edu.cn,
+			// and we cannot safely export HttpOnly cookies from the frontend. Treat as "nothing to persist".
+			if (exported.error === 'EXPORT_COOKIE_UNSUPPORTED_FRONTEND') return 'skipped';
+			throw new Error(exported.error);
+		}
 
 		if (persistMode === 'device') {
 			await saveJwxtCookieToDeviceVault(exported.cookie);
-			return;
+			return 'saved';
 		}
 
 		if (!vaultPassword || vaultPassword.length < 6) {
@@ -395,14 +440,15 @@
 			throw new Error(t('panels.jwxt.statuses.vaultPasswordMismatch'));
 		}
 		await saveJwxtCookieToVault(exported.cookie, vaultPassword);
+		return 'saved';
 	}
 
 	async function saveSessionNow() {
 		if (!browser) return;
 		loginBusy = true;
 		try {
-			await persistCurrentSession();
-			if (persistMode !== 'none') setStatusMessage('panels.jwxt.statuses.persistSaved');
+			const res = await persistCurrentSession();
+			if (res === 'saved' && persistMode !== 'none') setStatusMessage('panels.jwxt.statuses.persistSaved');
 		} catch (error) {
 			setStatusMessage('panels.jwxt.statuses.persistFailed', { error: renderApiError(error) });
 		} finally {
@@ -506,6 +552,43 @@
 		}
 	}
 
+	async function openBreakdown(entry: CourseCatalogEntry) {
+		if (!entry.courseCode || !entry.sectionId) return;
+		breakdownOpen = true;
+		breakdownBusy = true;
+		breakdownError = '';
+		breakdown = null;
+		breakdownUserBatch = null;
+		breakdownCapacity = Number.isFinite(entry.capacity) ? entry.capacity : null;
+		breakdownEntryLabel = describeCourse(entry);
+		try {
+			const res = await jwxtGetEnrollmentBreakdown({ kchId: entry.courseCode, jxbId: entry.sectionId });
+			if (!res.ok) throw new Error(res.error);
+			breakdown = res.breakdown ?? null;
+			breakdownUserBatch = res.userBatch ?? null;
+			if (res.userBatch) {
+				const { source, ...userBatch } = res.userBatch as any;
+				const interval = breakdown && breakdownCapacity != null ? computeUserRankInterval({ breakdown, capacity: breakdownCapacity }) : null;
+				const impossible = breakdown && breakdownCapacity != null ? isUserImpossibleGivenCapacity({ breakdown, capacity: breakdownCapacity }).impossible : false;
+				await dispatchTermAction({
+					type: 'JWXT_USERBATCH_CACHE_SET',
+					pair: { kchId: entry.courseCode, jxbId: entry.sectionId },
+					userBatch,
+					source
+					,
+					impossible,
+					capacity: breakdownCapacity,
+					rankStart: interval?.start,
+					rankEnd: interval?.end
+				});
+			}
+		} catch (error) {
+			breakdownError = renderApiError(error);
+		} finally {
+			breakdownBusy = false;
+		}
+	}
+
 	function confirmRemoteDrop(pair: { kchId: string; jxbId: string; label: string }) {
 		requestConfirm({
 			title: t('panels.jwxt.confirm.dropTitle'),
@@ -532,11 +615,34 @@
 			confirmLabel: t('panels.jwxt.confirm.enrollConfirm'),
 			variant: 'danger',
 			action: async () => {
+				if ($termState && shouldPrefetchJwxtUserBatchForEnroll($termState, { kchId: entry.courseCode!, jxbId: entry.sectionId! })) {
+					const breakdownRes = await jwxtGetEnrollmentBreakdown({ kchId: entry.courseCode, jxbId: entry.sectionId });
+					if (!breakdownRes.ok) throw new Error(breakdownRes.error);
+					if (breakdownRes.userBatch) {
+						const { source, ...userBatch } = breakdownRes.userBatch as any;
+						const cacheResult = await dispatchTermAction({
+							type: 'JWXT_USERBATCH_CACHE_SET',
+							pair: { kchId: entry.courseCode, jxbId: entry.sectionId },
+							userBatch,
+							source
+						});
+						if (!cacheResult.ok) throw new Error(cacheResult.error.message);
+					}
+				}
+
 				const result = await dispatchTermAction({
 					type: 'JWXT_ENROLL_NOW',
 					pair: { kchId: entry.courseCode, jxbId: entry.sectionId }
 				});
-				if (!result.ok) throw new Error(result.error.message);
+					if (!result.ok) {
+						const message = result.error.message;
+						const kind = classifyJwxtEnrollPolicyError(message);
+						if (kind === 'USER_BATCH_MISSING') throw new Error(t('panels.jwxt.batchPolicyNeedUserBatch'));
+						if (kind === 'USER_BATCH_UNAVAILABLE') throw new Error(t('panels.jwxt.batchPolicyUnavailable'));
+						if (kind === 'IMPOSSIBLE') throw new Error(t('panels.jwxt.batchPolicyImpossible'));
+						if (kind === 'BELOW_MIN') throw new Error(t('panels.jwxt.batchPolicyDenied', { min: minAcceptableBatchLabel ?? '-' }));
+						throw new Error(message);
+					}
 				setStatusMessage('panels.jwxt.statuses.enrollSuccess');
 				void handleSync({ silent: true });
 			}
@@ -547,8 +653,18 @@
 		if (!entry.courseCode || !entry.sectionId) return false;
 		const meta = enrollFilterResult.meta.get(entry.id);
 		if (meta?.conflict === 'time-conflict') return false;
-		return !remoteSelectedKeySet.has(`${entry.courseCode}::${entry.sectionId}`);
+		if (remoteSelectedKeySet.has(`${entry.courseCode}::${entry.sectionId}`)) return false;
+		if ($termState) {
+			const policyState = getJwxtEnrollButtonPolicyState($termState, { kchId: entry.courseCode, jxbId: entry.sectionId });
+			if (!policyState.enabled) return false;
+		}
+		return true;
 	}
+
+	$: breakdownInterval =
+		breakdown && breakdownUserBatch?.kind === 'available'
+			? computeUserRankInterval({ breakdown, capacity: breakdownCapacity })
+			: null;
 
 	function enrollBulkToggle(entryId: string) {
 		const next = new Set(enrollBulkSelection);
@@ -610,11 +726,35 @@
 				enrollBulkBusy = true;
 				try {
 					for (const entry of eligible) {
+						if ($termState && shouldPrefetchJwxtUserBatchForEnroll($termState, { kchId: entry.courseCode!, jxbId: entry.sectionId! })) {
+							const breakdownRes = await jwxtGetEnrollmentBreakdown({ kchId: entry.courseCode!, jxbId: entry.sectionId! });
+							if (!breakdownRes.ok) throw new Error(breakdownRes.error);
+							if (breakdownRes.userBatch) {
+								const { source, ...userBatch } = breakdownRes.userBatch as any;
+								const cacheResult = await dispatchTermAction({
+									type: 'JWXT_USERBATCH_CACHE_SET',
+									pair: { kchId: entry.courseCode!, jxbId: entry.sectionId! },
+									userBatch,
+									source
+								});
+								if (!cacheResult.ok) throw new Error(cacheResult.error.message);
+							}
+						}
 						const result = await dispatchTermAction({
 							type: 'JWXT_ENROLL_NOW',
 							pair: { kchId: entry.courseCode!, jxbId: entry.sectionId! }
 						});
-						if (!result.ok) throw new Error(result.error.message);
+						if (!result.ok) {
+							const message = result.error.message;
+							const kind = classifyJwxtEnrollPolicyError(message);
+							if (kind === 'USER_BATCH_MISSING') throw new Error(t('panels.jwxt.batchPolicyNeedUserBatch'));
+							if (kind === 'USER_BATCH_UNAVAILABLE') throw new Error(t('panels.jwxt.batchPolicyUnavailable'));
+							if (kind === 'IMPOSSIBLE') throw new Error(t('panels.jwxt.batchPolicyImpossible'));
+							if (kind === 'BELOW_MIN') {
+								throw new Error(t('panels.jwxt.batchPolicyDenied', { min: minAcceptableBatchLabel ?? '-' }));
+							}
+							throw new Error(message);
+						}
 					}
 					enrollBulkClear();
 					setStatusMessage('panels.jwxt.statuses.bulkEnrollSuccess', { count: eligible.length });
@@ -816,8 +956,8 @@
 			password = '';
 			setStatusMessage('panels.jwxt.statuses.loginSuccess');
 			try {
-				await persistCurrentSession();
-				if (persistMode !== 'none') setStatusMessage('panels.jwxt.statuses.persistSaved');
+				const res = await persistCurrentSession();
+				if (res === 'saved' && persistMode !== 'none') setStatusMessage('panels.jwxt.statuses.persistSaved');
 			} catch (error) {
 				setStatusMessage('panels.jwxt.statuses.persistFailed', { error: renderApiError(error) });
 			}
@@ -873,7 +1013,8 @@
 		confirmLabel: string;
 		variant?: 'primary' | 'danger';
 		sections?: Array<{ title: string; items: string[] }>;
-		kind?: 'default' | 'jwxt-push';
+		kind?: 'default' | 'jwxt-push' | 'jwxt-poll-push';
+		mute2m?: boolean;
 		action: () => Promise<void>;
 	}) {
 		confirmTitle = config.title;
@@ -882,6 +1023,7 @@
 		confirmVariant = config.variant ?? 'primary';
 		confirmSections = config.sections ?? [];
 		confirmKind = config.kind ?? 'default';
+		confirmMute2m = Boolean(config.mute2m);
 		confirmAction = config.action;
 		confirmError = '';
 		confirmOpen = true;
@@ -987,6 +1129,58 @@
 		});
 	}
 
+	async function handleStartPushPolling() {
+		if (!status?.supported) {
+			setStatusMessage('panels.jwxt.statuses.backendMissing');
+			return;
+		}
+		if (!status.loggedIn) {
+			setStatusMessage('panels.jwxt.statuses.requireLogin');
+			return;
+		}
+
+		const snapshot = get(termState);
+		const remote = snapshot?.jwxt.remoteSnapshot?.pairs ?? [];
+		const desired = buildSelectedPairs();
+		const diff = computeDiff(remote, desired);
+		const enroll = diff.toEnroll.map(describePair);
+		const drop = diff.toDrop.map(describePair);
+		const enrollLimited = limitList(enroll);
+		const dropLimited = limitList(drop);
+		const enrollItems =
+			enrollLimited.more > 0
+				? [...enrollLimited.items, format('panels.jwxt.confirm.pushDiffMore', { count: enrollLimited.more })]
+				: enrollLimited.items;
+		const dropItems =
+			dropLimited.more > 0
+				? [...dropLimited.items, format('panels.jwxt.confirm.pushDiffMore', { count: dropLimited.more })]
+				: dropLimited.items;
+
+		requestConfirm({
+			title: t('panels.jwxt.pollPush.confirmTitle'),
+			body: format('panels.jwxt.confirm.pushPreviewBody', {
+				enroll: diff.toEnroll.length,
+				drop: diff.toDrop.length
+			}),
+			confirmLabel: t('panels.jwxt.pollPush.confirmStart'),
+			variant: diff.toDrop.length ? 'danger' : 'primary',
+			kind: 'jwxt-poll-push',
+			mute2m: false,
+			sections: [
+				{ title: t('panels.jwxt.confirm.pushDiffEnrollTitle'), items: enrollItems },
+				{ title: t('panels.jwxt.confirm.pushDiffDropTitle'), items: dropItems }
+			],
+			action: async () => {
+				const started = await startJwxtPushPolling({ enrollConcurrency: pushPollEnrollConcurrency });
+				if (!started.ok) throw new Error((started as any).error || 'Failed to start');
+				if (confirmMute2m) {
+					jwxtAutoPushMuteUntil.set(Date.now() + 2 * 60 * 1000);
+				}
+				setStatusMessage('panels.jwxt.pollPush.started');
+			}
+		});
+	}
+
 	async function handleConfirmPush() {
 		const result = await dispatchTermAction({ type: 'JWXT_CONFIRM_PUSH' });
 		if (!result.ok) {
@@ -1055,8 +1249,9 @@
 		selectedIds: $selectedCourseIds,
 		wishlistIds: $wishlistCourseIds,
 		selectedSchedule: enrollSelectedSchedule,
+		filterScope: 'jwxt'
 	});
-	$: enrollCourses = enrollFilterResult.items;
+	$: enrollCourses = $termState ? (filterJwxtEnrollCoursesByPolicy($termState, enrollFilterResult.items) as any) : enrollFilterResult.items;
 	$: enrollTotalItems = enrollCourses.length;
 	$: enrollTotalPages = Math.max(1, Math.ceil(Math.max(1, enrollTotalItems) / enrollPageSizeValue));
 	$: showEnrollPaginationFooter = $paginationMode === 'paged' && enrollTotalPages > 1;
@@ -1249,6 +1444,24 @@
 										{t('panels.jwxt.loginHint')}
 									</span>
 								</AppControlRow>
+								<AppControlRow>
+									<a
+										class="text-[var(--app-text-sm)] text-[var(--app-color-link)] underline"
+										href={userscriptLink}
+										target="_blank"
+										rel="noreferrer"
+									>
+										{t('panels.jwxt.helpUserscript')}
+									</a>
+									<a
+										class="text-[var(--app-text-sm)] text-[var(--app-color-link)] underline"
+										href={userscriptConfig.helpUrl}
+										target="_blank"
+										rel="noreferrer"
+									>
+										{t('panels.jwxt.helpLink')}
+									</a>
+								</AppControlRow>
 							</form>
 						{:else}
 							<form class="flex flex-col gap-3" on:submit|preventDefault={importCookieHeader}>
@@ -1404,9 +1617,25 @@
 							<span>{t('panels.jwxt.autoPush')}</span>
 						</label>
 						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-							<span class="text-[var(--app-color-fg-muted)]">{t('panels.jwxt.autoSyncInterval')}</span>
-							<select
-								class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-2.5 py-1.5 text-[var(--app-text-sm)]"
+							<input
+								type="checkbox"
+								checked={$jwxtPushPollingEnabled}
+								on:change={async (event) => {
+									const next = (event.currentTarget as HTMLInputElement).checked;
+									if (!next) {
+										await stopJwxtPushPolling();
+										return;
+									}
+									await handleStartPushPolling();
+								}}
+								disabled={!status?.loggedIn}
+							/>
+							<span>{t('panels.jwxt.pollPush.toggle')}</span>
+						</label>
+					<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+						<span class="text-[var(--app-color-fg-muted)]">{t('panels.jwxt.autoSyncInterval')}</span>
+						<select
+							class="rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-2.5 py-1.5 text-[var(--app-text-sm)]"
 								value={autoSyncIntervalSec}
 								on:change={(event) => {
 									const raw = Number((event.currentTarget as HTMLSelectElement).value);
@@ -1418,10 +1647,38 @@
 								<option value={60}>60s</option>
 								<option value={120}>120s</option>
 								<option value={300}>300s</option>
-								<option value={600}>600s</option>
+							<option value={600}>600s</option>
 						</select>
 					</label>
 				</div>
+				{#if $jwxtPushPollingEnabled}
+					<div class="mt-2 flex flex-wrap items-center gap-2 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+						<span>{t('panels.jwxt.pollPush.taskLabel').replace('{id}', $jwxtPushPollingTaskId ?? '-')}</span>
+						<label class="flex items-center gap-2">
+							<span class="text-[var(--app-color-fg-muted)]">{t('panels.jwxt.pollPush.parallelLabel')}</span>
+							<input
+								class="w-20 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-2.5 py-1.5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
+								type="number"
+								min="1"
+								max="12"
+								bind:value={pushPollEnrollConcurrency}
+							/>
+						</label>
+						<AppButton
+							variant="secondary"
+							size="sm"
+							on:click={async () => {
+								if (!$jwxtPushPollingTaskId) return;
+								await updateJwxtPushPollingConcurrency(pushPollEnrollConcurrency);
+							}}
+						>
+							{t('panels.jwxt.pollPush.applyParallel')}
+						</AppButton>
+						<AppButton variant="secondary" size="sm" on:click={() => stopJwxtPushPolling()}>
+							{t('panels.jwxt.pollPush.stop')}
+						</AppButton>
+					</div>
+				{/if}
 				<div class="mt-2 flex flex-col gap-1 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 					<p class="m-0">{format('panels.jwxt.localCounts', { selected: $selectedCourseIds.size, wishlist: $wishlistCourseIds.size })}</p>
 					{#if lastSyncAt}
@@ -1433,13 +1690,16 @@
 						{#if pushStatus}
 							<p class="m-0">{pushStatus}</p>
 						{/if}
-						{#if autoPushEnabled}
+					{#if autoPushEnabled}
 							{#if muteActive}
 								<p class="m-0">{format('panels.jwxt.autoPushMutedUntil', { time: new Date($jwxtAutoPushMuteUntil).toLocaleTimeString() })}</p>
 							{:else}
 								<p class="m-0">{t('panels.jwxt.autoPushHint')}</p>
 							{/if}
-						{/if}
+					{/if}
+					{#if $jwxtPushPollingEnabled}
+						<p class="m-0">{t('panels.jwxt.pollPush.hint')}</p>
+					{/if}
 					<p class="m-0">{t('panels.jwxt.confirmHint')}</p>
 				</div>
 			</AppControlPanel>
@@ -1452,7 +1712,7 @@
 				<div class="flex flex-col gap-3">
 					<CourseFiltersToolbar
 						filters={enrollFilters}
-						options={filterOptions}
+						options={getFilterOptionsForScope('jwxt')}
 						mode="all"
 						statusModeScope="jwxt"
 						lockConflictMode="time"
@@ -1523,6 +1783,14 @@
 											</svelte:fragment>
 											<CardActionBar slot="actions" class="justify-start">
 												<AppButton
+													variant="secondary"
+													size="sm"
+													on:click={() => openBreakdown(entry)}
+													disabled={!status?.loggedIn}
+												>
+													{t('panels.jwxt.breakdownButton')}
+												</AppButton>
+												<AppButton
 													variant="primary"
 													size="sm"
 													on:click={() => confirmRemoteEnroll(entry)}
@@ -1581,6 +1849,14 @@
 													/>
 												</svelte:fragment>
 												<CardActionBar slot="actions" class="justify-start">
+													<AppButton
+														variant="secondary"
+														size="sm"
+														on:click={() => openBreakdown(entry)}
+														disabled={!status?.loggedIn}
+													>
+														{t('panels.jwxt.breakdownButton')}
+													</AppButton>
 													<AppButton
 														variant="primary"
 														size="sm"
@@ -1738,6 +2014,97 @@
 		</div>
 
 		<AppDialog
+			open={breakdownOpen}
+			title={format('panels.jwxt.breakdownTitle', { course: breakdownEntryLabel || '-' })}
+			on:close={() => {
+				if (breakdownBusy) return;
+				breakdownOpen = false;
+				breakdownError = '';
+			}}
+		>
+			{#if breakdownBusy}
+				<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.jwxt.breakdownLoading')}</p>
+			{:else if breakdownError}
+				<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-danger)]">{breakdownError}</p>
+			{:else if breakdown}
+					{@const userBatchLabel =
+						breakdownUserBatch?.kind === 'available' && breakdownUserBatch.source === 'userscript'
+							? breakdownUserBatch.label
+							: null}
+					{@const policyEnabled = Boolean(minAcceptableBatchLabel)}
+					{@const policyAllowed =
+						policyEnabled && breakdownUserBatch
+							? (globalJwxtPolicyRegistry.applyAll({
+									userBatch: breakdownUserBatch as any,
+									userMinPolicy: { minAcceptable: minAcceptableBatchLabel! } as any
+							  }).find((r) => r.id === 'jwxt:user-min-acceptable-batch')?.ok ?? null)
+							: null}
+
+				<div class="flex flex-col gap-2">
+					<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+						{t('panels.jwxt.breakdownHint')}
+					</p>
+
+					{#if userBatchLabel}
+						<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+							{t('panels.jwxt.breakdownUserBatch', { batch: userBatchLabel })}
+							{#if policyEnabled}
+								<span class="text-[var(--app-color-fg-muted)]">
+									· {t('panels.jwxt.breakdownMinBatch', { min: minAcceptableBatchLabel! })}
+									{#if policyAllowed === true}
+										· {t('panels.jwxt.batchPolicyAllowed')}
+									{:else if policyAllowed === false}
+										· <span class="text-[var(--app-color-danger)]">{t('panels.jwxt.batchPolicyDeniedShort')}</span>
+									{/if}
+								</span>
+							{/if}
+						</p>
+					{:else}
+						<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">
+							{t('panels.jwxt.breakdownNoUserBatch')}
+						</p>
+					{/if}
+
+					{#if breakdownInterval?.start !== undefined && breakdownInterval?.end !== undefined}
+						<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+							{t('panels.jwxt.breakdownRankHint', { start: breakdownInterval.start + 1, end: breakdownInterval.end })}
+						</p>
+					{/if}
+				</div>
+
+				<div class="mt-3 overflow-auto rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)]">
+					<table class="w-full border-collapse text-[var(--app-text-sm)]">
+						<thead>
+							<tr class="bg-[color:var(--app-color-bg-subtle)] text-[var(--app-color-fg-muted)]">
+								{#each (breakdown.header ?? [t('panels.jwxt.breakdownColType'), t('panels.jwxt.breakdownColValue'), t('panels.jwxt.breakdownColMarker')]) as h (h)}
+									<th class="px-3 py-2 text-left font-medium">{h}</th>
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each breakdown.items as item (item.label)}
+								{@const starred = item.marker === 'star'}
+								<tr class={starred ? 'bg-[color:var(--app-color-primary)]/10' : ''}>
+									<td class="px-3 py-2">{item.label}</td>
+									<td class="px-3 py-2">{item.value ?? item.rawValueText}</td>
+									<td class="px-3 py-2">{starred ? '★' : item.rawMarkerText ?? ''}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{:else}
+				<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{t('panels.jwxt.breakdownEmpty')}</p>
+			{/if}
+
+			<div slot="actions" class="flex flex-wrap items-center justify-end gap-2">
+				<AppButton variant="secondary" size="sm" on:click={() => (breakdownOpen = false)} disabled={breakdownBusy}>
+					{t('panels.jwxt.confirm.cancel')}
+				</AppButton>
+			</div>
+		</AppDialog>
+
+		<AppDialog
 			open={confirmOpen}
 			title={confirmTitle}
 			on:close={() => {
@@ -1745,6 +2112,7 @@
 				confirmOpen = false;
 				confirmError = '';
 				confirmKind = 'default';
+				confirmMute2m = false;
 			}}
 		>
 			<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">{confirmBody}</p>
@@ -1762,6 +2130,12 @@
 						</select>
 					</label>
 				</div>
+			{/if}
+			{#if confirmKind === 'jwxt-poll-push'}
+				<label class="mt-3 flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+					<input type="checkbox" bind:checked={confirmMute2m} disabled={confirmBusy} />
+					<span>{t('panels.jwxt.confirm.mute2m')}</span>
+				</label>
 			{/if}
 			{#if confirmSections.length}
 				<div class="mt-3 flex flex-col gap-3">

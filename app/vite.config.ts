@@ -21,8 +21,8 @@ export default defineConfig({
 		}
 	},
 	plugins: [
-		UnoCSS(),
 		sveltekit(),
+		UnoCSS(),
 		swc({
 			include: ['src/**/*.{js,ts}'],
 			exclude: ['node_modules/**'],

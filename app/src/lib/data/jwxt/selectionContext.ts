@@ -134,12 +134,16 @@ export function buildSelectedCoursesUrl(): string {
 
 export function buildEnrollUrl(): string {
 	const cfg = getJwxtConfig();
-	return new URL(cfg.enrollPath, cfg.jwxtHost).toString();
+	const url = new URL(cfg.enrollPath, cfg.jwxtHost);
+	url.searchParams.set('gnmkdm', cfg.defaultGnmkdm);
+	return url.toString();
 }
 
 export function buildDropUrl(): string {
 	const cfg = getJwxtConfig();
-	return new URL(cfg.dropPath, cfg.jwxtHost).toString();
+	const url = new URL(cfg.dropPath, cfg.jwxtHost);
+	url.searchParams.set('gnmkdm', cfg.defaultGnmkdm);
+	return url.toString();
 }
 
 export function buildSsoEntryUrl(): string {
