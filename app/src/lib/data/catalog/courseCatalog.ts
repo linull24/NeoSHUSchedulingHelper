@@ -16,6 +16,7 @@ import { resolveCourseTaxonomy } from './courseTaxonomy';
 import { initializeTaxonomyRegistry, initializeTaxonomyRegistryAsync } from '../taxonomy/taxonomyRegistry';
 import { t } from '../../i18n/index.ts';
 import { browser } from '$app/environment';
+import { base } from '$app/paths';
 import { readCloudSnapshotText } from './cloudSnapshot';
 import { InsaneCourseData, type CourseDatasetPayload } from '../InsaneCourseData';
 
@@ -36,6 +37,14 @@ async function fetchTextOrNull(url: string): Promise<string | null> {
 	} catch {
 		return null;
 	}
+}
+
+function withBasePath(path: string): string {
+	const raw = String(path || '').trim();
+	if (!raw) return raw;
+	if (/^https?:\/\//.test(raw)) return raw;
+	const normalized = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
+	return `${base || ''}${normalized}`;
 }
 
 function pickBestTermIdFromManifest(termIdOrCode: string, manifest: CurrentManifestEntry[]): string | null {
@@ -70,21 +79,21 @@ async function resolveBrowserSnapshotText(termIdOrCode: string): Promise<string>
 	// Prefer explicit snapshotPath if it exists.
 	const hinted = datasetConfig.snapshotPath?.trim();
 	if (hinted) {
-		const text = await fetchTextOrNull(hinted);
+		const text = await fetchTextOrNull(withBasePath(hinted));
 		if (text) return text;
 	}
 
-	const directUrl = `/crawler/data/terms/${termIdOrCode}.json`;
+	const directUrl = withBasePath(`/crawler/data/terms/${termIdOrCode}.json`);
 	const directText = await fetchTextOrNull(directUrl);
 	if (directText) return directText;
 
-	const manifestText = await fetchTextOrNull('/crawler/data/current.json');
+	const manifestText = await fetchTextOrNull(withBasePath('/crawler/data/current.json'));
 	if (manifestText) {
 		try {
 			const manifest = JSON.parse(manifestText) as CurrentManifestEntry[];
 			const best = pickBestTermIdFromManifest(termIdOrCode, Array.isArray(manifest) ? manifest : []);
 			if (best) {
-				const url = `/crawler/data/terms/${best}.json`;
+				const url = withBasePath(`/crawler/data/terms/${best}.json`);
 				const text = await fetchTextOrNull(url);
 				if (text) return text;
 			}
@@ -93,7 +102,9 @@ async function resolveBrowserSnapshotText(termIdOrCode: string): Promise<string>
 		}
 	}
 
-	throw new Error(`未找到学期 ${termIdOrCode} 的原始快照文件（尝试：${directUrl} /crawler/data/current.json）`);
+	throw new Error(
+		`未找到学期 ${termIdOrCode} 的原始快照文件（尝试：${directUrl} ${withBasePath('/crawler/data/current.json')}）`
+	);
 }
 
 function getWeekdayLabels() {

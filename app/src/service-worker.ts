@@ -12,6 +12,13 @@ const BASE_PATH = (() => {
 	return scope.pathname.endsWith('/') ? scope.pathname.slice(0, -1) : scope.pathname;
 })();
 
+function joinPath(base: string, suffix: string) {
+	const left = String(base || '').replace(/\/+$/, '');
+	const right = String(suffix || '').replace(/^\/+/, '');
+	if (!left) return `/${right}`;
+	return `${left}/${right}`;
+}
+
 function withIsolationHeaders(response: Response) {
 	const cloned = response.clone();
 	const headers = new Headers(cloned.headers);
@@ -60,9 +67,10 @@ self.addEventListener('fetch', (event) => {
 			const cached = await cache.match(event.request);
 			if (cached) return withIsolationHeaders(cached);
 
+			const crawlerPrefix = joinPath(BASE_PATH, 'crawler/data/');
 			try {
 				const response = await fetch(event.request);
-				if (response.ok && (ASSETS.includes(url.pathname) || url.pathname.startsWith('/crawler/data/'))) {
+				if (response.ok && (ASSETS.includes(url.pathname) || url.pathname.startsWith(crawlerPrefix))) {
 					cache.put(event.request, response.clone()).catch(() => {});
 				}
 				return withIsolationHeaders(response);

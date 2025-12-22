@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { base } from '$app/paths';
 import type { RawCourseSnapshot } from '$lib/data/InsaneCourseParser';
 import { getCrawlerConfig } from '../../../config/crawler';
 import {
@@ -52,10 +53,17 @@ export function hasCloudSnapshot(termId: string): boolean {
 	}
 }
 
+function withBasePath(path: string): string {
+	const raw = String(path || '').trim();
+	if (!raw) return raw;
+	if (/^https?:\/\//.test(raw)) return raw;
+	const normalized = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
+	return `${base || ''}${normalized}`;
+}
+
 async function fetchBundledJson<T>(path: string): Promise<T | null> {
 	try {
-		// static assets are served from /crawler/... in dev/prod
-		const url = path.startsWith('/') ? path : `/${path.replace(/^\/+/, '')}`;
+		const url = withBasePath(path);
 		const res = await fetch(url, { method: 'GET' });
 		if (!res.ok) return null;
 		return (await res.json()) as T;
@@ -66,14 +74,14 @@ async function fetchBundledJson<T>(path: string): Promise<T | null> {
 
 async function readBundledCurrentEntries(): Promise<CurrentTermEntry[] | null> {
 	if (!browser) return null;
-	return fetchBundledJson<CurrentTermEntry[]>('/crawler/data/current.json');
+	return fetchBundledJson<CurrentTermEntry[]>(withBasePath('/crawler/data/current.json'));
 }
 
 async function readBundledTermSnapshotText(termId: string): Promise<string | null> {
 	if (!browser) return null;
 	try {
 		// Avoid JSON parse+stringify roundtrip: it's CPU-heavy and can freeze the UI on large snapshots.
-		const url = `/crawler/data/terms/${termId}.json`;
+		const url = withBasePath(`/crawler/data/terms/${termId}.json`);
 		const res = await fetch(url, { method: 'GET' });
 		if (!res.ok) return null;
 		return await res.text();
