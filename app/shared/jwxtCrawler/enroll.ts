@@ -1,3 +1,5 @@
+import { REQUEST_FIELD_KEYS } from './selection';
+
 export type CourseEnrollExtras = {
 	kch_id: string;
 	jxb_ids: string;
@@ -26,23 +28,39 @@ export function buildEnrollPayload(context: Record<string, unknown>, extras: Cou
 		jxb_ids: extras.jxb_ids,
 		kch_id: extras.kch_id,
 		kcmc: extras.kcmc ?? '',
-		rwlx: pickStr(ctx, 'rwlx'),
-		rlkz: pickStr(ctx, 'rlkz'),
-		cdrlkz: pickStr(ctx, 'cdrlkz'),
-		rlzlkz: pickStr(ctx, 'rlzlkz'),
-		sxbj: deriveSxbj({ rlkz: pickStr(ctx, 'rlkz'), cdrlkz: pickStr(ctx, 'cdrlkz'), rlzlkz: pickStr(ctx, 'rlzlkz') }),
 		xxkbj: extras.xxkbj ?? '0',
 		qz: extras.qz ?? '0',
 		cxbj: extras.cxbj ?? '0',
-		xkkz_id: pickStr(ctx, 'xkkz_id'),
-		kklxdm: pickStr(ctx, 'kklxdm'),
-		njdm_id: pickStr(ctx, 'njdm_id'),
-		zyh_id: pickStr(ctx, 'zyh_id'),
-		xklc: pickStr(ctx, 'xklc'),
-		xkxnm: pickStr(ctx, 'xkxnm'),
-		xkxqm: pickStr(ctx, 'xkxqm'),
 		jcxx_id: extras.jcxx_id ?? ''
 	};
+
+	// Best-effort: include *all* context fields from the selection page (hidden inputs + derived context).
+	// This matches the in-page enroll scripts and avoids server-side "无操作权限" when new fields are required.
+	for (const [k, v] of Object.entries(ctx)) {
+		if (k in payload) continue;
+		const s = String(v ?? '').trim();
+		if (!s) continue;
+		payload[k] = s;
+	}
+
+	// Copy the selection-page query context fields into the enroll request payload.
+	// JWXT term-system upgrades add/remove fields over time; sending the full context
+	// (when available) matches the behavior of in-page scripts and avoids "无操作权限".
+	for (const key of REQUEST_FIELD_KEYS) {
+		if (key in payload) continue;
+		const v = pickStr(ctx, key);
+		if (v) payload[key] = v;
+	}
+
+	// These flags are derived fields used by the enroll endpoint.
+	const rlkz = pickStr(ctx, 'rlkz');
+	const cdrlkz = pickStr(ctx, 'cdrlkz');
+	const rlzlkz = pickStr(ctx, 'rlzlkz');
+	payload.rlkz = rlkz;
+	payload.cdrlkz = cdrlkz;
+	payload.rlzlkz = rlzlkz;
+	payload.rwlx = pickStr(ctx, 'rwlx');
+	payload.sxbj = deriveSxbj({ rlkz, cdrlkz, rlzlkz });
 
 	// Some term-system versions expect xnm/xqm; keep them duplicated if present.
 	const xnm = pickStr(ctx, 'xnm');
@@ -60,6 +78,16 @@ export function buildDropPayload(context: Record<string, unknown>, input: { jxb_
 		jxb_id: input.jxb_id,
 		bj: '10'
 	};
+
+	// Best-effort: include *all* context fields from the selection page (hidden inputs + derived context).
+	// This matches the in-page scripts and avoids "非法访问/无操作权限" on term-system upgrades.
+	for (const [k, v] of Object.entries(ctx)) {
+		if (k in payload) continue;
+		const s = String(v ?? '').trim();
+		if (!s) continue;
+		payload[k] = s;
+	}
+
 	const xnm = pickStr(ctx, 'xnm') || pickStr(ctx, 'xkxnm');
 	const xqm = pickStr(ctx, 'xqm') || pickStr(ctx, 'xkxqm');
 	if (xnm) payload.xnm = xnm;
@@ -79,6 +107,15 @@ export function buildDropPayloadTuikBcZzxkYzb(
 		xkxqm: pickStr(ctx, 'xkxqm') || pickStr(ctx, 'xqm'),
 		txbsfrl: pickStr(ctx, 'txbsfrl')
 	};
+
+	// Best-effort: include full context fields (csrftoken/gnmkdmKey/etc.) to align with ref UI behavior.
+	for (const [k, v] of Object.entries(ctx)) {
+		if (k in payload) continue;
+		const s = String(v ?? '').trim();
+		if (!s) continue;
+		payload[k] = s;
+	}
+
 	return new URLSearchParams(payload);
 }
 
@@ -94,13 +131,34 @@ export type EnrollResult = {
 };
 
 export function parseEnrollResult(data: any): EnrollResult {
-	const flag = data != null ? String((data as any).flag ?? '').trim() : '';
-	const msg = data != null ? String((data as any).msg ?? '').trim() : '';
+	const obj = data != null && typeof data === 'object' ? (data as any) : null;
+	const flag = obj ? String(obj.flag ?? '').trim() : '';
+	const code = obj ? String(obj.code ?? '').trim() : '';
+	const okBool = obj ? Boolean(obj.ok) : false;
+	const successBool = obj ? Boolean(obj.success) : false;
+	const msg = obj
+		? String(obj.msg ?? obj.message ?? obj.error ?? '').trim()
+		: data != null
+			? String(data).trim()
+			: '';
+
+	const primary = flag || code;
 	// Ref: success flags include 1/3/6; -1 indicates capacity overflow (not selectable yet).
-	if (flag === '1' || flag === '3' || flag === '6') return { ok: true, flag, msg };
-	if (flag === '-1') return { ok: false, flag, msg, retryable: true };
-	// Other failure flags are generally stable (constraints/duplicate/conflict); treat as non-retryable by default.
-	return { ok: false, flag: flag || undefined, msg: msg || undefined, retryable: false };
+	if (okBool || successBool) return { ok: true, flag: flag || code || undefined, msg };
+	if (primary === '1' || primary === '3' || primary === '6') return { ok: true, flag: primary, msg };
+	if (primary === '-1') return { ok: false, flag: primary, msg, retryable: true };
+	// Some variants only return a message string on success.
+	if (msg && /成功|已选|选课成功|操作成功/.test(msg) && !/失败|错误|异常/.test(msg)) return { ok: true, flag: primary || undefined, msg };
+	// Retryable heuristics (derived from ref UI scripts + field reports):
+	// - 校验不通过/请刷新本网页后重试: context/token stale -> refresh and retry.
+	// - 服务器繁忙: transient overload.
+	// - 尚未到选课时间/系统维护: retry later (polling mode).
+	const upper = msg.toUpperCase();
+	const retryable =
+		upper.includes('VALIDATION') ||
+		upper.includes('BUSY') ||
+		/校验不通过|刷新.*重试|服务器繁忙|系统繁忙|请稍后再试|尚未到|未到选课时间|系统维护|稍后开放/.test(msg);
+	return { ok: false, flag: primary || undefined, msg: msg || undefined, retryable };
 }
 
 export type DropResult = {

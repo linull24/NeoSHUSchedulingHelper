@@ -6,7 +6,7 @@ import { evaluateEdgeActionAllowed } from '../../policies/edge/runtime';
 export type TermStateValidationError =
 	| { kind: 'UNKNOWN_ENTRY_ID'; entryId: string }
 	| { kind: 'DUPLICATE_SELECTED_GROUP'; groupKey: string; entryIds: string[] }
-	| { kind: 'INVALID_ACTION'; message: string };
+	| { kind: 'INVALID_ACTION'; message: string; gateKind?: string };
 
 let cachedCampusSet: { datasetSig: string; campuses: Set<string> } | null = null;
 
@@ -30,7 +30,7 @@ function getCampusSetForDataset(datasetSig: string): Set<string> {
 
 export function validateActionAllowed(state: TermState, action: TermAction): TermStateValidationError | null {
 	const gate = evaluateEdgeActionAllowed(state, action);
-	if (!gate.ok) return { kind: 'INVALID_ACTION', message: gate.message };
+	if (!gate.ok) return { kind: 'INVALID_ACTION', message: gate.message, gateKind: gate.kind };
 
 	return null;
 }
@@ -104,8 +104,9 @@ export function validateStateInvariants(state: TermState): TermStateValidationEr
 		return { kind: 'INVALID_ACTION', message: 'jwxt-baseline-dataset-mismatch' };
 	}
 
-	for (const constraint of state.solver.constraints.soft) {
-		if (!Number.isFinite(constraint.weight) || constraint.weight <= 0) {
+	for (const constraint of state.solver.constraints.soft as any[]) {
+		const weight = typeof constraint?.weight === 'number' ? constraint.weight : NaN;
+		if (!Number.isFinite(weight) || weight <= 0) {
 			return { kind: 'INVALID_ACTION', message: 'solver-soft-weight-invalid' };
 		}
 	}

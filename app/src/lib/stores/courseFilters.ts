@@ -13,7 +13,7 @@ import { getTaxonomyOptions } from '../data/taxonomy/taxonomyRegistry';
 
 // Conflict mode is a runtime judgement mode (not a list filter):
 // it defines what counts as a “conflict item” for badges/purity toggle.
-export type ConflictFilterMode = 'off' | 'time' | 'current' | 'hard' | 'soft';
+export type ConflictFilterMode = 'off' | 'time' | 'current' | 'hard' | 'soft' | 'selectable-now';
 
 export type CourseStatusMode =
 	| 'all:none'

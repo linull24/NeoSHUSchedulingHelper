@@ -36,11 +36,12 @@ let showWeekFold = false;
 	const parityOptionValues = ['any', 'odd', 'even', 'all'] as const;
 	const spanOptionValues = ['any', 'upper', 'lower', 'full'] as const;
 
-	const conflictOptionValues: ConflictFilterMode[] = ['time', 'current', 'hard', 'soft'];
+	const conflictOptionValues: ConflictFilterMode[] = ['time', 'current', 'selectable-now', 'hard', 'soft'];
 	const conflictLabelKey: Record<ConflictFilterMode, string> = {
 		off: 'filters.conflictJudgeOptions.off',
 		time: 'filters.conflictJudgeOptions.time',
 		current: 'filters.conflictJudgeOptions.current',
+		'selectable-now': 'filters.onlySelectableNow',
 		hard: 'filters.conflictJudgeOptions.hard',
 		soft: 'filters.conflictJudgeOptions.soft'
 	};
@@ -350,16 +351,16 @@ let showWeekFold = false;
 					{/each}
 				</select>
 			</AppField>
-			<Chip
-				selectable
-				selected={$filters.showConflictBadges}
-				class="flex-[0_0_auto]"
-				on:click={() => updateFilter('showConflictBadges', !$filters.showConflictBadges)}
-			>
-				{t('filters.showConflictBadges')}
-			</Chip>
-		</AppControlRow>
-	</svelte:fragment>
+				<Chip
+					selectable
+					selected={$filters.showConflictBadges}
+					class="flex-[0_0_auto]"
+					on:click={() => updateFilter('showConflictBadges', !$filters.showConflictBadges)}
+				>
+					{t('filters.showConflictBadges')}
+				</Chip>
+			</AppControlRow>
+		</svelte:fragment>
 
 	<svelte:fragment slot="advanced" />
 </FilterBar>
@@ -425,12 +426,12 @@ let showWeekFold = false;
 						class="app-control"
 						value={$filters.specialFilter}
 						on:change={(e) => updateFilter('specialFilter', (e.currentTarget as HTMLSelectElement).value as any)}
-					>
-						<option value="all">{t('filters.specialFilterOptions.all')}</option>
-						<option value="sports-only">{t('filters.specialFilterOptions.sportsOnly')}</option>
-						<option value="exclude-sports">{t('filters.specialFilterOptions.excludeSports')}</option>
-					</select>
-				</AppField>
+						>
+							<option value="all">{t('filters.specialFilterOptions.all')}</option>
+							<option value="sports-only">{t('filters.specialFilterOptions.sportsOnly')}</option>
+							<option value="exclude-sports">{t('filters.specialFilterOptions.excludeSports')}</option>
+						</select>
+					</AppField>
 				{#if options.specialTags.length}
 					<ChipGroup label={t('filters.specialTagsLabel')} class="flex flex-col gap-2">
 						<div class="flex flex-wrap gap-2">

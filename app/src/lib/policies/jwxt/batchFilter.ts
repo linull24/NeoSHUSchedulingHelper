@@ -4,6 +4,7 @@ import type { HardConstraint } from '../../data/solver/ConstraintSolver';
 import { courseCatalogMap } from '../../data/catalog/courseCatalog';
 import { isUserBatchAllowedByMinPolicy } from '../../../../shared/jwxtCrawler/batchPolicy';
 import { getCachedUserBatchForPair } from './userBatchCache';
+import { getEffectiveMinAcceptableBatchLabel } from './minAcceptablePolicy';
 
 export type JwxtBatchFilterMode = 'all' | 'eligible-or-unknown' | 'eligible-only';
 
@@ -16,7 +17,7 @@ type BatchEval =
 function evalBatchForEntry(state: TermState, entry: CourseCatalogEntry): BatchEval {
 	// Batch eligibility is only meaningful for 顺位排序 / overbook-then-allocate rounds.
 	// In 先到先得 mode we intentionally ignore this policy to avoid surprising filtering.
-	const min = state.settings.selectionMode === 'allowOverflowMode' ? state.settings.jwxt.minAcceptableBatchLabel : null;
+	const min = state.settings.selectionMode === 'allowOverflowMode' ? getEffectiveMinAcceptableBatchLabel(state) : null;
 	if (!min) return { kind: 'ok' };
 	if (!entry.courseCode || !entry.sectionId) return { kind: 'missing' };
 
@@ -46,7 +47,7 @@ export function filterJwxtEnrollCoursesByBatchPolicy(
 	mode: JwxtBatchFilterMode
 ) {
 	if (state.settings.selectionMode !== 'allowOverflowMode') return entries;
-	if (!state.settings.jwxt.minAcceptableBatchLabel) return entries;
+	if (!getEffectiveMinAcceptableBatchLabel(state)) return entries;
 	if (mode === 'all') return entries;
 	return entries.filter((entry) => {
 		const result = evalBatchForEntry(state, entry);
@@ -79,7 +80,7 @@ function getSectionIdToCourseCodeIndex() {
  */
 export function buildJwxtBatchHardConstraintsForZ3(state: TermState, candidateSectionIds: string[]): HardConstraint[] {
 	if (state.settings.selectionMode !== 'allowOverflowMode') return [];
-	const min = state.settings.jwxt.minAcceptableBatchLabel;
+	const min = getEffectiveMinAcceptableBatchLabel(state);
 	if (!min) return [];
 	if (!candidateSectionIds.length) return [];
 

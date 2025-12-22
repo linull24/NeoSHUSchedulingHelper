@@ -17,8 +17,11 @@
 	import { requestWorkspacePanelFocus } from '$lib/utils/workspaceFocus';
 	import SetupWizard from './SetupWizard.svelte';
 	import { setupWizardDone } from '$lib/stores/setupWizard';
-	import { hasStoredJwxtCookieVault } from '$lib/stores/jwxtCookieVault';
-	import { hasStoredJwxtCookieDeviceVault } from '$lib/stores/jwxtCookieDeviceVault';
+	import { hasStoredJwxtCookieVault, rehydrateJwxtCookieVaultPresenceMarker } from '$lib/stores/jwxtCookieVault';
+	import {
+		hasStoredJwxtCookieDeviceVault,
+		rehydrateJwxtCookieDeviceVaultPresenceMarker
+	} from '$lib/stores/jwxtCookieDeviceVault';
 	import { hasAnyAvailableCachedUserBatch } from '$lib/policies/jwxt/userBatchCache';
 	import { jwxtGetEnrollmentBreakdown, jwxtGetStatus } from '$lib/data/jwxt/jwxtApi';
 	import { computeUserRankInterval, isUserImpossibleGivenCapacity } from '../../../shared/jwxtCrawler/batchPolicy';
@@ -29,6 +32,8 @@
 	let alertOpen = false;
 	let groupPickEntryId: string | null = null;
 	let datasetFatalOpen = false;
+	let jwxtFrozenBusy = false;
+	let jwxtFrozenError = '';
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
@@ -38,8 +43,7 @@
 	$: {
 		const blocked = alertOpen || datasetFatalOpen;
 		const hasLocalJwxtCookie = hasStoredJwxtCookieVault() || hasStoredJwxtCookieDeviceVault();
-		const termReady = Boolean($termState);
-		const shouldPrompt = termReady && !$setupWizardDone && ($selectionModeNeedsPrompt || !hasLocalJwxtCookie);
+		const shouldPrompt = !$setupWizardDone && ($selectionModeNeedsPrompt || !hasLocalJwxtCookie);
 
 		if (!shouldPrompt) {
 			wizardSuppressed = false;
@@ -124,6 +128,9 @@
 
 	onMount(() => {
 		void ensureTermStateLoaded();
+		// Best-effort: repair vault presence markers from IDB to avoid false negatives after refresh.
+		void rehydrateJwxtCookieVaultPresenceMarker();
+		void rehydrateJwxtCookieDeviceVaultPresenceMarker();
 	});
 
 	function handleSwitchToSectionOnly() {
@@ -140,6 +147,21 @@
 
 	function closeSelectionImpactDialog() {
 		clearTermStateAlert();
+	}
+
+	async function handleJwxtFrozenResume() {
+		if (jwxtFrozenBusy) return;
+		jwxtFrozenBusy = true;
+		jwxtFrozenError = '';
+		try {
+			const res = await dispatchTermAction({ type: 'JWXT_FROZEN_ACK_RESUME' });
+			if (!res.ok) throw new Error(res.error.message);
+			clearTermStateAlert();
+		} catch (error) {
+			jwxtFrozenError = error instanceof Error ? error.message : String(error);
+		} finally {
+			jwxtFrozenBusy = false;
+		}
 	}
 
 	function closePolicyConfirm() {
@@ -257,6 +279,32 @@
 			</AppButton>
 			<AppButton variant="danger" size="sm" on:click={() => handleClearWishlistWithPrune($termStateAlert.lockIds)}>
 				{t('dialogs.selectionClear.confirm')}
+			</AppButton>
+		</svelte:fragment>
+	</AppDialog>
+{/if}
+
+{#if $termStateAlert?.kind === 'JWXT_FROZEN_BLOCKED'}
+	{@const frozenCount = $termState?.jwxt.frozen?.failedList?.length ?? 0}
+	<AppDialog open={alertOpen} title={t('dialogs.jwxtFrozenBlocked.title')} on:close={clearTermStateAlert}>
+		<p class="m-0">{t('dialogs.jwxtFrozenBlocked.summary')}</p>
+		{#if frozenCount > 0}
+			<p class="m-0 text-[var(--app-color-fg-muted)]">{t('dialogs.jwxtFrozenBlocked.failedCount', { count: frozenCount })}</p>
+		{/if}
+		<p class="m-0 text-[var(--app-color-fg-muted)]">{t('dialogs.jwxtFrozenBlocked.hint')}</p>
+		{#if jwxtFrozenError}
+			<p class="m-0 text-[var(--app-color-danger)]">{jwxtFrozenError.slice(0, 300)}</p>
+		{/if}
+
+		<svelte:fragment slot="actions">
+			<AppButton variant="secondary" size="sm" on:click={() => requestWorkspacePanelFocus('jwxt')}>
+				{t('dialogs.jwxtFrozenBlocked.openJwxt')}
+			</AppButton>
+			<AppButton variant="secondary" size="sm" disabled={jwxtFrozenBusy} on:click={clearTermStateAlert}>
+				{t('dialogs.jwxtFrozenBlocked.close')}
+			</AppButton>
+			<AppButton variant="primary" size="sm" loading={jwxtFrozenBusy} on:click={handleJwxtFrozenResume}>
+				{t('dialogs.jwxtFrozenBlocked.resume')}
 			</AppButton>
 		</svelte:fragment>
 	</AppDialog>

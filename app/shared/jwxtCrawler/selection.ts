@@ -327,6 +327,22 @@ export function parseSelectionPageFields(html: string): Record<string, string> {
 		if (!key) continue;
 		fields[key] = attrs.value != null ? attrs.value : '';
 	}
+
+	// Some deployments render csrftoken in ways that evade the generic input tag scan
+	// (e.g. unusual quoting/attribute order). Keep a dedicated fallback extractor.
+	if (!fields.csrftoken) {
+		const tagRe =
+			/<input\b[^>]*(?:\bid\s*=\s*["']?csrftoken["']?|\bname\s*=\s*["']?csrftoken["']?)[^>]*>/i;
+		const mTag = tagRe.exec(html);
+		const tag = mTag?.[0] ?? '';
+		if (tag) {
+			const valueRe = /\bvalue\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i;
+			const mValue = valueRe.exec(tag);
+			const v = String(mValue?.[1] ?? mValue?.[2] ?? mValue?.[3] ?? '').trim();
+			if (v) fields.csrftoken = v;
+		}
+	}
+
 	return fields;
 }
 
@@ -360,6 +376,18 @@ export function buildQueryContext(fields: Record<string, string>) {
 	for (const key of REQUEST_FIELD_KEYS) {
 		const value = fields[key];
 		if (typeof value === 'string' && value !== '') params[key] = value;
+	}
+	// Term-system variants include a `csrftoken` hidden input that must be echoed back
+	// on enroll/drop endpoints; without it, the server may respond with "无操作权限".
+	// Keep this in the context so callers that only have `context` (not raw fields)
+	// can still submit valid requests.
+	if (typeof (fields as any).csrftoken === 'string' && (fields as any).csrftoken !== '') {
+		(params as any).csrftoken = String((fields as any).csrftoken);
+	}
+	// Ref page includes `gnmkdmKey` hidden input; some endpoints treat it as part of
+	// the request context and may reject requests without it.
+	if (typeof (fields as any).gnmkdmKey === 'string' && (fields as any).gnmkdmKey !== '') {
+		(params as any).gnmkdmKey = String((fields as any).gnmkdmKey);
 	}
 	params.xkkz_id = (fields as any).firstXkkzId || params.xkkz_id || '';
 	params.kklxdm = (fields as any).firstKklxdm || params.kklxdm || '';

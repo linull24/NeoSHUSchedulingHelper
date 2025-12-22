@@ -1,6 +1,6 @@
 export const zhCN = {
   settings: {
-    title: '界面设置',
+    title: '设置',
     subtitle: '切换 Dock 主题 / 全局配置。',
     displaySection: '显示',
     behaviorSection: '行为',
@@ -80,7 +80,14 @@ export const zhCN = {
     aboutFeedbackGroup: '意见反馈',
     aboutGithubRepo: '项目 GitHub 主页',
     aboutGithubIssues: '去 GitHub 提 Issue',
-    aboutTencentSupport: '腾讯兔小巢平台'
+    aboutTencentSupport: '腾讯兔小巢平台',
+    resetSection: '重置',
+    resetDesc: '清空本地持久化（设置 / term_state / Cookie Vault / IndexedDB 等），用于排障或从零开始。不会影响云端数据。',
+    resetAction: '重置本地所有数据',
+    resetHint: '执行后会自动刷新页面，并重新弹出 Setup Wizard。',
+    resetDialogTitle: '确认重置本地数据？',
+    resetDialogDesc: '此操作会清空本地持久化数据（含 IndexedDB/OPFS best-effort），并刷新页面。',
+    resetDialogConfirm: '确认重置并刷新'
   },
   meta: {
     productName: 'SHU排课助手',
@@ -91,6 +98,7 @@ export const zhCN = {
     dockTitle: '课程工具',
     settings: '设置',
     optional: '可选',
+    inherit: '继承',
     refresh: '刷新',
     cancel: '取消',
     selectPlaceholder: '请选择',
@@ -141,6 +149,15 @@ export const zhCN = {
 	      summary: '导出为班次解失败（无解或求解出错）。自动模式保持开启。',
 	      errorLabel: '原因：',
 	      ack: '知道了'
+	    },
+	    jwxtFrozenBlocked: {
+	      title: '教务冻结中',
+	      summary: '当前处于教务冻结状态，部分操作（如退课/改收藏）会被阻断以避免状态进一步漂移。',
+	      failedCount: '上次推送失败条目：{count}',
+	      hint: '请先打开 JWXT 面板同步远端状态并处理失败项，然后再继续修改本地选课；必要时可先“解除冻结”。',
+	      openJwxt: '打开 JWXT 面板',
+	      resume: '解除冻结',
+	      close: '关闭'
 	    },
 	    datasetResolve: {
 	      title: '课程分组已变化',
@@ -338,6 +355,13 @@ export const zhCN = {
       title: '求解器',
       description: '配置硬/软约束并执行求解。',
       intro: '先整理硬/软约束，再运行求解器，建议操作和诊断会在下方展示。',
+      batchInfo: {
+        title: '批次信息',
+        description: '用于顺位排序模式：★ 当前批次来自 userscript 明细缓存；底线用于阻止低于该批次的选课。',
+        effectiveMin: '当前底线：{batch}',
+        minForSolverLabel: '最低可选批次（求解器/当前视图）',
+        minForSolverDesc: '覆盖“当前视图”的底线；选择“继承”则使用全局设置。'
+      },
       run: '运行求解器',
       solving: '求解中…',
       direction: '方向',
@@ -631,6 +655,7 @@ export const zhCN = {
       connectionTitle: '连接与登录',
       connectionDescription: '登录后可从教务系统同步已选课程，也可将本地选课状态推送到教务系统。',
       crawlData: '爬取数据',
+      crawlStop: '停止爬取',
       crawlHint: '爬取完成后刷新页面即可应用新的课程数据。',
       rounds: {
         title: '学期与轮次',
@@ -683,7 +708,6 @@ export const zhCN = {
       autoSyncInterval: '间隔',
       autoPush: '自动推送（会弹窗确认）',
       autoPushHint: '已开启自动推送：本地已选发生变化时会自动弹窗提示 diff。',
-      autoPushMutedUntil: '自动推送提醒已静默至 {time}',
       pollPush: {
         toggle: '轮询推送',
         hint: '轮询推送运行中：会周期性尝试把本地“已选”推送到教务（需要 userscript）。',
@@ -765,7 +789,6 @@ export const zhCN = {
         close: '关闭',
         autoPushTitle: '检测到已选变更（自动推送）',
         autoPushBody: '将对教务系统执行：选课 {enroll}，退课 {drop}。确认继续？',
-        mute2m: '2 分钟内不再提醒（自动确认）',
         pushTitle: '确认推送到教务系统',
         pushBody: '此操作将尝试把本地选课状态推送到教务系统：已选 {selected} 门，待选 {wishlist} 门。确认继续？',
         pushPreviewBody: '此操作将对教务系统执行：选课 {enroll}，退课 {drop}。确认继续？',
@@ -802,6 +825,7 @@ export const zhCN = {
         accountLabel: '帐号：{userId}',
         statusFailed: '状态读取失败：{error}',
         crawling: '正在爬取课程数据...',
+        crawlCanceled: '已停止爬取',
         crawlProgress: '已爬取 {done}/{total} 门课程',
         crawlSuccess: '爬取成功，请刷新页面应用新数据。',
         crawlFailed: '爬取失败：{error}',
@@ -848,7 +872,14 @@ export const zhCN = {
     },
     jwxtIo: {
       title: '抢课/IO',
-      description: '集中展示 userscript 任务与交互日志（可停止/可调参）。轮询推送在“教务面板”配置。',
+      description: '只读监控 userscript 任务与交互日志（dashboard）。轮询推送在“教务面板”配置。',
+      persistence: {
+        title: '本地持久化',
+        description: 'TermState 会保存到本地，刷新/重新打开不丢失。',
+        lastSaved: '最近保存：{time}',
+        pending: '保存中…',
+        error: '持久化失败：{error}'
+      },
       status: {
         unavailable: '教务能力不可用（请安装 userscript）。',
         notLoggedIn: '未登录教务系统。',
@@ -857,7 +888,7 @@ export const zhCN = {
       entry: {
         title: '入口',
         description: '轮询推送在教务面板的“同步”里开启。',
-        hint: '此处用于观察与管理（停止任务/调整并行）。'
+        hint: '此处用于观察与诊断；仅提供轮询任务的安全停止。'
       },
       openJwxtPanel: '打开教务面板',
       runtime: {
@@ -866,11 +897,20 @@ export const zhCN = {
       },
       tasks: {
         title: '任务',
-        subtitle: '来自 userscript TaskManager（可停止）。',
+        subtitle: '来自 userscript TaskManager（监控为主；轮询任务可停止）。',
         empty: '暂无任务。',
+        filterPollingOnly: '仅轮询',
+        filterErrors: '仅错误',
+        copySummary: '复制摘要',
+        pollPushDesired: '轮询推送意图：{state}',
+        pollPushDesiredEnabled: '已启用',
+        pollPushDesiredDisabled: '已禁用',
+        pollPushDesiredUnknown: '未知',
+        pollPushDisable: '禁用轮询推送',
         stop: '停止',
+        stopAllPolling: '停止全部轮询',
+        pollingRunning: '运行中的轮询：{count} 个',
         parallelLabel: '并行：',
-        applyConcurrency: '应用',
         invalidConcurrency: '并行数无效。'
       },
       logs: {
@@ -909,8 +949,19 @@ export const zhCN = {
       reloginGithub: '重新登录',
       logoutGithub: '退出',
       gistLoggedIn: '已登录 GitHub',
-      loginHint: '使用 OAuth 登录（PKCE，会打开弹窗）。',
+      loginHint: '使用 OAuth 登录（PKCE，会打开弹窗），或在下方粘贴 token。',
       loginUnavailableHint: '此部署未配置 GitHub OAuth。请在构建/部署环境中设置 PUBLIC_GITHUB_CLIENT_ID。',
+      tokenLabel: 'GitHub token（仅本地保存）',
+      tokenPlaceholder: '粘贴 token（需要 Gist 权限）',
+      tokenShow: '显示',
+      tokenHide: '隐藏',
+      tokenSave: '保存 token',
+      tokenHint: 'token 仅保存在浏览器 localStorage，不会被打包进同步内容。',
+      gistIdLabel: 'Gist ID（可选）',
+      gistIdPlaceholder: '已存在的 Gist ID，用于增量更新',
+      noteLabel: '备注 / Note',
+      notePlaceholder: '描述此次同步，如 2025 春测试',
+      publicLabel: '公开 Gist（默认私有）',
       uploadButton: '更新云端',
       importReplaceButton: '从云端恢复',
       githubMissing: '未配置 GitHub Client ID，无法发起 GitHub 登录。',
@@ -932,6 +983,8 @@ export const zhCN = {
         githubAuthorizing: '正在完成 GitHub 登录...',
         githubLoginSuccess: 'GitHub 登录成功',
         requireLogin: '请先登录 GitHub',
+        tokenRequired: '请先粘贴 GitHub token',
+        tokenSaved: 'token 已保存到本地',
         termStateMissing: 'TermState 未加载，请稍后重试',
         syncing: '正在生成快照并同步...',
         syncSuccess: '同步成功：{url}',
@@ -954,11 +1007,12 @@ export const zhCN = {
 	    sort: '排序',
 	    sortOrderAsc: '升序',
 	    sortOrderDesc: '降序',
-	    showConflictBadges: '显示冲突项目',
-	    regex: '正则',
-	    caseSensitive: '大小写',
-	    advanced: '高级筛选',
-	    closeAdvanced: '关闭高级',
+    showConflictBadges: '显示冲突项目',
+    onlySelectableNow: '目前可选',
+    regex: '正则',
+    caseSensitive: '大小写',
+    advanced: '高级筛选',
+    closeAdvanced: '关闭高级',
     jump: '跳转',
     totalPages: '共 {count} 页',
     viewModes: {
@@ -1139,6 +1193,10 @@ export const zhCN = {
         en: 'English'
       }
     },
+    userscript: {
+      body: '安装 JWXT Userscript 后，才能在浏览器里进行登录、同步、选课/退课等操作。',
+      hint: '你也可以先跳过，之后在 JWXT 面板里继续配置。'
+    },
     actions: {
       back: '上一步',
       next: '下一步',
@@ -1199,11 +1257,13 @@ export const zhCN = {
       hint: '若已登录 JWXT 且后端可用，将优先在线爬取；否则拉取云端快照作为兜底。',
       reloadHint: '爬取成功后，刷新页面即可应用新的课程数据。',
       actions: {
-        fetch: '爬取数据'
+        fetch: '爬取数据',
+        stop: '停止爬取'
       },
       status: {
         cached: '已缓存到本地',
         ok: '爬取成功',
+        canceled: '已停止爬取',
         progress: '爬取进度：{done}/{total}',
         roundSnapshotActivated: '已应用该轮次的缓存数据（刷新后生效）',
         failed: '爬取失败'

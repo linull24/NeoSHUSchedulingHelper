@@ -82,7 +82,15 @@ export const enUS = {
     aboutFeedbackGroup: 'Feedback',
     aboutGithubRepo: 'GitHub repository',
     aboutGithubIssues: 'GitHub issues',
-    aboutTencentSupport: 'Tencent support'
+    aboutTencentSupport: 'Tencent support',
+    resetSection: 'Reset',
+    resetDesc:
+      'Clears all local persistence (settings / term_state / cookie vault / IndexedDB, etc.) for troubleshooting or starting over. Does not affect cloud data.',
+    resetAction: 'Reset all local data',
+    resetHint: 'Reloads the page and shows the Setup Wizard again.',
+    resetDialogTitle: 'Reset local data?',
+    resetDialogDesc: 'This will clear local persistence (including IndexedDB/OPFS best-effort) and reload the page.',
+    resetDialogConfirm: 'Reset and reload'
   },
   meta: {
     productName: 'SHU Scheduling Helper',
@@ -93,6 +101,7 @@ export const enUS = {
     dockTitle: 'Course Tools',
     settings: 'Settings',
     optional: 'Optional',
+    inherit: 'Inherit',
     refresh: 'Refresh',
     cancel: 'Cancel',
     selectPlaceholder: 'Select an option',
@@ -145,6 +154,15 @@ export const enUS = {
       summary: 'Failed to export to a section-level solution (unsat or solver error). Auto mode stays enabled.',
       errorLabel: 'Reason:',
       ack: 'OK'
+    },
+    jwxtFrozenBlocked: {
+      title: 'JWXT frozen',
+      summary: 'JWXT is currently frozen. Some actions (like dropping or editing wishlist) are blocked to avoid further drift.',
+      failedCount: 'Failed items from last push: {count}',
+      hint: 'Open the JWXT panel to sync remote state and resolve failures, then continue editing local selection. If needed, resume (unfreeze) first.',
+      openJwxt: 'Open JWXT panel',
+      resume: 'Resume (unfreeze)',
+      close: 'Close'
     },
     datasetResolve: {
       title: 'Course grouping changed',
@@ -343,6 +361,13 @@ export const enUS = {
       title: 'Solver',
       description: 'Configure hard/soft constraints and run the solver.',
       intro: 'Add hard/soft constraints, then run the solver to review suggested actions below.',
+      batchInfo: {
+        title: 'Batch info',
+        description: 'For ranked rounds: ★ user batch comes from userscript breakdown cache; minimum batch blocks enroll below the threshold.',
+        effectiveMin: 'Effective minimum: {batch}',
+        minForSolverLabel: 'Minimum batch (solver/current view)',
+        minForSolverDesc: 'Overrides the “current view” threshold; choose Inherit to use global settings.'
+      },
       run: 'Run solver',
       solving: 'Solving…',
       direction: 'Direction',
@@ -638,6 +663,7 @@ export const enUS = {
       connectionDescription:
         'Log in to JWXT to sync selected courses, or push your local selection state to JWXT.',
       crawlData: 'Crawl data',
+      crawlStop: 'Stop crawl',
       crawlHint: 'After crawling, reload the page to apply the new dataset.',
       rounds: {
         title: 'Term & Round',
@@ -690,7 +716,6 @@ export const enUS = {
       autoSyncInterval: 'Interval',
       autoPush: 'Auto push (confirmation required)',
       autoPushHint: 'Auto push is enabled: selection changes will trigger a diff confirmation dialog.',
-      autoPushMutedUntil: 'Auto push reminders muted until {time}',
       pollPush: {
         toggle: 'Polling push',
         hint: 'Polling push is running: periodically tries to push your local “selected” to JWXT (userscript required).',
@@ -773,7 +798,6 @@ export const enUS = {
         close: 'Close',
         autoPushTitle: 'Selection changed (auto push)',
         autoPushBody: 'This will apply: enroll {enroll}, drop {drop}. Continue?',
-        mute2m: 'Mute reminders for 2 minutes (auto-confirm)',
         pushTitle: 'Confirm pushing to JWXT',
         pushBody:
           'This will try to push your local selection state to JWXT: {selected} selected, {wishlist} wishlist. Continue?',
@@ -813,6 +837,7 @@ export const enUS = {
         accountLabel: 'Account: {userId}',
         statusFailed: 'Failed to load status: {error}',
         crawling: 'Crawling course data...',
+        crawlCanceled: 'Crawl stopped',
         crawlProgress: 'Crawled {done}/{total} courses',
         crawlSuccess: 'Crawl succeeded. Reload the page to apply the new dataset.',
         crawlFailed: 'Crawl failed: {error}',
@@ -859,7 +884,14 @@ export const enUS = {
     },
     jwxtIo: {
       title: 'Grab / IO',
-      description: 'Shows userscript tasks and interaction logs (stoppable/tunable). Push polling is configured in the JWXT panel.',
+      description: 'Read-only dashboard for userscript tasks and interaction logs. Push polling is configured in the JWXT panel.',
+      persistence: {
+        title: 'Local persistence',
+        description: 'Term state is stored locally to survive refresh and reopen.',
+        lastSaved: 'Last saved: {time}',
+        pending: 'Saving…',
+        error: 'Persistence failed: {error}'
+      },
       status: {
         unavailable: 'JWXT unavailable (install userscript).',
         notLoggedIn: 'Not logged in to JWXT.',
@@ -868,7 +900,7 @@ export const enUS = {
       entry: {
         title: 'Entry',
         description: 'Push polling is enabled under JWXT → Sync.',
-        hint: 'This panel is for observability & management (stop tasks / tune concurrency).'
+        hint: 'This panel is for observability & diagnosis, with a safety stop for polling tasks.'
       },
       openJwxtPanel: 'Open JWXT panel',
       runtime: {
@@ -877,11 +909,20 @@ export const enUS = {
       },
       tasks: {
         title: 'Tasks',
-        subtitle: 'From userscript TaskManager (stoppable).',
+        subtitle: 'From userscript TaskManager (monitoring-first; polling tasks can be stopped).',
         empty: 'No tasks.',
+        filterPollingOnly: 'Polling only',
+        filterErrors: 'Errors only',
+        copySummary: 'Copy summary',
+        pollPushDesired: 'Polling push intent: {state}',
+        pollPushDesiredEnabled: 'Enabled',
+        pollPushDesiredDisabled: 'Disabled',
+        pollPushDesiredUnknown: 'Unknown',
+        pollPushDisable: 'Disable polling push',
         stop: 'Stop',
+        stopAllPolling: 'Stop all polling',
+        pollingRunning: 'Running polling tasks: {count}',
         parallelLabel: 'Parallel:',
-        applyConcurrency: 'Apply',
         invalidConcurrency: 'Invalid concurrency value.'
       },
       logs: {
@@ -920,8 +961,19 @@ export const enUS = {
       reloginGithub: 'Re-login',
       logoutGithub: 'Log out',
       gistLoggedIn: 'GitHub logged in',
-      loginHint: 'OAuth login (PKCE, opens a popup).',
+      loginHint: 'OAuth login (PKCE, opens a popup) or paste a token below.',
       loginUnavailableHint: 'GitHub OAuth is not configured for this deployment. Set PUBLIC_GITHUB_CLIENT_ID in build/deploy env.',
+      tokenLabel: 'GitHub token (local only)',
+      tokenPlaceholder: 'Paste a token (requires Gist access)',
+      tokenShow: 'Show',
+      tokenHide: 'Hide',
+      tokenSave: 'Save token',
+      tokenHint: 'Token stays in your browser localStorage and is never included in the bundle.',
+      gistIdLabel: 'Gist ID (optional)',
+      gistIdPlaceholder: 'Existing Gist ID for incremental updates',
+      noteLabel: 'Note',
+      notePlaceholder: 'Describe this sync, e.g. Spring 2025 test',
+      publicLabel: 'Public Gist (default private)',
       uploadButton: 'Update cloud',
       importReplaceButton: 'Restore from cloud',
       githubMissing: 'GitHub Client ID missing; cannot start login.',
@@ -943,6 +995,8 @@ export const enUS = {
         githubAuthorizing: 'Completing GitHub login...',
         githubLoginSuccess: 'GitHub login successful',
         requireLogin: 'Log in to GitHub first',
+        tokenRequired: 'Paste a GitHub token first',
+        tokenSaved: 'Token saved locally',
         termStateMissing: 'TermState not loaded yet. Please retry.',
         syncing: 'Building snapshot and syncing...',
         syncSuccess: 'Sync success: {url}',
@@ -967,6 +1021,7 @@ export const enUS = {
 	    sortOrderAsc: 'Ascending',
 	    sortOrderDesc: 'Descending',
 		    showConflictBadges: 'Show conflict items',
+		    onlySelectableNow: 'Selectable now',
 	    regex: 'Regex',
 	    caseSensitive: 'Case sensitive',
 	    advanced: 'Advanced filters',
@@ -1151,6 +1206,10 @@ export const enUS = {
         en: 'English'
       }
     },
+    userscript: {
+      body: 'Install the JWXT userscript to enable login, syncing, and enrollment actions in the browser.',
+      hint: 'You can skip this for now and configure it later in the JWXT panel.'
+    },
     actions: {
       back: 'Back',
       next: 'Next',
@@ -1211,11 +1270,13 @@ export const enUS = {
       hint: 'If JWXT backend is available and you are logged in, it will crawl live data; otherwise it falls back to cloud snapshots.',
       reloadHint: 'If crawling succeeds, reload the page to apply the new dataset.',
       actions: {
-        fetch: 'Crawl data'
+        fetch: 'Crawl data',
+        stop: 'Stop crawl'
       },
       status: {
         cached: 'Cached locally',
         ok: 'Crawl succeeded',
+        canceled: 'Crawl stopped',
         progress: 'Progress: {done}/{total}',
         roundSnapshotActivated: 'Cached round snapshot activated (refresh to apply).',
         failed: 'Crawl failed'

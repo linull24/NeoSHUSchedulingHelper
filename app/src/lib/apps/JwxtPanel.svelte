@@ -3,7 +3,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy, onMount } from 'svelte';
-	import { get, type Writable } from 'svelte/store';
+	import { get } from 'svelte/store';
 	import DockPanelShell from '$lib/components/DockPanelShell.svelte';
 	import ListSurface from '$lib/components/ListSurface.svelte';
 	import ContinuousPager from '$lib/components/ContinuousPager.svelte';
@@ -15,6 +15,7 @@
 	import CourseBulkBar from '$lib/components/CourseBulkBar.svelte';
 	import AppListCard from '$lib/components/AppListCard.svelte';
 	import JwxtRoundSelector from '$lib/components/JwxtRoundSelector.svelte';
+	import JwxtUserscriptActions from '$lib/components/JwxtUserscriptActions.svelte';
 	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
 	import AppControlRow from '$lib/primitives/AppControlRow.svelte';
 	import AppField from '$lib/primitives/AppField.svelte';
@@ -27,12 +28,13 @@ import { translator, type TranslateFn } from '$lib/i18n';
 	import {
 		jwxtPushPollingEnabled,
 		jwxtPushPollingTaskId,
+		rehydrateJwxtPushPollingTask,
 		startJwxtPushPolling,
 		stopJwxtPushPolling,
 		updateJwxtPushPollingConcurrency
 	} from '$lib/stores/jwxtPushPolling';
+	import { JWXT_POLL_PUSH_CONCURRENCY } from '$lib/policies/jwxt/ioDock';
 	import {
-		jwxtAutoPushMuteUntil,
 		jwxtRememberedUserId
 	} from '$lib/stores/jwxt';
 	import {
@@ -55,7 +57,13 @@ import { translator, type TranslateFn } from '$lib/i18n';
 	} from '$lib/stores/courseSelection';
 	import { courseCatalog, courseCatalogMap, type CourseCatalogEntry } from '$lib/data/catalog/courseCatalog';
 	import type { WeekDescriptor } from '$lib/data/InsaneCourseData';
-	import { selectedEntryIds, termState, dispatchTermAction, ensureTermStateLoaded } from '$lib/stores/termStateStore';
+	import {
+		selectedEntryIds,
+		termState,
+		dispatchTermAction,
+		dispatchTermActionWithEffects,
+		ensureTermStateLoaded
+	} from '$lib/stores/termStateStore';
 	import { createCourseFilterStoreForScope, getFilterOptionsForScope, type CourseFilterState } from '$lib/stores/courseFilters';
 	import { applyCourseFilters } from '$lib/utils/courseFilterEngine';
 	import { paginationMode, pageNeighbors, pageSize } from '$lib/stores/paginationSettings';
@@ -75,7 +83,7 @@ import { translator, type TranslateFn } from '$lib/i18n';
 	type JwxtSelectedPair
 } from '$lib/data/jwxt/jwxtApi';
 import { getDatasetConfig } from '../../config/dataset';
-import { jwxtCrawlState, startJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
+	import { jwxtCrawlState, startJwxtCrawl, stopJwxtCrawl } from '$lib/stores/jwxtCrawlTask';
 import { activateRoundSnapshot, fetchCloudRoundIndex, hasRoundSnapshot } from '$lib/data/catalog/cloudSnapshot';
 import type { EnrollmentBatchLabel } from '../../../shared/jwxtCrawler/batchPolicy';
 	import { ENROLLMENT_BATCH_ORDER, computeUserRankInterval, isUserImpossibleGivenCapacity } from '../../../shared/jwxtCrawler/batchPolicy';
@@ -95,9 +103,6 @@ import {
 
 	const datasetTermId = getDatasetConfig().termId;
 	const userscriptConfig = getUserscriptConfig();
-	const userscriptLink = browser
-		? new URL(userscriptConfig.scriptUrl, window.location.origin).toString()
-		: userscriptConfig.scriptUrl;
 
 	let status: JwxtStatus | null = null;
 	let statusMessage = '';
@@ -142,7 +147,6 @@ import {
 		($jwxtCrawlState.running ? t('panels.jwxt.statuses.crawling') : '');
 
 	let autoSyncTimer: ReturnType<typeof setInterval> | null = null;
-	let nowTick = Date.now();
 	let autoSyncEnabled = false;
 	let autoSyncIntervalSec = 120;
 	let autoPushEnabled = false;
@@ -161,15 +165,6 @@ import {
 	let scrollRoot: HTMLElement | null = null;
 
 	const enrollFiltersBase = createCourseFilterStoreForScope('jwxt', { statusMode: 'all:no-status', conflictMode: 'time' });
-	const enrollFilters: Writable<CourseFilterState> = {
-		subscribe: enrollFiltersBase.subscribe,
-		set: (value) => enrollFiltersBase.set({ ...value, conflictMode: 'time' }),
-		update: (fn) =>
-			enrollFiltersBase.update((current) => ({
-				...fn(current),
-				conflictMode: 'time'
-			}))
-	};
 	const enrollBaseCourses = courseCatalog.filter((entry) => Boolean(entry.courseCode && entry.sectionId));
 	let enrollCurrentPage = 1;
 	let enrollTotalPages = 1;
@@ -193,9 +188,8 @@ import {
 	let confirmAction: (() => Promise<void>) | null = null;
 	let confirmSections: Array<{ title: string; items: string[] }> = [];
 	let confirmKind: 'default' | 'jwxt-push' | 'jwxt-poll-push' = 'default';
-	let confirmMute2m = false;
 
-	let pushPollEnrollConcurrency = 4;
+	let pushPollEnrollConcurrency = JWXT_POLL_PUSH_CONCURRENCY.default;
 
 	let breakdownOpen = false;
 	let breakdownBusy = false;
@@ -229,6 +223,24 @@ import {
 			template
 		);
 	};
+
+	function readHistoryErrorSince(args: { beforeLen: number; prefix: string }) {
+		const snapshot = get(termState);
+		const slice = (snapshot?.history?.entries ?? []).slice(Math.max(0, args.beforeLen));
+		for (const entry of slice) {
+			if (!entry?.id || typeof entry.id !== 'string') continue;
+			if (!entry.id.startsWith(args.prefix)) continue;
+			const error = entry.details?.error;
+			return typeof error === 'string' && error.trim() ? error.trim() : 'FAILED';
+		}
+		return null;
+	}
+
+	function hasHistoryEntrySince(args: { beforeLen: number; prefix: string }) {
+		const snapshot = get(termState);
+		const slice = (snapshot?.history?.entries ?? []).slice(Math.max(0, args.beforeLen));
+		return slice.some((entry) => typeof entry?.id === 'string' && entry.id.startsWith(args.prefix));
+	}
 
 	const jwxtIndex: Record<string, string> = Object.create(null);
 	const jwxtIndexBySectionId: Record<string, string> = Object.create(null);
@@ -408,6 +420,10 @@ import {
 			setStatusMessage('panels.jwxt.statuses.crawling');
 			const res = await startJwxtCrawl(datasetTermId);
 			if (!res.ok) {
+				if (res.error === 'CANCELED') {
+					setStatusMessage('panels.jwxt.statuses.crawlCanceled');
+					return;
+				}
 				setStatusMessage('panels.jwxt.statuses.crawlFailed', { error: res.error });
 				return;
 			}
@@ -415,6 +431,12 @@ import {
 		} finally {
 			// progress state is tracked via jwxtCrawlState
 		}
+	}
+
+	async function handleStopCrawl() {
+		const res = await stopJwxtCrawl();
+		if (!res.ok) setStatusMessage('panels.jwxt.statuses.crawlFailed', { error: res.error });
+		else setStatusMessage('panels.jwxt.statuses.crawlCanceled');
 	}
 
 	async function persistCurrentSession(): Promise<'saved' | 'skipped' | 'none'> {
@@ -632,7 +654,8 @@ import {
 
 				const result = await dispatchTermAction({
 					type: 'JWXT_ENROLL_NOW',
-					pair: { kchId: entry.courseCode, jxbId: entry.sectionId }
+					pair: { kchId: entry.courseCode, jxbId: entry.sectionId },
+					xkkzId: selectedXkkzId || undefined
 				});
 					if (!result.ok) {
 						const message = result.error.message;
@@ -742,7 +765,8 @@ import {
 						}
 						const result = await dispatchTermAction({
 							type: 'JWXT_ENROLL_NOW',
-							pair: { kchId: entry.courseCode!, jxbId: entry.sectionId! }
+							pair: { kchId: entry.courseCode!, jxbId: entry.sectionId! },
+							xkkzId: selectedXkkzId || undefined
 						});
 						if (!result.ok) {
 							const message = result.error.message;
@@ -903,9 +927,8 @@ import {
 	onMount(() => {
 		void ensureTermStateLoaded();
 		void refreshStatus().then(() => void tryAutoLogin());
-		if (!browser) return;
-		const nowTimer = setInterval(() => (nowTick = Date.now()), 1000);
-		return () => clearInterval(nowTimer);
+		void rehydrateJwxtPushPollingTask();
+		return;
 	});
 
 	onDestroy(() => {
@@ -937,9 +960,7 @@ import {
 		}
 	}
 
-	$: muteActive = browser && $jwxtAutoPushMuteUntil > nowTick;
-
-	async function handleLogin() {
+		async function handleLogin() {
 		if (!userId.trim() || !password) {
 			setStatusMessage('panels.jwxt.statuses.missingCredentials');
 			return;
@@ -994,17 +1015,28 @@ import {
 			return;
 		}
 		syncBusy = true;
-		if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncing');
-		const result = await dispatchTermAction({ type: 'JWXT_PULL_REMOTE' });
-		syncBusy = false;
-		if (!result.ok) {
-			if (!options?.silent) {
-				setStatusMessage('panels.jwxt.statuses.syncFailed', { error: result.error.message });
+		try {
+			if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncing');
+			const beforeLen = get(termState)?.history?.entries?.length ?? 0;
+			const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'JWXT_PULL_REMOTE' });
+			const dispatched = await result;
+			if (!dispatched.ok) {
+				if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncFailed', { error: dispatched.error.message });
+				return;
 			}
-			return;
+			await effectsDone;
+			const pullErr = readHistoryErrorSince({ beforeLen, prefix: 'jwxt:pull-err:' });
+			if (pullErr) {
+				if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncFailed', { error: pullErr });
+				return;
+			}
+			lastSyncAt = new Date();
+			if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncSuccess', { selected: 0, wishlist: 0 });
+		} catch (error) {
+			if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncFailed', { error: renderApiError(error) });
+		} finally {
+			syncBusy = false;
 		}
-		lastSyncAt = new Date();
-		if (!options?.silent) setStatusMessage('panels.jwxt.statuses.syncSuccess', { selected: 0, wishlist: 0 });
 	}
 
 	function requestConfirm(config: {
@@ -1014,7 +1046,6 @@ import {
 		variant?: 'primary' | 'danger';
 		sections?: Array<{ title: string; items: string[] }>;
 		kind?: 'default' | 'jwxt-push' | 'jwxt-poll-push';
-		mute2m?: boolean;
 		action: () => Promise<void>;
 	}) {
 		confirmTitle = config.title;
@@ -1023,7 +1054,6 @@ import {
 		confirmVariant = config.variant ?? 'primary';
 		confirmSections = config.sections ?? [];
 		confirmKind = config.kind ?? 'default';
-		confirmMute2m = Boolean(config.mute2m);
 		confirmAction = config.action;
 		confirmError = '';
 		confirmOpen = true;
@@ -1118,8 +1148,14 @@ import {
 				try {
 					const preview = await dispatchTermAction({ type: 'JWXT_PREVIEW_PUSH', ttlMs: pendingTtlMs });
 					if (!preview.ok) throw new Error(preview.error.message);
-					const pushed = await dispatchTermAction({ type: 'JWXT_CONFIRM_PUSH' });
+					const beforeLen = get(termState)?.history?.entries?.length ?? 0;
+					const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'JWXT_CONFIRM_PUSH' });
+					const pushed = await result;
 					if (!pushed.ok) throw new Error(pushed.error.message);
+					await effectsDone;
+					const pushErr = readHistoryErrorSince({ beforeLen, prefix: 'jwxt:push-err:' });
+					if (pushErr) throw new Error(pushErr);
+					if (hasHistoryEntrySince({ beforeLen, prefix: 'jwxt:frozen:push:' })) throw new Error('PUSH_PARTIAL_FAILURE');
 					lastPushAt = new Date();
 					setStatusMessage('panels.jwxt.statuses.pushing');
 				} finally {
@@ -1129,7 +1165,7 @@ import {
 		});
 	}
 
-	async function handleStartPushPolling() {
+		async function handleStartPushPolling() {
 		if (!status?.supported) {
 			setStatusMessage('panels.jwxt.statuses.backendMissing');
 			return;
@@ -1156,8 +1192,8 @@ import {
 				? [...dropLimited.items, format('panels.jwxt.confirm.pushDiffMore', { count: dropLimited.more })]
 				: dropLimited.items;
 
-		requestConfirm({
-			title: t('panels.jwxt.pollPush.confirmTitle'),
+			requestConfirm({
+				title: t('panels.jwxt.pollPush.confirmTitle'),
 			body: format('panels.jwxt.confirm.pushPreviewBody', {
 				enroll: diff.toEnroll.length,
 				drop: diff.toDrop.length
@@ -1165,21 +1201,17 @@ import {
 			confirmLabel: t('panels.jwxt.pollPush.confirmStart'),
 			variant: diff.toDrop.length ? 'danger' : 'primary',
 			kind: 'jwxt-poll-push',
-			mute2m: false,
 			sections: [
 				{ title: t('panels.jwxt.confirm.pushDiffEnrollTitle'), items: enrollItems },
 				{ title: t('panels.jwxt.confirm.pushDiffDropTitle'), items: dropItems }
 			],
-			action: async () => {
-				const started = await startJwxtPushPolling({ enrollConcurrency: pushPollEnrollConcurrency });
-				if (!started.ok) throw new Error((started as any).error || 'Failed to start');
-				if (confirmMute2m) {
-					jwxtAutoPushMuteUntil.set(Date.now() + 2 * 60 * 1000);
+				action: async () => {
+					const started = await startJwxtPushPolling({ enrollConcurrency: pushPollEnrollConcurrency });
+					if (!started.ok) throw new Error((started as any).error || 'Failed to start');
+					setStatusMessage('panels.jwxt.pollPush.started');
 				}
-				setStatusMessage('panels.jwxt.pollPush.started');
-			}
-		});
-	}
+			});
+		}
 
 	async function handleConfirmPush() {
 		const result = await dispatchTermAction({ type: 'JWXT_CONFIRM_PUSH' });
@@ -1231,8 +1263,14 @@ import {
 					try {
 						const preview = await dispatchTermAction({ type: 'JWXT_PREVIEW_PUSH', ttlMs: pendingTtlMs });
 						if (!preview.ok) throw new Error(preview.error.message);
-						const pushed = await dispatchTermAction({ type: 'JWXT_CONFIRM_PUSH' });
+						const beforeLen = get(termState)?.history?.entries?.length ?? 0;
+						const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'JWXT_CONFIRM_PUSH' });
+						const pushed = await result;
 						if (!pushed.ok) throw new Error(pushed.error.message);
+						await effectsDone;
+						const pushErr = readHistoryErrorSince({ beforeLen, prefix: 'jwxt:push-err:' });
+						if (pushErr) throw new Error(pushErr);
+						if (hasHistoryEntrySince({ beforeLen, prefix: 'jwxt:frozen:push:' })) throw new Error('PUSH_PARTIAL_FAILURE');
 						lastPushAt = new Date();
 						setStatusMessage('panels.jwxt.statuses.pushing');
 					} finally {
@@ -1249,7 +1287,8 @@ import {
 		selectedIds: $selectedCourseIds,
 		wishlistIds: $wishlistCourseIds,
 		selectedSchedule: enrollSelectedSchedule,
-		filterScope: 'jwxt'
+		filterScope: 'jwxt',
+		termState: $termState
 	});
 	$: enrollCourses = $termState ? (filterJwxtEnrollCoursesByPolicy($termState, enrollFilterResult.items) as any) : enrollFilterResult.items;
 	$: enrollTotalItems = enrollCourses.length;
@@ -1355,6 +1394,11 @@ import {
 						<AppButton variant="primary" size="sm" on:click={handleCrawlData} disabled={$jwxtCrawlState.running}>
 							{$jwxtCrawlState.running ? t('panels.jwxt.statuses.crawling') : t('panels.jwxt.crawlData')}
 						</AppButton>
+						{#if $jwxtCrawlState.running}
+							<AppButton variant="secondary" size="sm" on:click={handleStopCrawl}>
+								{t('panels.jwxt.crawlStop')}
+							</AppButton>
+						{/if}
 						<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 							{t('panels.jwxt.crawlHint')}
 						</span>
@@ -1445,22 +1489,12 @@ import {
 									</span>
 								</AppControlRow>
 								<AppControlRow>
-									<a
-										class="text-[var(--app-text-sm)] text-[var(--app-color-link)] underline"
-										href={userscriptLink}
-										target="_blank"
-										rel="noreferrer"
-									>
-										{t('panels.jwxt.helpUserscript')}
-									</a>
-									<a
-										class="text-[var(--app-text-sm)] text-[var(--app-color-link)] underline"
-										href={userscriptConfig.helpUrl}
-										target="_blank"
-										rel="noreferrer"
-									>
-										{t('panels.jwxt.helpLink')}
-									</a>
+									<JwxtUserscriptActions
+										config={userscriptConfig}
+										size="sm"
+										installLabel={t('panels.jwxt.helpUserscript')}
+										helpLabel={t('panels.jwxt.helpLink')}
+									/>
 								</AppControlRow>
 							</form>
 						{:else}
@@ -1584,18 +1618,18 @@ import {
 					<AppButton variant="primary" size="sm" on:click={() => handleSync()} disabled={syncBusy || !status?.loggedIn}>
 						{syncBusy ? t('panels.jwxt.statuses.syncing') : t('panels.jwxt.syncFrom')}
 					</AppButton>
-					<AppButton
-						variant="danger"
-						size="sm"
-						on:click={handlePreviewClick}
-						disabled={pushBusy || pushPreviewBusy || !status?.loggedIn || !$termState?.jwxt.remoteSnapshot}
-					>
-						{pushBusy || pushPreviewBusy ? t('panels.jwxt.statuses.pushing') : t('panels.jwxt.pushTo')}
-						</AppButton>
-						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-							<input
-								type="checkbox"
-								checked={autoSyncEnabled}
+						<AppButton
+							variant="danger"
+							size="sm"
+							on:click={handlePreviewClick}
+							disabled={pushBusy || pushPreviewBusy || !status?.loggedIn || !$termState?.jwxt.remoteSnapshot}
+						>
+							{pushBusy || pushPreviewBusy ? t('panels.jwxt.statuses.pushing') : t('panels.jwxt.pushTo')}
+							</AppButton>
+							<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+								<input
+									type="checkbox"
+									checked={autoSyncEnabled}
 								on:change={(event) =>
 									void updateJwxtSettings({
 										autoSyncEnabled: (event.currentTarget as HTMLInputElement).checked
@@ -1604,34 +1638,35 @@ import {
 							/>
 							<span>{t('panels.jwxt.autoSync')}</span>
 						</label>
-						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-							<input
-								type="checkbox"
-								checked={autoPushEnabled}
-								on:change={(event) =>
-									void updateJwxtSettings({
-										autoPushEnabled: (event.currentTarget as HTMLInputElement).checked
-									})}
-								disabled={!status?.loggedIn || !$termState}
-							/>
-							<span>{t('panels.jwxt.autoPush')}</span>
-						</label>
-						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-							<input
-								type="checkbox"
-								checked={$jwxtPushPollingEnabled}
-								on:change={async (event) => {
-									const next = (event.currentTarget as HTMLInputElement).checked;
-									if (!next) {
-										await stopJwxtPushPolling();
-										return;
-									}
-									await handleStartPushPolling();
-								}}
-								disabled={!status?.loggedIn}
-							/>
-							<span>{t('panels.jwxt.pollPush.toggle')}</span>
-						</label>
+							<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+								<input
+									type="checkbox"
+									checked={autoPushEnabled}
+									on:change={(event) =>
+										void updateJwxtSettings({
+											autoPushEnabled: (event.currentTarget as HTMLInputElement).checked
+										})}
+									disabled={!status?.loggedIn || !$termState}
+								/>
+								<span>{t('panels.jwxt.autoPush')}</span>
+							</label>
+							<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
+								<input
+									type="checkbox"
+									checked={$jwxtPushPollingEnabled}
+									on:change={async (event) => {
+										const next = (event.currentTarget as HTMLInputElement).checked;
+										if (!next) {
+											const stopped = await stopJwxtPushPolling();
+											if (!stopped.ok) setStatusMessage('panels.jwxt.statuses.pushFailed', { error: (stopped as any).error || 'Failed to stop' });
+											return;
+										}
+										await handleStartPushPolling();
+									}}
+									disabled={!status?.loggedIn}
+								/>
+								<span>{t('panels.jwxt.pollPush.toggle')}</span>
+							</label>
 					<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
 						<span class="text-[var(--app-color-fg-muted)]">{t('panels.jwxt.autoSyncInterval')}</span>
 						<select
@@ -1659,8 +1694,8 @@ import {
 							<input
 								class="w-20 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-2.5 py-1.5 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
 								type="number"
-								min="1"
-								max="12"
+								min={JWXT_POLL_PUSH_CONCURRENCY.min}
+								max={JWXT_POLL_PUSH_CONCURRENCY.max}
 								bind:value={pushPollEnrollConcurrency}
 							/>
 						</label>
@@ -1679,8 +1714,8 @@ import {
 						</AppButton>
 					</div>
 				{/if}
-				<div class="mt-2 flex flex-col gap-1 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
-					<p class="m-0">{format('panels.jwxt.localCounts', { selected: $selectedCourseIds.size, wishlist: $wishlistCourseIds.size })}</p>
+					<div class="mt-2 flex flex-col gap-1 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+						<p class="m-0">{format('panels.jwxt.localCounts', { selected: $selectedCourseIds.size, wishlist: $wishlistCourseIds.size })}</p>
 					{#if lastSyncAt}
 						<p class="m-0">{format('panels.jwxt.lastSyncAt', { time: lastSyncAt.toLocaleString() })}</p>
 					{/if}
@@ -1690,19 +1725,15 @@ import {
 						{#if pushStatus}
 							<p class="m-0">{pushStatus}</p>
 						{/if}
-					{#if autoPushEnabled}
-							{#if muteActive}
-								<p class="m-0">{format('panels.jwxt.autoPushMutedUntil', { time: new Date($jwxtAutoPushMuteUntil).toLocaleTimeString() })}</p>
-							{:else}
-								<p class="m-0">{t('panels.jwxt.autoPushHint')}</p>
-							{/if}
-					{/if}
-					{#if $jwxtPushPollingEnabled}
-						<p class="m-0">{t('panels.jwxt.pollPush.hint')}</p>
-					{/if}
-					<p class="m-0">{t('panels.jwxt.confirmHint')}</p>
-				</div>
-			</AppControlPanel>
+						{#if autoPushEnabled}
+							<p class="m-0">{t('panels.jwxt.autoPushHint')}</p>
+						{/if}
+								{#if $jwxtPushPollingEnabled}
+									<p class="m-0">{t('panels.jwxt.pollPush.hint')}</p>
+								{/if}
+						<p class="m-0">{t('panels.jwxt.confirmHint')}</p>
+					</div>
+				</AppControlPanel>
 
 			<AppControlPanel
 				title={t('panels.jwxt.enrollTitle')}
@@ -1711,11 +1742,10 @@ import {
 			>
 				<div class="flex flex-col gap-3">
 					<CourseFiltersToolbar
-						filters={enrollFilters}
+						filters={enrollFiltersBase}
 						options={getFilterOptionsForScope('jwxt')}
 						mode="all"
 						statusModeScope="jwxt"
-						lockConflictMode="time"
 					/>
 					<CourseBulkBar
 						busy={enrollBulkBusy}
@@ -1794,7 +1824,7 @@ import {
 													variant="primary"
 													size="sm"
 													on:click={() => confirmRemoteEnroll(entry)}
-													disabled={!status?.loggedIn || alreadySelected || timeConflict}
+													disabled={!status?.loggedIn || !isEnrollEligible(entry)}
 												>
 													{t('panels.jwxt.enroll')}
 												</AppButton>
@@ -1861,7 +1891,7 @@ import {
 														variant="primary"
 														size="sm"
 														on:click={() => confirmRemoteEnroll(entry)}
-														disabled={!status?.loggedIn || alreadySelected || timeConflict}
+														disabled={!status?.loggedIn || !isEnrollEligible(entry)}
 													>
 														{t('panels.jwxt.enroll')}
 													</AppButton>
@@ -2031,7 +2061,7 @@ import {
 						breakdownUserBatch?.kind === 'available' && breakdownUserBatch.source === 'userscript'
 							? breakdownUserBatch.label
 							: null}
-					{@const policyEnabled = Boolean(minAcceptableBatchLabel)}
+					{@const policyEnabled = Boolean(minAcceptableBatchLabel) && minAcceptableBatchLabel !== ENROLLMENT_BATCH_ORDER[ENROLLMENT_BATCH_ORDER.length - 1]}
 					{@const policyAllowed =
 						policyEnabled && breakdownUserBatch
 							? (globalJwxtPolicyRegistry.applyAll({
@@ -2112,7 +2142,6 @@ import {
 				confirmOpen = false;
 				confirmError = '';
 				confirmKind = 'default';
-				confirmMute2m = false;
 			}}
 		>
 			<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">{confirmBody}</p>
@@ -2130,12 +2159,6 @@ import {
 						</select>
 					</label>
 				</div>
-			{/if}
-			{#if confirmKind === 'jwxt-poll-push'}
-				<label class="mt-3 flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-					<input type="checkbox" bind:checked={confirmMute2m} disabled={confirmBusy} />
-					<span>{t('panels.jwxt.confirm.mute2m')}</span>
-				</label>
 			{/if}
 			{#if confirmSections.length}
 				<div class="mt-3 flex flex-col gap-3">

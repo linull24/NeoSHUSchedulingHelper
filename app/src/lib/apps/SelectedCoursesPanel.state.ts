@@ -59,6 +59,7 @@ const filterResult: Readable<CourseFilterResult> = derived(
 			wishlistIds: $wishlistSections,
 			wishlistGroupKeys: $wishlistGroups,
 			changeScope: $termState?.solver.changeScope,
+			termState: $termState,
 			conflictGranularity: $collapse ? 'group' : 'section',
 			filterScope: 'current'
 		})

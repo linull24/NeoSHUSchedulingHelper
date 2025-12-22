@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { datasetMeta } from '../data/catalog/courseCatalog';
+import { courseCatalogMap, datasetMeta } from '../data/catalog/courseCatalog';
 import { selectedCourseIds, wishlistCourseIds } from '../stores/courseSelection';
 import { encodeBase64 } from '../data/utils/base64';
 import {
@@ -50,5 +50,24 @@ export function buildSelectionSnapshot(options: SelectionSnapshotOptions = {}): 
 
 export function encodeSelectionSnapshotBase64(options?: SelectionSnapshotOptions) {
 	const snapshot = buildSelectionSnapshot(options);
+	return encodeBase64(JSON.stringify(snapshot));
+}
+
+function entryIdToJwxtRef(entryId: string) {
+	const entry = courseCatalogMap.get(entryId);
+	if (!entry) return null;
+	const kchId = String(entry.courseCode ?? '').trim();
+	const jxbId = String(entry.sectionId ?? '').trim();
+	if (!kchId || !jxbId) return null;
+	return `${kchId}::${jxbId}`;
+}
+
+export function encodeJwxtSelectionSnapshotBase64(options: SelectionSnapshotOptions = {}) {
+	const selectedEntryIds = options.selected ? Array.from(options.selected) : Array.from(get(selectedCourseIds));
+	const wishlistEntryIds = options.wishlist ? Array.from(options.wishlist) : Array.from(get(wishlistCourseIds));
+	const selected = selectedEntryIds.map(entryIdToJwxtRef).filter(Boolean) as string[];
+	const wishlist = wishlistEntryIds.map(entryIdToJwxtRef).filter(Boolean) as string[];
+
+	const snapshot = buildSelectionSnapshot({ ...options, selected, wishlist });
 	return encodeBase64(JSON.stringify(snapshot));
 }

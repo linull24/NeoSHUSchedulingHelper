@@ -54,6 +54,9 @@
 				<AppButton type="button" variant="primary" size="sm" on:click={copyToken}>
 					{t('panels.sync.copyButton')}
 				</AppButton>
+				<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+					{t('panels.sync.tokenHint')}
+				</span>
 			</div>
 		{/if}
 	</section>

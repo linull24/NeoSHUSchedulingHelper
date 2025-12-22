@@ -322,9 +322,18 @@
 		const target = dockview;
 		if (!target) return;
 
-		const createdPanels = new Map<WorkspacePanelType, DockviewPanel>();
+		type DockviewPanelRef = DockviewComponent['panels'][number];
+		const createdPanels = new Map<WorkspacePanelType, DockviewPanelRef>();
 		layoutPlan.forEach((step) => {
-			let panel: DockviewPanel;
+			// Defensive: in dev/HMR or unexpected remounts, avoid creating duplicate panels.
+			// Dockview identifies panels by id, so treat an existing panel as already created.
+			const existing = target.panels.find((panel) => panel.id === step.id);
+			if (existing) {
+				createdPanels.set(step.id, existing);
+				return;
+			}
+
+			let panel: DockviewPanelRef;
 
 			if (step.reference) {
 				const reference = createdPanels.get(step.reference);

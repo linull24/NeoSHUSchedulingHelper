@@ -169,8 +169,12 @@ async function loginViaSso(userId: string, password: string) {
 	const postUrl = action ? new URL(action, loginUrl).toString() : loginUrl;
 
 	const form = new URLSearchParams();
-	// Match legacy python crawler behavior: only send required fields to reduce fragility.
-	// If SSO introduces required hidden fields, we can selectively add them later.
+	// Include hidden fields from the login page (execution/_eventId/etc).
+	// New SSO deployments may require these fields; omitting them can cause silent login failure.
+	for (const [key, value] of Object.entries(hiddenFields)) {
+		if (key === 'username' || key === 'password') continue;
+		if (typeof value === 'string' && value !== '') form.set(key, value);
+	}
 	form.set('username', userId.trim());
 	form.set('password', encryptPassword(password));
 

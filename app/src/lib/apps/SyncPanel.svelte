@@ -15,7 +15,12 @@
 	import { translator } from '$lib/i18n';
 	import type { TranslateFn } from '$lib/i18n';
 	import { storageState, type StoragePreferencesSnapshot } from '$lib/stores/storageState';
-	import { getGithubPkceAvailability, startGithubPkceLoginPopup, type GithubPkceAvailability } from '$lib/policies/github/oauthPkce';
+	import {
+		getGithubPkceAvailability,
+		getGithubManualTokenAllowed,
+		startGithubPkceLoginPopup,
+		type GithubPkceAvailability
+	} from '$lib/policies/github/oauthPkce';
 
 	let gistStatus = '';
 	let gistBusy = false;
@@ -23,8 +28,12 @@
 	let confirmOpen = false;
 	let confirmBusy = false;
 	let confirmError = '';
+	let tokenDraft = '';
+	let tokenVisible = false;
+	const tokenInputId = 'sync-github-token';
 	let githubLoginAvailability: GithubPkceAvailability = { supported: false, reason: 'unsupportedRuntime' };
 	let githubLoginHintKey: string = 'panels.sync.loginUnavailableHint';
+	const allowManualGithubToken = getGithubManualTokenAllowed();
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
@@ -69,9 +78,20 @@
 	function requireGithubToken() {
 		const token = get(githubToken);
 		if (!token) {
-			gistStatus = t('panels.sync.statuses.requireLogin');
+			gistStatus = t('panels.sync.statuses.tokenRequired');
 		}
 		return token;
+	}
+
+	function saveTokenDraft() {
+		const trimmed = tokenDraft.trim();
+		if (!trimmed) {
+			gistStatus = t('panels.sync.statuses.tokenRequired');
+			return;
+		}
+		githubToken.set(trimmed);
+		tokenDraft = '';
+		gistStatus = t('panels.sync.statuses.tokenSaved');
 	}
 
 	async function handleGistSync() {
@@ -261,6 +281,30 @@
 								</div>
 							{:else}
 								<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t(githubLoginHintKey)}</p>
+							{/if}
+
+							{#if allowManualGithubToken}
+								<div class="flex flex-col gap-2">
+									<label for={tokenInputId} class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
+										{t('panels.sync.tokenLabel')}
+									</label>
+									<div class="flex flex-wrap items-center gap-2">
+										<input
+											id={tokenInputId}
+											class="min-w-0 flex-1 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
+											type={tokenVisible ? 'text' : 'password'}
+											placeholder={t('panels.sync.tokenPlaceholder')}
+											bind:value={tokenDraft}
+										/>
+										<AppButton type="button" variant="secondary" size="sm" on:click={() => (tokenVisible = !tokenVisible)}>
+											{tokenVisible ? t('panels.sync.tokenHide') : t('panels.sync.tokenShow')}
+										</AppButton>
+										<AppButton type="button" variant="primary" size="sm" on:click={saveTokenDraft}>
+											{t('panels.sync.tokenSave')}
+										</AppButton>
+									</div>
+									<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t('panels.sync.tokenHint')}</p>
+								</div>
 							{/if}
 						</div>
 					{/if}

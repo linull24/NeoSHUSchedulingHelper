@@ -9,7 +9,8 @@
 	import CourseBulkControls from '$lib/components/CourseBulkControls.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
 	import AppPagination from '$lib/primitives/AppPagination.svelte';
-	import { dispatchTermAction, dispatchTermActionWithEffects, termState } from '$lib/stores/termStateStore';
+	import { dispatchTermAction, termState } from '$lib/stores/termStateStore';
+	import { scheduleAutoSolveRun } from '$lib/stores/autoSolveRunScheduler';
 	import { filterOptions } from '$lib/stores/courseFilters';
 	import { paginationMode, pageSize, pageNeighbors } from '$lib/stores/paginationSettings';
 	import { translator } from '$lib/i18n';
@@ -148,14 +149,7 @@ $: visibleGroups =
 	}
 
 	function triggerAutoSolveRunNow() {
-		const { result, effectsDone } = dispatchTermActionWithEffects({ type: 'AUTO_SOLVE_RUN', mode: 'merge' });
-		void result.then((dispatched) => {
-			if (!dispatched.ok) {
-				bulkMessage = dispatched.error.message;
-				return;
-			}
-			void effectsDone;
-		});
+		scheduleAutoSolveRun({ mode: 'merge', onError: (message) => (bulkMessage = message) });
 	}
 
 	async function toggleGroupTarget(groupKey: string, primaryId: string) {
@@ -316,10 +310,7 @@ $: visibleGroups =
 							{@const primary = courses[0]}
 							{@const expanded = $expandedGroups.has(groupKey)}
 								{@const meta = $filterMeta.get(primary.id)}
-								{@const conflictItems =
-									meta?.hardImpossible && meta?.diagnostics?.length
-										? meta.diagnostics.map((d) => ({ label: d.label, value: d.reason }))
-										: null}
+									{@const conflictItems = meta?.diagnostics?.length ? meta.diagnostics.map((d) => ({ label: d.label, value: d.reason })) : null}
 							{@const showConflictBadges = $filters.showConflictBadges}
 							{@const canAddAny =
 									courses.some(
@@ -503,10 +494,7 @@ $: visibleGroups =
 							{@const primary = courses[0]}
 							{@const expanded = $expandedGroups.has(groupKey)}
 								{@const meta = $filterMeta.get(primary.id)}
-								{@const conflictItems =
-									meta?.hardImpossible && meta?.diagnostics?.length
-												? meta.diagnostics.map((d) => ({ label: d.label, value: d.reason }))
-												: null}
+									{@const conflictItems = meta?.diagnostics?.length ? meta.diagnostics.map((d) => ({ label: d.label, value: d.reason })) : null}
 							{@const showConflictBadges = $filters.showConflictBadges}
 									{@const canAddAny =
 									courses.some(

@@ -18,6 +18,8 @@
 	export let activePage = 1;
 
 	let pagerElement: HTMLElement | null = null;
+	let scrollRootClientHeight = 0;
+	let activeRecomputeScheduled = false;
 
 	const pageHeights = new Map<number, number>();
 	let resizeObserver: ResizeObserver | null = null;
@@ -42,19 +44,14 @@
 		return pageHeights.get(page) ?? getEstimatedPageHeight();
 	}
 
-	function getPagerTopInScrollRoot(): number {
-		if (!scrollRoot || !pagerElement) return 0;
-		const rootRect = scrollRoot.getBoundingClientRect();
-		const pagerRect = pagerElement.getBoundingClientRect();
-		return pagerRect.top - rootRect.top + scrollRoot.scrollTop;
-	}
-
 	function computeActivePageFromScroll() {
 		if (!scrollRoot || !pagerElement) return;
 		const anchor = Math.max(0, Math.min(0.95, anchorRatio));
-		const pagerTop = getPagerTopInScrollRoot();
-		const anchorY = scrollRoot.scrollTop + scrollRoot.clientHeight * anchor;
-		const withinPager = Math.max(0, anchorY - pagerTop);
+		const rootHeight = scrollRootClientHeight > 0 ? scrollRootClientHeight : scrollRoot.clientHeight;
+		const anchorY = scrollRoot.scrollTop + rootHeight * anchor;
+		// PERF: Treat pager as the scroll content origin (top=0). This avoids measuring offsets
+		// (offsetTop/getBoundingClientRect) during large list renders which can force reflow.
+		const withinPager = Math.max(0, anchorY);
 
 		let acc = 0;
 		for (let page = 1; page <= totalPages; page += 1) {
@@ -67,11 +64,20 @@
 		activePage = totalPages;
 	}
 
+	function scheduleActivePageRecompute() {
+		if (activeRecomputeScheduled) return;
+		activeRecomputeScheduled = true;
+		requestAnimationFrame(() => {
+			activeRecomputeScheduled = false;
+			computeActivePageFromScroll();
+		});
+	}
+
 	function setupScrollListener() {
 		if (scrollCleanup) return;
 		if (!scrollRoot) return;
 		const root = scrollRoot;
-		const handler = () => computeActivePageFromScroll();
+		const handler = () => scheduleActivePageRecompute();
 		root.addEventListener('scroll', handler, { passive: true });
 		scrollCleanup = () => root.removeEventListener('scroll', handler);
 	}
@@ -93,17 +99,17 @@
 				if (height > 0 && pageHeights.get(page) !== height) {
 					pageHeights.set(page, height);
 					changed = true;
+					}
 				}
-			}
-			if (changed) computeActivePageFromScroll();
-		});
-	}
+				if (changed) scheduleActivePageRecompute();
+			});
+		}
 
 	function measurePage(node: HTMLElement, page: number) {
 		node.dataset.page = String(page);
 		ensureResizeObserver();
 		resizeObserver?.observe(node);
-		queueMicrotask(() => computeActivePageFromScroll());
+		scheduleActivePageRecompute();
 		return {
 			destroy() {
 				resizeObserver?.unobserve(node);
@@ -115,7 +121,8 @@
 		teardownScrollListener();
 		if (scrollRoot && pagerElement) {
 			setupScrollListener();
-			queueMicrotask(() => computeActivePageFromScroll());
+			scrollRootClientHeight = scrollRoot?.clientHeight ?? 0;
+			scheduleActivePageRecompute();
 		}
 	}
 

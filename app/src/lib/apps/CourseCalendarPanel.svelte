@@ -51,39 +51,38 @@
 		const measureEl = node.querySelector<HTMLElement>('[data-role="measure"]');
 		const indicatorEl = node.querySelector<HTMLElement>('[data-role="indicator"]');
 
-		async function update() {
-			await tick();
-			if (destroyed) return;
+			async function update() {
+				await tick();
+				if (destroyed) return;
 
-			const mode = current.hasClipPath
-				? 'indicator'
-				: !measureEl
-					? 'text'
-					: measureEl.scrollHeight <= measureEl.clientHeight + 1 &&
-							measureEl.scrollWidth <= measureEl.clientWidth + 1
+				const mode = current.hasClipPath
+					? 'indicator'
+					: !measureEl
 						? 'text'
-						: 'indicator';
+						: measureEl.scrollHeight <= measureEl.clientHeight + 1 &&
+								measureEl.scrollWidth <= measureEl.clientWidth + 1
+							? 'text'
+							: 'indicator';
 
-			if (node.dataset.labelMode !== mode) node.dataset.labelMode = mode;
+				if (!indicatorEl) return;
 
-			if (!indicatorEl) return;
+				const width = node.clientWidth;
+				const height = node.clientHeight;
+				const indicatorWidth = indicatorEl.offsetWidth || indicatorEl.getBoundingClientRect().width;
+				const indicatorHeight = indicatorEl.offsetHeight || indicatorEl.getBoundingClientRect().height;
 
-			const width = node.clientWidth;
-			const height = node.clientHeight;
-			const indicatorWidth = indicatorEl.offsetWidth || indicatorEl.getBoundingClientRect().width;
-			const indicatorHeight = indicatorEl.offsetHeight || indicatorEl.getBoundingClientRect().height;
-
-			if (!(width > 0 && height > 0 && indicatorWidth > 0 && indicatorHeight > 0)) return;
+				if (!(width > 0 && height > 0 && indicatorWidth > 0 && indicatorHeight > 0)) return;
 
 			const margin = 2;
 			const maxW = Math.max(1, width - margin * 2);
-			const maxH = Math.max(1, height - margin * 2);
-			const scale = Math.min(1, maxW / indicatorWidth, maxH / indicatorHeight);
-			node.style.setProperty('--indicator-scale', String(scale));
+				const maxH = Math.max(1, height - margin * 2);
+				const scale = Math.min(1, maxW / indicatorWidth, maxH / indicatorHeight);
+				node.style.setProperty('--indicator-scale', String(scale));
 
-			const computed = getComputedStyle(node);
-			const rawX = computed.getPropertyValue('--indicator-x') || '50%';
-			const rawY = computed.getPropertyValue('--indicator-y') || '50%';
+				// Avoid forced reflow: indicator vars are set via inline style (`buildBlockStyle(entry)`),
+				// so we can read them from `node.style` instead of `getComputedStyle(node)`.
+				const rawX = node.style.getPropertyValue('--indicator-x') || '50%';
+				const rawY = node.style.getPropertyValue('--indicator-y') || '50%';
 
 			const targetX = resolveLength(rawX, width);
 			const targetY = resolveLength(rawY, height);
@@ -91,12 +90,15 @@
 			const halfW = (indicatorWidth * scale) / 2;
 			const halfH = (indicatorHeight * scale) / 2;
 
-			const clampedX = clamp(Number.isFinite(targetX) ? targetX : width / 2, halfW + margin, width - halfW - margin);
-			const clampedY = clamp(Number.isFinite(targetY) ? targetY : height / 2, halfH + margin, height - halfH - margin);
+				const clampedX = clamp(Number.isFinite(targetX) ? targetX : width / 2, halfW + margin, width - halfW - margin);
+				const clampedY = clamp(Number.isFinite(targetY) ? targetY : height / 2, halfH + margin, height - halfH - margin);
 
-			node.style.setProperty('--indicator-x-px', `${clampedX}px`);
-			node.style.setProperty('--indicator-y-px', `${clampedY}px`);
-		}
+				node.style.setProperty('--indicator-x-px', `${clampedX}px`);
+				node.style.setProperty('--indicator-y-px', `${clampedY}px`);
+
+				// Write label mode after layout reads to avoid triggering forced reflow when reading sizes.
+				if (node.dataset.labelMode !== mode) node.dataset.labelMode = mode;
+			}
 
 		const ro = new ResizeObserver(() => void update());
 		ro.observe(node);

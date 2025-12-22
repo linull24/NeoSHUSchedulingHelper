@@ -3,11 +3,13 @@ import { fetchAndStoreBestSnapshot, type SnapshotProgress } from '../data/catalo
 import { get } from 'svelte/store';
 import { termState } from './termStateStore';
 import { resolveUserscriptCrawlerConfig } from '../policies/jwxt/crawlerConfig';
+import { jwxtTaskStop } from '../data/jwxt/jwxtApi';
 
 export type JwxtCrawlUiState = {
 	termId: string | null;
 	running: boolean;
 	roundScope: 'selected' | 'firstTwo';
+	taskId: string | null;
 	stage: SnapshotProgress['stage'] | null;
 	message: string | null;
 	progress: { done: number; total: number } | null;
@@ -19,6 +21,7 @@ const state = writable<JwxtCrawlUiState>({
 	termId: null,
 	running: false,
 	roundScope: 'firstTwo',
+	taskId: null,
 	stage: null,
 	message: null,
 	progress: null,
@@ -27,8 +30,30 @@ const state = writable<JwxtCrawlUiState>({
 });
 
 let activePromise: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
+let activeAbort: AbortController | null = null;
 
 export const jwxtCrawlState = { subscribe: state.subscribe };
+
+export async function stopJwxtCrawl(): Promise<{ ok: true } | { ok: false; error: string }> {
+	if (!activePromise) {
+		state.update((current) => ({ ...current, running: false, taskId: null }));
+		return { ok: true };
+	}
+	try {
+		activeAbort?.abort();
+		activeAbort = null;
+		const current = get(state);
+		if (current?.taskId) {
+			await jwxtTaskStop(current.taskId);
+		}
+		state.update((s) => ({ ...s, running: false, taskId: null, stage: null, progress: null, message: null }));
+		return { ok: true };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		state.update((s) => ({ ...s, running: false, taskId: null, stage: null, progress: null, message: null, error: message }));
+		return { ok: false, error: message };
+	}
+}
 
 export async function startJwxtCrawl(
 	termId: string,
@@ -44,6 +69,7 @@ export async function startJwxtCrawl(
 		termId: normalized,
 		running: true,
 		roundScope,
+		taskId: null,
 		stage: 'context',
 		message: null,
 		progress: { done: 0, total: 0 },
@@ -52,10 +78,13 @@ export async function startJwxtCrawl(
 	});
 
 	activePromise = (async () => {
+		activeAbort = new AbortController();
 		try {
 			const res = await fetchAndStoreBestSnapshot(normalized, {
 				roundScope,
 				userscript: { snapshotConcurrency: resolveUserscriptCrawlerConfig(get(termState)).snapshotConcurrency },
+				signal: activeAbort.signal,
+				onTaskId: (taskId) => state.update((s) => ({ ...s, taskId })),
 				onProgress: (p) => {
 					state.update((current) => ({
 						...current,
@@ -74,6 +103,7 @@ export async function startJwxtCrawl(
 				state.update((current) => ({
 					...current,
 					running: false,
+					taskId: null,
 					error: res.error,
 					message: null,
 					stage: null,
@@ -84,6 +114,7 @@ export async function startJwxtCrawl(
 			state.update((current) => ({
 				...current,
 				running: false,
+				taskId: null,
 				error: null,
 				lastOkAt: Date.now(),
 				message: null,
@@ -93,10 +124,11 @@ export async function startJwxtCrawl(
 			return { ok: true as const };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			state.update((current) => ({ ...current, running: false, error: message, message: null, stage: null, progress: null }));
+			state.update((current) => ({ ...current, running: false, taskId: null, error: message, message: null, stage: null, progress: null }));
 			return { ok: false as const, error: message };
 		} finally {
 			activePromise = null;
+			activeAbort = null;
 		}
 	})();
 

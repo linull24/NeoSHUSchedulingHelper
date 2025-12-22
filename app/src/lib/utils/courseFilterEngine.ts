@@ -9,6 +9,8 @@ import type { SortField, LimitRuleKey } from '../../config/selectionFilters';
 import type { FilterScope } from '../policies';
 import { parseCourseQuickQuery, type CourseQuickQueryToken } from './courseQuickQuery';
 import { deriveGroupKey } from '../data/termState/groupKey';
+import type { TermState } from '../data/termState/types';
+import { isJwxtSelectableNow, isLocalSelectableNow } from '../policies/filter/selectableNow';
 
 export interface CourseFilterMeta {
 	conflict: 'none' | 'time-conflict' | 'hard-conflict';
@@ -39,6 +41,8 @@ export interface CourseFilterContext {
 	changeScope?: 'FIX_SELECTED_SECTIONS' | 'RESELECT_WITHIN_SELECTED_GROUPS' | 'REPLAN_ALL';
 	conflictGranularity?: 'section' | 'group';
 	filterScope?: FilterScope;
+	termState?: TermState | null;
+	courseListPolicy?: TermState['settings']['courseListPolicy'] | null;
 }
 
 interface ScheduleSlot {
@@ -68,9 +72,11 @@ function getGroupEntries(groupKey: string): CourseCatalogEntry[] {
 type CourseMetaCache = {
 	key: string;
 	meta: Map<string, CourseFilterMeta>;
+	at: number;
 };
 
-let cachedCourseMeta: CourseMetaCache | null = null;
+const COURSE_META_CACHE_LIMIT = 4;
+let courseMetaCache = new Map<string, CourseMetaCache>();
 
 function resolveConflictTargetLabel(id: string) {
 	const entry = courseCatalogMap.get(id);
@@ -98,7 +104,10 @@ export function applyCourseFilters(
 	const metaIndex = getOrBuildCourseMetaIndex({
 		selectedIds,
 		selectedSchedule: context.selectedSchedule,
-		changeScope: context.changeScope
+		changeScope: context.changeScope,
+		conflictMode: state.conflictMode,
+		conflictGranularity,
+		showConflictBadges: state.showConflictBadges
 	});
 	const emptyMeta: CourseFilterMeta = {
 		conflict: 'none',
@@ -118,16 +127,44 @@ export function applyCourseFilters(
 	const regexTargets = state.regexTargets.length ? state.regexTargets : config.regex.targets;
 	const limitRules = config.limitRules;
 	const quickTokens = !state.regexEnabled && keyword ? parseCourseQuickQuery(keyword) : [];
+	const termState = context.termState ?? null;
+	const courseListPolicy = context.courseListPolicy ?? termState?.settings?.courseListPolicy ?? null;
+	const jwxtRemoteSelectedKeySet =
+		context.filterScope === 'jwxt'
+			? new Set<string>(
+					(((termState?.jwxt?.remoteSnapshot?.pairs ?? []) as any[]) ?? []).map(
+						(pair) => `${String(pair?.kchId ?? '')}::${String(pair?.jxbId ?? '')}`
+					)
+			  )
+			: null;
 
 	for (const course of courses) {
 		const groupKey = deriveGroupKey(course) as unknown as string;
 		const isSelected = selectedIds.has(course.id);
 		const isPinned = isSelected || wishlistIds.has(course.id) || wishlistGroupKeys.has(groupKey);
 		const courseMeta = metaIndex.get(course.id) ?? emptyMeta;
+		const hasSelectedInGroup = selectedGroupKeys.has(groupKey) && !isSelected;
 
 		// conflictMode is a judgement mode; it should not filter by itself.
 		// "显示冲突项目" 关闭时：列表需要保持“纯净”，过滤掉当前 conflictMode 判定为冲突的条目。
-		if (!state.showConflictBadges && !isPinned && isConflictItem(courseMeta, state.conflictMode, conflictGranularity))
+		const selectableNow =
+			state.conflictMode === 'selectable-now'
+				? isSelectableNow({
+						state: termState,
+						scope: context.filterScope ?? null,
+						course,
+						meta: courseMeta,
+						remoteSelectedKeySet: jwxtRemoteSelectedKeySet,
+						courseListPolicy,
+						changeScope: (context.changeScope ?? null) as any,
+						hasSelectedInGroup
+				  })
+				: null;
+		if (
+			!state.showConflictBadges &&
+			!isPinned &&
+			isConflictItem(courseMeta, state.conflictMode, conflictGranularity, selectableNow)
+		)
 			continue;
 		if (!matchStatusMode(course, state.statusMode, selectedIds, wishlistIds, selectedGroupKeys, wishlistGroupKeys))
 			continue;
@@ -156,21 +193,38 @@ export function applyCourseFilters(
 function getOrBuildCourseMetaIndex({
 	selectedIds,
 	selectedSchedule,
-	changeScope
+	changeScope,
+	conflictMode,
+	conflictGranularity,
+	showConflictBadges
 }: {
 	selectedIds: Set<string>;
 	selectedSchedule?: ScheduleSlot[];
 	changeScope?: CourseFilterContext['changeScope'];
+	conflictMode: ConflictFilterMode;
+	conflictGranularity: 'section' | 'group';
+	showConflictBadges: boolean;
 }) {
 	const scopeKey = String(changeScope ?? '');
+	const conflictKey = `${conflictMode}:${conflictGranularity}:${showConflictBadges ? 1 : 0}`;
 	const selectedKey = buildIdSetKey(selectedIds);
 	const scheduleKey = selectedSchedule ? buildScheduleCourseIdKey(selectedSchedule) : selectedKey;
-	const cacheKey = `${scopeKey}|sel:${selectedKey}|sched:${scheduleKey}`;
-	if (cachedCourseMeta?.key === cacheKey) return cachedCourseMeta.meta;
+	const cacheKey = `${scopeKey}|${conflictKey}|sel:${selectedKey}|sched:${scheduleKey}`;
+	const hit = courseMetaCache.get(cacheKey);
+	if (hit) {
+		hit.at = Date.now();
+		return hit.meta;
+	}
 
 	const schedule = selectedSchedule ?? buildScheduleIndex(selectedIds);
-	const meta = buildCourseMetaIndex({ selectedIds, schedule, changeScope });
-	cachedCourseMeta = { key: cacheKey, meta };
+	const meta = buildCourseMetaIndex({ selectedIds, schedule, changeScope, conflictMode, conflictGranularity, showConflictBadges });
+	courseMetaCache.set(cacheKey, { key: cacheKey, meta, at: Date.now() });
+	if (courseMetaCache.size > COURSE_META_CACHE_LIMIT) {
+		const entries = Array.from(courseMetaCache.values()).sort((a, b) => a.at - b.at);
+		for (const victim of entries.slice(0, Math.max(0, entries.length - COURSE_META_CACHE_LIMIT))) {
+			courseMetaCache.delete(victim.key);
+		}
+	}
 	return meta;
 }
 
@@ -187,11 +241,17 @@ function buildScheduleCourseIdKey(schedule: ScheduleSlot[]) {
 function buildCourseMetaIndex({
 	selectedIds,
 	schedule,
-	changeScope
+	changeScope,
+	conflictMode,
+	conflictGranularity,
+	showConflictBadges
 }: {
 	selectedIds: Set<string>;
 	schedule: ScheduleSlot[];
 	changeScope?: CourseFilterContext['changeScope'];
+	conflictMode: ConflictFilterMode;
+	conflictGranularity: 'section' | 'group';
+	showConflictBadges: boolean;
 }) {
 	const meta = new Map<string, CourseFilterMeta>();
 	const selectedGroupKeys = collectGroupKeys(selectedIds);
@@ -203,6 +263,13 @@ function buildCourseMetaIndex({
 
 	const currentScope = changeScope ?? null;
 	const treatCurrentAsHard = currentScope === 'FIX_SELECTED_SECTIONS' || currentScope === null;
+	const needHardImpossible =
+		showConflictBadges ||
+		conflictMode === 'hard' ||
+		conflictMode === 'soft' ||
+		conflictMode === 'current' ||
+		(conflictMode === 'time' && conflictGranularity === 'group');
+	const needSoftFeasible = conflictMode === 'soft' || (conflictMode === 'current' && !treatCurrentAsHard);
 	const hardFeasibleCache = new Map<string, boolean>();
 	const softFeasibleCache = new Map<string, boolean>();
 
@@ -215,43 +282,50 @@ function buildCourseMetaIndex({
 		const overlaps = detectTimeConflicts(course, scheduleForOverlap);
 		const timeConflict = overlaps.length > 0;
 
-		const hardFeasible = resolveHardFeasible({
-			groupKey,
-			schedule: scheduleForOverlap,
-			cache: hardFeasibleCache
-		});
-		const hardImpossible = !hardFeasible;
+		let hardImpossible = false;
+		if (needHardImpossible || needSoftFeasible) {
+			const hardFeasible = resolveHardFeasible({
+				groupKey,
+				schedule: scheduleForOverlap,
+				cache: hardFeasibleCache
+			});
+			hardImpossible = !hardFeasible;
+		}
 
-		const softFeasible = hardImpossible
-			? resolveSoftFeasible({
-					groupKey,
-					hasSelectedInGroup,
-					selectedByGroupKey,
-					schedule: scheduleForOverlap,
-					cache: softFeasibleCache
-			  })
-			: true;
+		const softFeasible =
+			needSoftFeasible && hardImpossible
+				? resolveSoftFeasible({
+						groupKey,
+						hasSelectedInGroup,
+						selectedByGroupKey,
+						schedule: scheduleForOverlap,
+						cache: softFeasibleCache
+				  })
+				: true;
 
-		const softTimeConflict = hardImpossible && softFeasible;
-		const softImpossible = hardImpossible && !softFeasible;
-		const hardTimeConflict = timeConflict && !hardImpossible;
+		const softTimeConflict = needSoftFeasible ? hardImpossible && softFeasible : false;
+		const softImpossible = needSoftFeasible ? hardImpossible && !softFeasible : false;
+		const hardTimeConflict = needHardImpossible ? timeConflict && !hardImpossible : timeConflict;
 
-		const currentImpossible = currentScope === null ? false : treatCurrentAsHard ? hardImpossible : softImpossible;
+		const currentImpossible =
+			conflictMode === 'current' && currentScope !== null ? (treatCurrentAsHard ? hardImpossible : softImpossible) : false;
 
 		const conflictTargets = overlaps;
 		const reasonOverlap = overlaps.length ? formatConflictTargets(overlaps) : undefined;
 		const diagnostics: CourseFilterMeta['diagnostics'] = [];
-		if (hardTimeConflict) {
-			diagnostics.push({ label: 'hard-time-conflict', reason: reasonOverlap });
-		} else if (hardImpossible) {
-			diagnostics.push({ label: 'hard-impossible', reason: reasonOverlap });
-			if (softTimeConflict) diagnostics.push({ label: 'soft-time-conflict', reason: reasonOverlap });
-			if (softImpossible) diagnostics.push({ label: 'soft-impossible', reason: reasonOverlap });
+		if (showConflictBadges) {
+			if (timeConflict && hardTimeConflict) {
+				diagnostics.push({ label: 'hard-time-conflict', reason: reasonOverlap });
+			} else if (hardImpossible) {
+				diagnostics.push({ label: 'hard-impossible', reason: reasonOverlap });
+				if (softTimeConflict) diagnostics.push({ label: 'soft-time-conflict', reason: reasonOverlap });
+				if (softImpossible) diagnostics.push({ label: 'soft-impossible', reason: reasonOverlap });
+			}
 		}
 
 		meta.set(course.id, {
 			conflict: timeConflict ? 'time-conflict' : 'none',
-			conflictTargets,
+			conflictTargets: showConflictBadges ? conflictTargets : [],
 			diagnostics,
 			timeConflict,
 			hardTimeConflict,
@@ -265,7 +339,12 @@ function buildCourseMetaIndex({
 	return meta;
 }
 
-function isConflictItem(meta: CourseFilterMeta, mode: ConflictFilterMode, granularity: 'section' | 'group') {
+function isConflictItem(
+	meta: CourseFilterMeta,
+	mode: ConflictFilterMode,
+	granularity: 'section' | 'group',
+	selectableNow: boolean | null
+) {
 	switch (mode) {
 		case 'off':
 			return false;
@@ -277,9 +356,42 @@ function isConflictItem(meta: CourseFilterMeta, mode: ConflictFilterMode, granul
 			return granularity === 'group' ? meta.hardImpossible : meta.hardTimeConflict || meta.hardImpossible;
 		case 'soft':
 			return granularity === 'group' ? meta.softImpossible : meta.softTimeConflict || meta.softImpossible;
+		case 'selectable-now':
+			return selectableNow === null ? false : !selectableNow;
 		default:
 			return false;
 	}
+}
+
+function isSelectableNow(input: {
+	state: TermState | null;
+	scope: FilterScope | null;
+	course: CourseCatalogEntry;
+	meta: CourseFilterMeta;
+	remoteSelectedKeySet: Set<string> | null;
+	courseListPolicy: TermState['settings']['courseListPolicy'] | null;
+	changeScope: CourseFilterContext['changeScope'];
+	hasSelectedInGroup: boolean;
+}) {
+	if (input.scope === 'jwxt') {
+		if (!input.state || !input.remoteSelectedKeySet) return true;
+		return isJwxtSelectableNow({
+			state: input.state,
+			course: input.course,
+			meta: input.meta,
+			remoteSelectedKeySet: input.remoteSelectedKeySet
+		});
+	}
+	if (!input.courseListPolicy) {
+		// Fallback: if policy is unknown, treat only conflict-free items as selectable.
+		return input.meta.conflict === 'none';
+	}
+	return isLocalSelectableNow({
+		meta: input.meta,
+		courseListPolicy: input.courseListPolicy,
+		changeScope: (input.changeScope ?? null) as any,
+		hasSelectedInGroup: input.hasSelectedInGroup
+	});
 }
 
 function matchStatusMode(
@@ -409,6 +521,9 @@ function resolveSoftFeasible({
 		return false;
 	}
 
+	const MAX_VARIABLE_GROUPS = 10;
+	const MAX_SEARCH_STEPS = 5000;
+
 	const adjustableGroupKeys = new Set<string>();
 	for (const entry of groupEntries) {
 		for (const targetId of detectTimeConflicts(entry, schedule)) {
@@ -443,12 +558,20 @@ function resolveSoftFeasible({
 		.filter((item) => item.domain.length > 0)
 		.sort((a, b) => a.domain.length - b.domain.length);
 
+	if (variables.length > MAX_VARIABLE_GROUPS) {
+		cache.set(groupKey, true);
+		return true;
+	}
+
 	const workingSlots = baselineSlots.slice();
+	let steps = 0;
 
 	function backtrack(index: number): boolean {
 		if (index >= variables.length) return true;
 		const variable = variables[index];
 		for (const candidate of variable.domain) {
+			steps += 1;
+			if (steps > MAX_SEARCH_STEPS) return true;
 			if (hasTimeOverlap(candidate, workingSlots)) continue;
 			const pushed = pushScheduleSlots(candidate, workingSlots);
 			if (backtrack(index + 1)) return true;

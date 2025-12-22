@@ -8,6 +8,7 @@ import {
 	jwxtHasUserscriptBackend,
 	jwxtSelectRound,
 	jwxtTaskGet,
+	jwxtTaskStop,
 	jwxtTaskStart
 } from '../jwxt/jwxtApi';
 
@@ -70,10 +71,12 @@ async function readBundledCurrentEntries(): Promise<CurrentTermEntry[] | null> {
 
 async function readBundledTermSnapshotText(termId: string): Promise<string | null> {
 	if (!browser) return null;
-	const data = await fetchBundledJson<unknown>(`/crawler/data/terms/${termId}.json`);
-	if (!data) return null;
 	try {
-		return JSON.stringify(data);
+		// Avoid JSON parse+stringify roundtrip: it's CPU-heavy and can freeze the UI on large snapshots.
+		const url = `/crawler/data/terms/${termId}.json`;
+		const res = await fetch(url, { method: 'GET' });
+		if (!res.ok) return null;
+		return await res.text();
 	} catch {
 		return null;
 	}
@@ -196,11 +199,17 @@ export async function fetchAndStoreCloudSnapshot(termId: string): Promise<{
 }
 
 function validateSnapshotText(text: string): { ok: true; parsed: RawCourseSnapshot } | { ok: false; error: string } {
-	const parsed = JSON.parse(text) as RawCourseSnapshot;
-	if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as any).courses)) {
-		return { ok: false, error: 'INVALID_JSON' };
-	}
-	return { ok: true, parsed };
+	// NOTE(perf):
+	// Cloud snapshots can be huge (thousands of courses). Full JSON.parse here will block the main thread
+	// and can freeze the UI during "auto align / download / activate" flows.
+	//
+	// We only need a cheap sanity check at store/activate time; full parsing happens later when building the catalog.
+	const trimmed = String(text || '').trim();
+	if (!trimmed) return { ok: false, error: 'EMPTY_SNAPSHOT' };
+	if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return { ok: false, error: 'INVALID_JSON' };
+	// Heuristic presence checks (avoid false positives on HTML error pages).
+	if (!/"courses"\s*:/i.test(trimmed)) return { ok: false, error: 'INVALID_JSON' };
+	return { ok: true, parsed: {} as any };
 }
 
 function storeSnapshotTextAt(storageKey: string, metaKey: string, text: string, url: string) {
@@ -288,8 +297,9 @@ export function activateRoundSnapshot(termId: string, xkkzId: string): { ok: tru
 	const key = getCloudRoundSnapshotStorageKey(termId, xkkzId);
 	const text = localStorage.getItem(key);
 	if (!text) return { ok: false, error: 'NO_ROUND_SNAPSHOT' };
+	// Avoid blocking JSON.parse here — activation is just a pointer switch.
 	const validated = validateSnapshotText(text);
-	if (!validated.ok) return validated;
+	if (!validated.ok) return { ok: false, error: validated.error };
 
 	// IMPORTANT:
 	// Avoid copying the (potentially huge) snapshot into `cloud.termSnapshot.v1:<termId>`,
@@ -364,6 +374,8 @@ export async function fetchAndStoreBestSnapshot(
 		onProgress?: (progress: SnapshotProgress) => void;
 		roundScope?: 'selected' | 'firstTwo';
 		userscript?: { snapshotConcurrency?: number };
+		signal?: AbortSignal;
+		onTaskId?: (taskId: string) => void;
 	}
 ): Promise<
 	| { ok: true; url: string; size: number; fetchedAt: number }
@@ -377,6 +389,7 @@ export async function fetchAndStoreBestSnapshot(
 		const status = await jwxtGetStatus();
 		if (status.ok && status.supported && status.loggedIn) {
 			const crawlViaUserscriptTask = async (): Promise<{ ok: true; snapshot: unknown } | { ok: false; error: string }> => {
+				if (options?.signal?.aborted) return { ok: false, error: 'CANCELED' };
 				const snapshotConcurrency =
 					typeof options?.userscript?.snapshotConcurrency === 'number' && Number.isFinite(options.userscript.snapshotConcurrency)
 						? Math.max(1, Math.floor(options.userscript.snapshotConcurrency))
@@ -390,10 +403,18 @@ export async function fetchAndStoreBestSnapshot(
 					parallel: { concurrency: snapshotConcurrency }
 				} as any);
 				if (!started.ok) return { ok: false, error: started.error };
+				options?.onTaskId?.(started.task.id);
 
 				const deadline = Date.now() + 8 * 60_000;
 				for (;;) {
-					if (Date.now() > deadline) return { ok: false, error: 'TASK_TIMEOUT' };
+					if (options?.signal?.aborted) {
+						void jwxtTaskStop(started.task.id);
+						return { ok: false, error: 'CANCELED' };
+					}
+					if (Date.now() > deadline) {
+						void jwxtTaskStop(started.task.id);
+						return { ok: false, error: 'TASK_TIMEOUT' };
+					}
 					const got = await jwxtTaskGet(started.task.id);
 					if (!got.ok) return { ok: false, error: got.error };
 					const task = got.task as any;
@@ -521,6 +542,21 @@ export function readCloudSnapshot(termId: string): RawCourseSnapshot | null {
 		const raw = localStorage.getItem(getCloudSnapshotStorageKey(termId));
 		if (!raw) return null;
 		return JSON.parse(raw) as RawCourseSnapshot;
+	} catch {
+		return null;
+	}
+}
+
+export function readCloudSnapshotText(termId: string): string | null {
+	if (!browser) return null;
+	try {
+		const activeXkkzId = localStorage.getItem(getCloudActiveRoundKey(termId));
+		if (activeXkkzId) {
+			const raw = localStorage.getItem(getCloudRoundSnapshotStorageKey(termId, activeXkkzId));
+			if (raw) return raw;
+		}
+		const raw = localStorage.getItem(getCloudSnapshotStorageKey(termId));
+		return raw || null;
 	} catch {
 		return null;
 	}

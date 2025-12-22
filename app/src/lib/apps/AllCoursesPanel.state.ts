@@ -1,4 +1,4 @@
-import { derived, get, writable } from 'svelte/store';
+import { derived, get, readable, writable } from 'svelte/store';
 import type { CourseCatalogEntry } from '../data/catalog/courseCatalog';
 import { courseCatalog, courseCatalogMap } from '../data/catalog/courseCatalog';
 import { activateHover, clearHover, hoveredCourse } from '../stores/courseHover';
@@ -27,6 +27,7 @@ export const collapseByName = collapseCoursesByName;
 export const wishlistSet = derived(wishlistCourseIds, $set => $set);
 export const selectedSet = derived(selectedCourseIds, $set => $set);
 const changeScope = derived(termState, ($state) => $state?.solver.changeScope);
+const courseListPolicy = derived(termState, ($state) => $state?.settings.courseListPolicy ?? null);
 export const selectedGroupKeySet = derived(selectedSet, ($selected) => {
 	const keys = new Set<string>();
 	for (const id of $selected) {
@@ -60,18 +61,89 @@ const sortedCourses = sortCourses(courseCatalog);
 
 const EMPTY_SET = new Set<string>();
 
+type WishlistFilterContext = {
+	wishlistIds: Set<string>;
+	wishlistGroupKeys: Set<string>;
+};
+
+const wishlistFilterContext = readable<WishlistFilterContext>(
+	{ wishlistIds: EMPTY_SET, wishlistGroupKeys: EMPTY_SET },
+	(set) => {
+		let subscribed = false;
+		let currentWishlistIds: Set<string> = EMPTY_SET;
+		let currentWishlistGroupKeys: Set<string> = EMPTY_SET;
+		let stopWishlistIds: (() => void) | null = null;
+		let stopWishlistGroupKeys: (() => void) | null = null;
+
+		const emit = () => set({ wishlistIds: currentWishlistIds, wishlistGroupKeys: currentWishlistGroupKeys });
+
+		const stopWishlistSubscriptions = () => {
+			stopWishlistIds?.();
+			stopWishlistIds = null;
+			stopWishlistGroupKeys?.();
+			stopWishlistGroupKeys = null;
+			currentWishlistIds = EMPTY_SET;
+			currentWishlistGroupKeys = EMPTY_SET;
+			subscribed = false;
+		};
+
+		const maybeStartWishlistSubscriptions = () => {
+			if (subscribed) return;
+			subscribed = true;
+			stopWishlistIds = wishlistSet.subscribe(($wishlist) => {
+				currentWishlistIds = $wishlist;
+				emit();
+			});
+			stopWishlistGroupKeys = wishlistGroupKeySet.subscribe(($groups) => {
+				currentWishlistGroupKeys = $groups;
+				emit();
+			});
+		};
+
+		const stopFilters = filters.subscribe(($filters) => {
+			// AllCourses does not expose statusMode UI, but wishlist still affects filtering semantics:
+			// - pinned items should survive "hide conflicts"
+			// - pinned items should not be hidden by "selectable now"
+			const needsWishlist =
+				!$filters.showConflictBadges || $filters.conflictMode === 'selectable-now' || $filters.statusMode !== 'all:none';
+
+			if (needsWishlist) {
+				maybeStartWishlistSubscriptions();
+				return;
+			}
+
+			if (subscribed) {
+				stopWishlistSubscriptions();
+				emit();
+			}
+		});
+
+		// Initialize once using the current filter state.
+		const initial = get(filters);
+		if (!initial.showConflictBadges || initial.conflictMode === 'selectable-now' || initial.statusMode !== 'all:none') {
+			maybeStartWishlistSubscriptions();
+		}
+		emit();
+
+		return () => {
+			stopFilters();
+			stopWishlistSubscriptions();
+		};
+	}
+);
+
 const filterResult: Readable<CourseFilterResult> = derived(
 	// IMPORTANT performance note:
-	// - AllCourses list does not support "statusMode" controls (statusModeScope='none'),
-	//   so wishlist membership does not affect filtering.
-	// - Avoid re-running the full filter engine (thousands of entries) on every wishlist change.
-	[filters, selectedSet, changeScope, collapseByName],
-	([$filters, $selected, $changeScope, $collapse]) =>
+	// - AllCourses list is large (thousands of entries). Avoid re-running the full filter engine on every wishlist change.
+	// - Wishlist membership only impacts filtering in certain modes (e.g. "hide conflicts", "only selectable now").
+	[filters, selectedSet, wishlistFilterContext, changeScope, courseListPolicy, collapseByName],
+	([$filters, $selected, $wishlistContext, $changeScope, $policy, $collapse]) =>
 		applyCourseFilters(sortedCourses, $filters, {
 			selectedIds: $selected,
-			wishlistIds: EMPTY_SET,
-			wishlistGroupKeys: EMPTY_SET,
+			wishlistIds: $wishlistContext.wishlistIds,
+			wishlistGroupKeys: $wishlistContext.wishlistGroupKeys,
 			changeScope: $changeScope,
+			courseListPolicy: $policy,
 			conflictGranularity: $collapse ? 'group' : 'section',
 			filterScope: 'all'
 		})

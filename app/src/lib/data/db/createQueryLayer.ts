@@ -37,6 +37,39 @@ const LOCAL_BUNDLES: duckdb.DuckDBBundles = {
 	}
 };
 
+const SQLJS_PERSIST = {
+	dbName: 'shu-course-scheduler.queryLayer.sqljs.v1',
+	storeName: 'db'
+} as const;
+const SQLJS_PERSIST_KEY: IDBValidKey = 'main';
+
+function isBrowserEnv() {
+	return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+async function preflightOpfsDbLock(file: string) {
+	const navAny: any = typeof navigator !== 'undefined' ? (navigator as any) : null;
+	if (!navAny?.storage?.getDirectory) throw new Error('DUCKDB_OPFS_UNSUPPORTED');
+	const root: any = await navAny.storage.getDirectory();
+	if (!root?.getFileHandle) throw new Error('DUCKDB_OPFS_UNSUPPORTED');
+	const fileHandle: any = await root.getFileHandle(file, { create: true });
+	const createSyncAccessHandle: any = fileHandle?.createSyncAccessHandle?.bind(fileHandle);
+	if (typeof createSyncAccessHandle !== 'function') throw new Error('DUCKDB_OPFS_UNSUPPORTED');
+	let handle: any = null;
+	try {
+		handle = await createSyncAccessHandle();
+	} catch (error) {
+		// Most common: "Access Handles cannot be created if there is another open Access Handle or Writable stream..."
+		throw new Error(`DUCKDB_OPFS_LOCKED:${toErrorInfo(error).message}`);
+	} finally {
+		try {
+			handle?.close?.();
+		} catch {
+			// ignore
+		}
+	}
+}
+
 export async function getQueryLayer(overrides?: Partial<QueryLayerConfig>) {
 	if (dbPromise) return dbPromise;
 	const config = getQueryLayerConfig(overrides);
@@ -56,6 +89,13 @@ export function resetQueryLayer() {
 }
 
 async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
+	const shouldForceFallback = (error: unknown) => {
+		const msg = toErrorInfo(error).message || '';
+		// OPFS unavailability/lock means DuckDB persistence cannot be used reliably in the browser.
+		// In this case, always fall back to sql.js (even when strictEngine is enabled) to avoid
+		// breaking term_state persistence and to keep the app usable.
+		return /^DUCKDB_OPFS_(UNSUPPORTED|LOCKED|OPEN_FAILED)/.test(msg);
+	};
 	if (currentEngine && config.engine === currentEngine && dbPromise) {
 		return dbPromise;
 	}
@@ -65,7 +105,7 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 				currentEngine = 'duckdb';
 				return await initDuckDB();
 			} catch (error) {
-				if (config.strictEngine) throw error;
+				if (config.strictEngine && !shouldForceFallback(error)) throw error;
 				console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
@@ -78,6 +118,7 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 				currentEngine = 'duckdb';
 				return await initDuckDB();
 			} catch (error) {
+				if (config.strictEngine && !shouldForceFallback(error)) throw error;
 				console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
@@ -90,6 +131,13 @@ async function initDuckDB(): Promise<QueryLayer> {
 		throw new Error('DuckDB-Wasm 需要浏览器环境');
 	}
 
+	const opfsDbFile = 'shu-course-scheduler.duckdb.v1';
+	// Avoid creating a DuckDB worker when OPFS is unavailable or the DB file is locked.
+	// This makes engine fallback deterministic and avoids noisy errors during HMR/multi-tab.
+	if (isBrowserEnv()) {
+		await preflightOpfsDbLock(opfsDbFile);
+	}
+
 	const bundle = await duckdb.selectBundle(LOCAL_BUNDLES);
 	if (!bundle) throw new Error('未能获取 DuckDB-Wasm bundle');
 
@@ -98,6 +146,20 @@ async function initDuckDB(): Promise<QueryLayer> {
 	const logger = new duckdb.VoidLogger();
 	const db = new duckdb.AsyncDuckDB(logger, worker);
 	await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+
+	// Persistence: use OPFS-backed database file when available.
+	// DuckDB-Wasm supports `opfs://` paths. If OPFS is unavailable, DuckDB falls back to ephemeral storage.
+	if (isBrowserEnv()) {
+		try {
+			const opfsPath = `opfs://${opfsDbFile}`;
+			// DuckDB expects an OPFS path (with `opfs://` prefix) when registering OPFS filenames.
+			await db.registerOPFSFileName(opfsPath);
+			await db.open({ path: opfsPath, accessMode: duckdb.DuckDBAccessMode.READ_WRITE });
+		} catch (error) {
+			// Do NOT silently continue with an in-memory DB; fall back to persisted sql.js instead.
+			throw new Error(`DUCKDB_OPFS_OPEN_FAILED:${toErrorInfo(error).message}`);
+		}
+	}
 
 	const conn = await db.connect();
 	let closed = false;
@@ -173,6 +235,11 @@ async function initDuckDB(): Promise<QueryLayer> {
 		async close() {
 			if (closed) return;
 			closed = true;
+			try {
+				await db.flushFiles();
+			} catch {
+				// ignore
+			}
 			for (const stmt of stmtCache.values()) {
 				try {
 					await stmt?.close?.();
@@ -188,6 +255,14 @@ async function initDuckDB(): Promise<QueryLayer> {
 	};
 }
 
+// Dev ergonomics: ensure OPFS handles are released on HMR dispose.
+// Without this, the next init may fail with DUCKDB_OPFS_* errors.
+try {
+	(import.meta as any).hot?.dispose(() => resetQueryLayer());
+} catch {
+	// ignore
+}
+
 async function createFallbackLayer(): Promise<QueryLayer> {
 	const SQL = await initSqlJs({
 		locateFile: (file: string) => {
@@ -199,13 +274,75 @@ async function createFallbackLayer(): Promise<QueryLayer> {
 			return file;
 		}
 	});
-	const db = new SQL.Database();
+
+	// Browser persistence: load and store sql.js database bytes in IndexedDB.
+	// This makes termState/actionLog/solver results survive refresh/reopen.
+	let db: any;
+	if (isBrowserEnv()) {
+		try {
+			const { idbKvGet } = await import('../../utils/idbKv');
+			const stored = await idbKvGet<unknown>(SQLJS_PERSIST, SQLJS_PERSIST_KEY);
+			if (stored instanceof ArrayBuffer) db = new SQL.Database(new Uint8Array(stored));
+			else if (stored instanceof Uint8Array) db = new SQL.Database(stored);
+			else if (stored && typeof stored === 'object' && (stored as any).buffer instanceof ArrayBuffer) {
+				db = new SQL.Database(new Uint8Array((stored as any).buffer));
+			} else {
+				db = new SQL.Database();
+			}
+		} catch (error) {
+			console.warn('[DB] sql.js 持久化加载失败，使用空数据库', toErrorInfo(error));
+			db = new SQL.Database();
+		}
+	} else {
+		db = new SQL.Database();
+	}
+
 	let closed = false;
+
+	let persistTimer: number | null = null;
+	let persistQueued = false;
+	let lastPersistError: unknown = null;
+
+	function shouldPersist(sql: string) {
+		const trimmed = sql.trimStart();
+		return /^(begin|commit|rollback|insert|update|delete|create|drop|alter|replace|vacuum|pragma)/i.test(trimmed);
+	}
+
+	function schedulePersist() {
+		if (!isBrowserEnv()) return;
+		persistQueued = true;
+		if (persistTimer !== null) return;
+
+		const flush = async () => {
+			persistTimer = null;
+			if (!persistQueued || closed) return;
+			persistQueued = false;
+			try {
+				const { idbKvPut } = await import('../../utils/idbKv');
+				const bytes: Uint8Array = db.export();
+				await idbKvPut(SQLJS_PERSIST, SQLJS_PERSIST_KEY, bytes);
+				lastPersistError = null;
+			} catch (error) {
+				lastPersistError = error;
+				console.warn('[DB] sql.js 持久化写入失败', toErrorInfo(error));
+			}
+		};
+
+		// Prefer idle time to reduce jank on large exports.
+		if (typeof (globalThis as any).requestIdleCallback === 'function') {
+			(globalThis as any).requestIdleCallback(() => void flush(), { timeout: 1500 });
+			persistTimer = window.setTimeout(() => void flush(), 500);
+			return;
+		}
+		persistTimer = window.setTimeout(() => void flush(), 400);
+	}
+
 	return {
 		engine: 'sqljs',
 		async exec<T>(sql: string, params?: Record<string, unknown>) {
 			if (closed) throw new Error('QueryLayer 已关闭');
 			const result = db.exec(sql, params ? toSqlJsParams(params) : undefined);
+			if (isBrowserEnv() && shouldPersist(sql)) schedulePersist();
 			if (!result.length) return [];
 			const [first] = result;
 			const { columns, values } = first;
@@ -220,6 +357,16 @@ async function createFallbackLayer(): Promise<QueryLayer> {
 		async close() {
 			if (closed) return;
 			closed = true;
+			if (isBrowserEnv() && lastPersistError) {
+				// Best-effort final flush: if persistence was failing, try once more on close.
+				try {
+					const { idbKvPut } = await import('../../utils/idbKv');
+					const bytes: Uint8Array = db.export();
+					await idbKvPut(SQLJS_PERSIST, SQLJS_PERSIST_KEY, bytes);
+				} catch {
+					// ignore
+				}
+			}
 			db.close();
 		}
 	};

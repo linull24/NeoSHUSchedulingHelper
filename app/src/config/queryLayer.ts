@@ -11,7 +11,9 @@ export interface QueryLayerConfig {
 }
 
 const DEFAULT_CONFIG: QueryLayerConfig = {
-	engine: resolveEngine(import.meta.env?.VITE_QUERY_LAYER_ENGINE),
+	// NOTE: QueryLayer backs termState/actionLog/solverResult persistence.
+	// Default to DuckDB-Wasm; browser persistence is provided via OPFS-backed db path.
+	engine: resolveEngine(import.meta.env?.VITE_QUERY_LAYER_ENGINE ?? 'duckdb'),
 	lazyInit: true,
 	strictEngine: resolveBool(import.meta.env?.VITE_QUERY_LAYER_STRICT_ENGINE)
 };
