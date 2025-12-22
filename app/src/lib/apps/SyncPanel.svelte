@@ -64,15 +64,45 @@
 					? 'panels.sync.loginUnavailableHint'
 					: 'errors.githubPkceUnsupported';
 
+		function applyGithubToken(token: string) {
+			const trimmed = String(token || '').trim();
+			if (!trimmed) return;
+			githubToken.set(trimmed);
+			gistStatus = t('panels.sync.statuses.githubLoginSuccess');
+		}
+
 		function handleMessage(event: MessageEvent) {
 			if (event.origin !== window.location.origin) return;
 			if (event.data?.type === 'github-token' && event.data.token) {
-				githubToken.set(event.data.token);
-				gistStatus = t('panels.sync.statuses.githubLoginSuccess');
+				applyGithubToken(event.data.token);
 			}
 		}
+
+		function handleStorage(event: StorageEvent) {
+			if (event.key !== 'githubToken') return;
+			if (typeof event.newValue === 'string' && event.newValue.trim()) {
+				applyGithubToken(event.newValue);
+				return;
+			}
+			if (event.newValue === null) githubToken.set(null);
+		}
+
+		const channelName = 'neoxk:github-oauth';
+		const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(channelName);
+		function handleChannelMessage(event: MessageEvent) {
+			const data = (event as MessageEvent).data as any;
+			if (data?.type === 'github-token' && data.token) applyGithubToken(data.token);
+		}
+		channel?.addEventListener('message', handleChannelMessage as any);
+
 		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
+		window.addEventListener('storage', handleStorage);
+		return () => {
+			window.removeEventListener('message', handleMessage);
+			window.removeEventListener('storage', handleStorage);
+			channel?.removeEventListener('message', handleChannelMessage as any);
+			channel?.close();
+		};
 	});
 
 	function requireGithubToken() {

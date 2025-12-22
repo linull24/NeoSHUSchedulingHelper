@@ -2,6 +2,7 @@
 
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import { translator } from '$lib/i18n';
 	import type { TranslateFn } from '$lib/i18n';
 	import AppButton from '$lib/primitives/AppButton.svelte';
@@ -12,6 +13,7 @@
 
 	let status = '';
 	let token: string | null = null;
+	let closeBlocked = false;
 
 	onMount(async () => {
 		status = t('panels.sync.statuses.githubAuthorizing');
@@ -25,13 +27,62 @@
 		token = result.token;
 		status = t('panels.sync.statuses.githubLoginSuccess');
 
+		deliverToken(token);
+		tryCloseOrFallback();
+	});
+
+	function deliverToken(tokenValue: string) {
+		const trimmed = String(tokenValue || '').trim();
+		if (!trimmed) return;
+
 		try {
-			window.opener?.postMessage({ type: 'github-token', token }, window.location.origin);
+			localStorage.setItem('githubToken', trimmed);
+			localStorage.setItem('githubToken:lastSetAt', String(Date.now()));
+		} catch {
+			// ignore
+		}
+
+		try {
+			window.opener?.postMessage({ type: 'github-token', token: trimmed }, window.location.origin);
+		} catch {
+			// ignore
+		}
+
+		try {
+			if (typeof BroadcastChannel !== 'undefined') {
+				const channel = new BroadcastChannel('neoxk:github-oauth');
+				channel.postMessage({ type: 'github-token', token: trimmed });
+				channel.close();
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	function tryCloseOrFallback() {
+		closeBlocked = false;
+		try {
 			window.close();
 		} catch {
 			// ignore
 		}
-	});
+
+		setTimeout(() => {
+			try {
+				window.close();
+			} catch {
+				// ignore
+			}
+
+			// If the browser blocks closing (or opener is severed by COOP), redirect back to the app.
+			closeBlocked = true;
+			try {
+				window.location.replace(`${base || ''}/`);
+			} catch {
+				// ignore
+			}
+		}, 400);
+	}
 
 	async function copyToken() {
 		if (!token) return;
@@ -54,6 +105,11 @@
 				<AppButton type="button" variant="primary" size="sm" on:click={copyToken}>
 					{t('panels.sync.copyButton')}
 				</AppButton>
+				{#if closeBlocked}
+					<AppButton type="button" variant="secondary" size="sm" on:click={tryCloseOrFallback}>
+						{t('panels.sync.closeWindow')}
+					</AppButton>
+				{/if}
 				<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
 					{t('panels.sync.tokenHint')}
 				</span>

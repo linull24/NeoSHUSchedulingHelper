@@ -968,6 +968,7 @@ export const enUS = {
       tokenShow: 'Show',
       tokenHide: 'Hide',
       tokenSave: 'Save token',
+      closeWindow: 'Close window',
       tokenHint: 'Token stays in your browser localStorage and is never included in the bundle.',
       gistIdLabel: 'Gist ID (optional)',
       gistIdPlaceholder: 'Existing Gist ID for incremental updates',

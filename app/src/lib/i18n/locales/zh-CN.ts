@@ -956,6 +956,7 @@ export const zhCN = {
       tokenShow: '显示',
       tokenHide: '隐藏',
       tokenSave: '保存 token',
+      closeWindow: '关闭窗口',
       tokenHint: 'token 仅保存在浏览器 localStorage，不会被打包进同步内容。',
       gistIdLabel: 'Gist ID（可选）',
       gistIdPlaceholder: '已存在的 Gist ID，用于增量更新',

@@ -3,7 +3,7 @@
     "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/zh-CN.ts",
     "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/en-US.ts"
   ],
-  "count": 1121,
+  "count": 1122,
   "keys": [
     "api.loginSuccess",
     "calendar.description",
@@ -903,6 +903,7 @@
     "panels.solver.unsatSoftHint",
     "panels.solver.unsatTitle",
     "panels.solver.weekdayFallback",
+    "panels.sync.closeWindow",
     "panels.sync.confirm.cancel",
     "panels.sync.confirm.importBody",
     "panels.sync.confirm.importConfirm",
