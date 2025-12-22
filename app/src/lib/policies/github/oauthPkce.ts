@@ -40,7 +40,10 @@ export function getGithubPkceAvailability(): GithubPkceAvailability {
 	// GitHub Pages needs an OAuth proxy (GitHub's token endpoint is not CORS-enabled).
 	if (isGithubPagesHost() && !getOauthProxyUrl()) return { supported: false, reason: 'unsupportedRuntime' };
 
-	const redirectUri = new URL(`${base}/auth/callback`, window.location.origin).toString();
+	// IMPORTANT (GitHub Pages):
+	// adapter-static writes `auth/callback/index.html`, which requires a trailing slash when accessed directly.
+	// Without it, GitHub Pages falls back to `404.html`, and the callback runtime won't load reliably.
+	const redirectUri = new URL(`${base}/auth/callback/`, window.location.origin).toString();
 	return { supported: true, clientId, redirectUri };
 }
 
