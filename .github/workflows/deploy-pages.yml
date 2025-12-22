@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -46,28 +46,10 @@ jobs:
           JWXT_PASSWORD: ${{ secrets.JWXT_PASSWORD }}
           JWXT_CRAWL_CONCURRENCY: 4
 
-      - name: Commit JWXT snapshots (SSG bundled)
-        # Commit+push snapshot updates back to the repo.
-        #
-        # Important:
-        # - This commit is produced by github-actions[bot].
-        # - The workflow is guarded by `if: github.actor != github-actions[bot]` above,
-        #   so this push will NOT cause an infinite loop.
-        # - Deployment uses the CURRENT working tree (including these new files),
-        #   so we still deploy the latest snapshots in the same run.
-        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
-        working-directory: .
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add app/static/crawler/data
-          if git diff --cached --quiet; then
-            echo "No snapshot changes to commit"
-            exit 0
-          fi
-          git commit -m "chore(crawler): auto update JWXT snapshots [skip ci]"
-          # Push to the same branch that triggered this workflow.
-          git push origin "HEAD:${{ github.ref_name }}"
+      # NOTE: This workflow is designed for GitHub Pages (SSG).
+      # Some repos enforce Actions to have read-only `GITHUB_TOKEN` permissions.
+      # We therefore do NOT push snapshot updates back to the repo here; we still deploy
+      # the freshly crawled snapshots from the current working tree in the same run.
 
       - name: Build site
         # Static output (SSG): includes the freshly crawled+committed snapshots.
