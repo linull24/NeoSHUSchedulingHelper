@@ -13,7 +13,8 @@ const config = {
 			strict: true
 		}),
 		paths: {
-			base: process.env.BASE_PATH ?? ''
+			base: process.env.BASE_PATH ?? '',
+			relative: false
 		},
 		prerender: {
 			entries: ['*']
