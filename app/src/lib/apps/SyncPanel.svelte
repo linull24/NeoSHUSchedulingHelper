@@ -6,8 +6,8 @@
 	import { datasetMeta } from '$lib/data/catalog/courseCatalog';
 	import { termState, ensureTermStateLoaded, dispatchTermActionWithEffects } from '$lib/stores/termStateStore';
 	import { githubToken, clearGithubToken } from '$lib/stores/githubAuth';
+	import { githubGistId, setGithubGistId } from '$lib/stores/gistSyncPrefs';
 	import AppControlPanel from '$lib/primitives/AppControlPanel.svelte';
-	import AppField from '$lib/primitives/AppField.svelte';
 	import AppButton from '$lib/primitives/AppButton.svelte';
 	import AppDialog from '$lib/primitives/AppDialog.svelte';
 	import { get } from 'svelte/store';
@@ -15,16 +15,16 @@
 	import { translator } from '$lib/i18n';
 	import type { TranslateFn } from '$lib/i18n';
 	import { storageState, type StoragePreferencesSnapshot } from '$lib/stores/storageState';
+	import { getGithubPkceAvailability, startGithubPkceLoginPopup, type GithubPkceAvailability } from '$lib/policies/github/oauthPkce';
 
-	let gistId = '';
-	let gistNote = '';
-	let gistPublic = false;
 	let gistStatus = '';
 	let gistBusy = false;
 	let storageSnapshot: StoragePreferencesSnapshot | null = null;
 	let confirmOpen = false;
 	let confirmBusy = false;
 	let confirmError = '';
+	let githubLoginAvailability: GithubPkceAvailability = { supported: false, reason: 'unsupportedRuntime' };
+	let githubLoginHintKey: string = 'panels.sync.loginUnavailableHint';
 
 	let t: TranslateFn = (key) => key;
 	$: t = $translator;
@@ -39,27 +39,22 @@
 		);
 	};
 
-	const hasGithubConfig = Boolean(import.meta.env?.PUBLIC_GITHUB_CLIENT_ID);
-
 	$: void ensureTermStateLoaded();
 
-	function startGithubLogin() {
-		if (!hasGithubConfig) {
-			gistStatus = t('panels.sync.githubMissing');
-			return;
-		}
-		const width = 520;
-		const height = 640;
-		const left = window.screenX + (window.outerWidth - width) / 2;
-		const top = window.screenY + (window.outerHeight - height) / 2;
-		window.open(
-			'/api/github/login',
-			'github-login',
-			`width=${width},height=${height},left=${left},top=${top}`
-		);
+	async function startGithubLogin() {
+		const result = await startGithubPkceLoginPopup();
+		if (!result.ok) gistStatus = t(result.errorKey);
 	}
 
 	onMount(() => {
+		githubLoginAvailability = getGithubPkceAvailability();
+		githubLoginHintKey =
+			githubLoginAvailability.supported
+				? 'panels.sync.loginHint'
+				: githubLoginAvailability.reason === 'missingClientId'
+					? 'panels.sync.loginUnavailableHint'
+					: 'errors.githubPkceUnsupported';
+
 		function handleMessage(event: MessageEvent) {
 			if (event.origin !== window.location.origin) return;
 			if (event.data?.type === 'github-token' && event.data.token) {
@@ -94,9 +89,7 @@
 			const { result, effectsDone } = dispatchTermActionWithEffects({
 				type: 'SYNC_GIST_EXPORT',
 				token,
-				gistId: gistId.trim() || undefined,
-				note: gistNote.trim() || undefined,
-				public: gistPublic
+				gistId: $githubGistId ?? undefined
 			});
 			const dispatchResult = await result;
 			if (!dispatchResult.ok) {
@@ -112,7 +105,7 @@
 			const details = last?.details as Record<string, unknown> | undefined;
 			if (last?.id.startsWith('sync:export-ok:') && details && typeof details.url === 'string') {
 				gistStatus = format('panels.sync.statuses.syncSuccess', { url: details.url });
-				if (!gistId.trim() && typeof details.gistId === 'string') gistId = details.gistId;
+				if (typeof details.gistId === 'string') setGithubGistId(details.gistId);
 				return;
 			}
 			if (last?.id.startsWith('sync:export-err:') && details && typeof details.error === 'string') {
@@ -132,8 +125,8 @@
 	async function handleGistImportConfirm() {
 		const token = requireGithubToken();
 		if (!token) return;
-		const trimmed = gistId.trim();
-		if (!trimmed) {
+		const gistId = get(githubGistId);
+		if (!gistId) {
 			gistStatus = t('panels.sync.statuses.gistIdRequired');
 			return;
 		}
@@ -145,7 +138,7 @@
 			const { result, effectsDone } = dispatchTermActionWithEffects({
 				type: 'SYNC_GIST_IMPORT_REPLACE',
 				token,
-				gistId: trimmed
+				gistId
 			});
 			const dispatchResult = await result;
 			if (!dispatchResult.ok) {
@@ -246,45 +239,39 @@
 					{#if $githubToken}
 						<div class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)] min-w-0">
 							<span class="min-w-0 break-words [overflow-wrap:anywhere]">{t('panels.sync.gistLoggedIn')}</span>
-							<AppButton variant="secondary" size="sm" on:click={clearGithubToken}>
-								{t('panels.sync.logoutGithub')}
-							</AppButton>
+							<div class="flex flex-wrap items-center gap-2">
+								{#if githubLoginAvailability.supported}
+									<AppButton type="button" variant="primary" size="sm" on:click={startGithubLogin}>
+										{t('panels.sync.reloginGithub')}
+									</AppButton>
+								{/if}
+								<AppButton variant="secondary" size="sm" on:click={clearGithubToken}>
+									{t('panels.sync.logoutGithub')}
+								</AppButton>
+							</div>
 						</div>
 					{:else}
-						<AppButton type="button" variant="primary" size="sm" on:click={startGithubLogin}>
-							{t('panels.sync.loginGithub')}
-						</AppButton>
+						<div class="flex flex-col gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] p-3">
+							{#if githubLoginAvailability.supported}
+								<div class="flex flex-wrap items-center gap-2">
+									<AppButton type="button" variant="primary" size="sm" on:click={startGithubLogin}>
+										{t('panels.sync.loginGithub')}
+									</AppButton>
+									<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t(githubLoginHintKey)}</span>
+								</div>
+							{:else}
+								<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{t(githubLoginHintKey)}</p>
+							{/if}
+						</div>
 					{/if}
-					<AppField label={t('panels.sync.gistIdLabel')}>
-						<input
-							class="w-full min-w-0 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
-							type="text"
-							placeholder={t('panels.sync.gistIdPlaceholder')}
-							bind:value={gistId}
-						/>
-					</AppField>
-					<AppField label={t('panels.sync.noteLabel')}>
-						<input
-							class="w-full min-w-0 rounded-[var(--app-radius-md)] border border-[color:var(--app-color-border-subtle)] bg-[var(--app-color-bg)] px-3 py-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]"
-							type="text"
-							placeholder={t('panels.sync.notePlaceholder')}
-							bind:value={gistNote}
-						/>
-					</AppField>
-					<AppField label={t('panels.sync.publicLabel')}>
-						<label class="flex items-center gap-2 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-							<input type="checkbox" bind:checked={gistPublic} />
-							<span>{t('panels.sync.publicLabel')}</span>
-						</label>
-					</AppField>
-					<AppButton type="submit" variant="primary" size="sm" disabled={gistBusy || !hasGithubConfig}>
+					<AppButton type="submit" variant="primary" size="sm" disabled={gistBusy || !$githubToken}>
 						{gistBusy ? t('panels.sync.statuses.syncing') : t('panels.sync.uploadButton')}
 					</AppButton>
 					<AppButton
 						type="button"
 						variant="danger"
 						size="sm"
-						disabled={gistBusy || !hasGithubConfig || !$githubToken}
+						disabled={gistBusy || !$githubToken}
 						on:click={() => (confirmOpen = true)}
 					>
 						{t('panels.sync.importReplaceButton')}
@@ -292,8 +279,6 @@
 				</form>
 				{#if gistStatus}
 					<p class="mt-2 text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">{gistStatus}</p>
-				{:else if !hasGithubConfig}
-					<p class="mt-2 text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{t('panels.sync.githubMissing')}</p>
 				{/if}
 			</AppControlPanel>
 		</div>
@@ -308,7 +293,7 @@
 			}}
 		>
 			<p class="m-0 text-[var(--app-text-sm)] text-[var(--app-color-fg)]">
-				{format('panels.sync.confirm.importBody', { gistId: gistId.trim() || '-' })}
+				{t('panels.sync.confirm.importBody')}
 			</p>
 			{#if confirmError}
 				<p class="m-0 text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{confirmError}</p>

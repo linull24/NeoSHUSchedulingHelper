@@ -1,9 +1,9 @@
 {
   "generatedFrom": [
-    "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/zh-CN.ts",
-    "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/en-US.ts"
+    "/Users/linull/Documents/gits/SHU-Course-Scheduler/agentTemps/main-worktree/app/src/lib/i18n/locales/zh-CN.ts",
+    "/Users/linull/Documents/gits/SHU-Course-Scheduler/agentTemps/main-worktree/app/src/lib/i18n/locales/en-US.ts"
   ],
-  "count": 994,
+  "count": 996,
   "keys": [
     "api.loginSuccess",
     "calendar.description",
@@ -184,6 +184,9 @@
     "errors.githubMissingClientId",
     "errors.githubMissingCode",
     "errors.githubNoAccessToken",
+    "errors.githubPkceMissingVerifier",
+    "errors.githubPkceUnsupported",
+    "errors.githubPopupBlocked",
     "errors.githubServerConfig",
     "errors.githubStateValidation",
     "errors.githubTokenExchange",
@@ -818,8 +821,6 @@
     "panels.sync.exportPlaceholder",
     "panels.sync.exportTitle",
     "panels.sync.gistDescription",
-    "panels.sync.gistIdLabel",
-    "panels.sync.gistIdPlaceholder",
     "panels.sync.gistLoggedIn",
     "panels.sync.gistTitle",
     "panels.sync.githubMissing",
@@ -829,10 +830,10 @@
     "panels.sync.importReplaceButton",
     "panels.sync.importTitle",
     "panels.sync.loginGithub",
+    "panels.sync.loginHint",
+    "panels.sync.loginUnavailableHint",
     "panels.sync.logoutGithub",
-    "panels.sync.noteLabel",
-    "panels.sync.notePlaceholder",
-    "panels.sync.publicLabel",
+    "panels.sync.reloginGithub",
     "panels.sync.statuses.copyFailed",
     "panels.sync.statuses.copySuccess",
     "panels.sync.statuses.exportFailed",
@@ -841,6 +842,7 @@
     "panels.sync.statuses.gistImportDone",
     "panels.sync.statuses.gistImportSuccess",
     "panels.sync.statuses.gistImporting",
+    "panels.sync.statuses.githubAuthorizing",
     "panels.sync.statuses.githubLoginSuccess",
     "panels.sync.statuses.importEmpty",
     "panels.sync.statuses.importFailed",

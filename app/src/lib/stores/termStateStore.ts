@@ -25,6 +25,7 @@ import { getGistFileContent, syncGist } from '../data/github/gistSync';
 import { assertNever } from '../data/termState/types';
 import { deriveGroupKey } from '../data/termState/groupKey';
 import { collapseCoursesByName } from './courseDisplaySettings';
+import { z } from 'zod';
 
 type TermStateStatus =
 	| { kind: 'idle' }
@@ -87,6 +88,12 @@ export type TermStateAlert = {
 export function clearTermStateAlert() {
 	alertStore.set(null);
 }
+
+const GIST_BUNDLE_FILENAME = 'term-state.json';
+const GistBundleSchema = z.object({
+	updatedAt: z.number(),
+	payloadBase64: z.string().min(1)
+});
 
 export async function setAutoSolveEnabled(nextEnabled: boolean) {
 	await ensureTermStateLoaded();
@@ -1085,13 +1092,15 @@ async function runEffect(effect: TermEffect) {
 		}
 		case 'EFF_GIST_PUT': {
 			try {
+				const updatedAt = Date.now();
+				const payload = JSON.stringify({ updatedAt, payloadBase64: effect.payloadBase64 } satisfies z.infer<typeof GistBundleSchema>);
 				const result = await syncGist({
 					token: effect.token,
 					gistId: effect.gistId,
-					public: effect.public,
-					description: effect.note ?? 'SHU Course Scheduler TermState Bundle',
+					public: false,
+					description: 'SHU Course Scheduler TermState Bundle',
 					files: {
-						'term-state.base64': effect.payloadBase64
+						[GIST_BUNDLE_FILENAME]: payload
 					}
 				});
 				await dispatchTermAction({ type: 'SYNC_GIST_EXPORT_OK', gistId: result.id, url: result.url });
@@ -1108,9 +1117,11 @@ async function runEffect(effect: TermEffect) {
 				const file = await getGistFileContent({
 					token: effect.token,
 					gistId: effect.gistId,
-					filename: 'term-state.base64'
+					filename: GIST_BUNDLE_FILENAME
 				});
-				const bundle = parseTermStateBundleBase64(file.content.trim());
+				const raw = JSON.parse(file.content.trim()) as unknown;
+				const parsed = GistBundleSchema.parse(raw);
+				const bundle = parseTermStateBundleBase64(parsed.payloadBase64.trim());
 				const current = get(stateStore);
 				if (!current) throw new Error('state not loaded');
 				if (bundle.termId !== current.termId) throw new Error('sync-import-term-mismatch');
