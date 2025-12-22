@@ -25,12 +25,11 @@ import { courseCatalogMap, courseDataset } from '../data/catalog/courseCatalog';
 import { getGistFileContent, syncGist } from '../data/github/gistSync';
 import { assertNever } from '../data/termState/types';
 import { deriveGroupKey } from '../data/termState/groupKey';
-import { collapseCoursesByName } from './courseDisplaySettings';
-import { z } from 'zod';
-import { appPolicy } from '../policies';
-import type { PolicyGateModule, PolicyGateResult } from '../policies/solver/types';
-import { buildJwxtBatchHardConstraintsForZ3 } from '../policies/jwxt/batchFilter';
-import { z } from 'zod';
+	import { collapseCoursesByName } from './courseDisplaySettings';
+	import { z } from 'zod';
+	import { appPolicy } from '../policies';
+	import type { PolicyGateModule, PolicyGateResult } from '../policies/solver/types';
+	import { buildJwxtBatchHardConstraintsForZ3 } from '../policies/jwxt/batchFilter';
 
 type TermStateStatus =
 	| { kind: 'idle' }
