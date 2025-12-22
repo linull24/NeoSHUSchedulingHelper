@@ -5,5 +5,4 @@ compatibility_date = "2025-12-01"
 [vars]
 # Comma-separated list of allowed origins, e.g.:
 # "https://linull24.github.io,https://shuosc.github.io"
-ALLOWED_ORIGINS = ""
-
+ALLOWED_ORIGINS = "https://linull24.github.io,https://shuosc.github.io"
