@@ -1,7 +1,7 @@
 <svelte:options runes={false} />
 
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser, dev } from '$app/environment';
 	import AppButton from '$lib/primitives/AppButton.svelte';
 	import { getUserscriptConfig, type UserscriptConfig } from '../../config/userscript';
 
@@ -17,8 +17,15 @@
 		// Avoid async work here to prevent popup blockers or gesture loss in dev mode.
 		const url = new URL(config.scriptUrl, window.location.origin);
 		// Cache-bust in dev so updating the userscript triggers reinstall.
-		url.searchParams.set('t', String(Date.now()));
-		window.location.assign(url.toString());
+		if (dev) url.searchParams.set('t', String(Date.now()));
+
+		// Prefer an actual link-click (some userscript managers only hook on *.user.js navigations).
+		const anchor = document.createElement('a');
+		anchor.href = url.toString();
+		anchor.rel = 'noopener noreferrer';
+		document.body.appendChild(anchor);
+		anchor.click();
+		anchor.remove();
 	}
 
 	function openHelp() {
@@ -35,4 +42,3 @@
 		{helpLabel || 'Help'}
 	</AppButton>
 </div>
-

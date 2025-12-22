@@ -73,7 +73,7 @@
 
 	const panelApis = new Map<WorkspacePanelType, DockviewPanelApi>();
 	const LAYOUT_COOKIE_KEY = 'dockview_layout_v1';
-	const LAYOUT_COOKIE_CHUNK_SIZE = 3400;
+	const LAYOUT_COOKIE_CHUNK_SIZE = 3600;
 
 	let t = (key: string) => key;
 	$: t = $translator;
@@ -207,7 +207,7 @@
 			const parts = document.cookie.split(';');
 			for (const part of parts) {
 				const trimmed = part.trim();
-				if (trimmed.startsWith(target)) return decodeURIComponent(trimmed.slice(target.length));
+				if (trimmed.startsWith(target)) return trimmed.slice(target.length);
 			}
 		} catch {
 			// ignore
@@ -218,10 +218,9 @@
 	function writeCookie(key: string, value: string) {
 		if (!browser) return;
 		try {
-			const encoded = encodeURIComponent(value);
 			// Cookie size limit is ~4KB; keep best-effort.
-			if (encoded.length > 3800) return;
-			document.cookie = `${encodeURIComponent(key)}=${encoded}; Max-Age=31536000; Path=/; SameSite=Lax`;
+			if (value.length > 3800) return;
+			document.cookie = `${encodeURIComponent(key)}=${value}; Max-Age=31536000; Path=/; SameSite=Lax`;
 		} catch {
 			// ignore
 		}
@@ -236,6 +235,27 @@
 		}
 	}
 
+	function base64UrlEncodeString(value: string) {
+		const bytes = new TextEncoder().encode(value);
+		let raw = '';
+		for (const b of bytes) raw += String.fromCharCode(b);
+		const base64 = btoa(raw);
+		return base64.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+	}
+
+	function base64UrlDecodeToString(value: string): string | null {
+		try {
+			let base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+			while (base64.length % 4) base64 += '=';
+			const raw = atob(base64);
+			const bytes = new Uint8Array(raw.length);
+			for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+			return new TextDecoder().decode(bytes);
+		} catch {
+			return null;
+		}
+	}
+
 	function readCookieChunks(baseKey: string): string | null {
 		const countRaw = readCookie(`${baseKey}__count`);
 		const count = Number.parseInt(String(countRaw || ''), 10);
@@ -247,15 +267,11 @@
 			if (part == null) return null;
 			joined += part;
 		}
-		try {
-			return decodeURIComponent(joined);
-		} catch {
-			return null;
-		}
+		return base64UrlDecodeToString(joined);
 	}
 
 	function writeCookieChunks(baseKey: string, rawValue: string) {
-		const encoded = encodeURIComponent(rawValue);
+		const encoded = base64UrlEncodeString(rawValue);
 		const chunks: string[] = [];
 		for (let i = 0; i < encoded.length; i += LAYOUT_COOKIE_CHUNK_SIZE) {
 			chunks.push(encoded.slice(i, i + LAYOUT_COOKIE_CHUNK_SIZE));
