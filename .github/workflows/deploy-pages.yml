@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, master]
+    branches: [develop, main, master]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
     # - This workflow may push snapshot commits (crawler outputs) using github-actions[bot].
     # - The same run already has the updated files in its working tree and will build+deploy them.
     # - Therefore, the follow-up bot commit should NOT trigger another build+deploy cycle.
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,7 +39,7 @@ jobs:
       - name: Crawl JWXT snapshots (SSG bundled)
         # Cloud-side fallback only: prefer frontend-first runtime.
         # This step updates SSG-bundled snapshots under `app/static/crawler/data/**`.
-        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
+        if: ${{ secrets.JWXT_USERID != '' && secrets.JWXT_PASSWORD != '' }}
         run: npm run crawl:jwxt
         env:
           JWXT_USERID: ${{ secrets.JWXT_USERID }}
@@ -55,7 +55,7 @@ jobs:
         #   so this push will NOT cause an infinite loop.
         # - Deployment uses the CURRENT working tree (including these new files),
         #   so we still deploy the latest snapshots in the same run.
-        if: ${{ secrets.JWXT_USERID && secrets.JWXT_PASSWORD }}
+        if: ${{ secrets.JWXT_USERID != '' && secrets.JWXT_PASSWORD != '' }}
         working-directory: .
         run: |
           git config user.name "github-actions[bot]"
@@ -82,7 +82,7 @@ jobs:
 
   deploy:
     needs: build
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: github.actor != 'github-actions[bot]' && (github.ref_name == 'main' || github.ref_name == 'master')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
