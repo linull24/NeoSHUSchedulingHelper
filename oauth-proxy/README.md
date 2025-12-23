@@ -3,7 +3,7 @@
 GitHub Pages is static, and GitHub's OAuth token endpoint (`https://github.com/login/oauth/access_token`) is **not CORS-enabled**.
 So a browser-only PKCE flow cannot exchange `code` -> `access_token` directly.
 
-This proxy performs **token exchange server-side** (still PKCE, no `client_secret` required), and returns JSON with CORS enabled.
+This proxy performs **token exchange server-side** (still PKCE), and returns JSON with CORS enabled.
 
 ## Deploy (Cloudflare Worker)
 
@@ -28,3 +28,16 @@ wrangler deploy
 
 On GitHub Actions Pages build, you can add `PUBLIC_GITHUB_OAUTH_PROXY_URL` as a repository variable or secret and wire it into the build step.
 
+## Optional hardening (recommended)
+
+You can bind a GitHub OAuth app secret to the worker (kept server-side):
+
+```bash
+wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+Optionally, lock the worker to a single GitHub client id:
+
+```bash
+wrangler secret put GITHUB_CLIENT_ID
+```
