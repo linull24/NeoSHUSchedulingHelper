@@ -93,6 +93,42 @@
 			if (event.newValue === null) githubToken.set(null);
 		}
 
+		function readOauthLastError(raw: string | null) {
+			if (!raw) return null;
+			try {
+				const parsed = JSON.parse(raw);
+				const errorKey = typeof parsed?.errorKey === 'string' ? parsed.errorKey : '';
+				const values = parsed?.values as Record<string, string> | undefined;
+				if (!errorKey) return null;
+				return { errorKey, values };
+			} catch {
+				return null;
+			}
+		}
+
+		function handleOauthErrorStorage(event: StorageEvent) {
+			if (event.key !== 'github:oauth:pkce:lastError') return;
+			const payload = readOauthLastError(event.newValue);
+			if (!payload) return;
+			gistStatus = formatMessage(payload.errorKey, payload.values);
+			try {
+				localStorage.removeItem('github:oauth:pkce:lastError');
+			} catch {
+				// ignore
+			}
+		}
+
+		// If the popup flow errored before SyncPanel mounted, surface it.
+		try {
+			const existing = readOauthLastError(localStorage.getItem('github:oauth:pkce:lastError'));
+			if (existing) {
+				gistStatus = formatMessage(existing.errorKey, existing.values);
+				localStorage.removeItem('github:oauth:pkce:lastError');
+			}
+		} catch {
+			// ignore
+		}
+
 		const channelName = 'neoxk:github-oauth';
 		const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(channelName);
 		function handleChannelMessage(event: MessageEvent) {
@@ -106,9 +142,11 @@
 
 		window.addEventListener('message', handleMessage);
 		window.addEventListener('storage', handleStorage);
+		window.addEventListener('storage', handleOauthErrorStorage);
 		return () => {
 			window.removeEventListener('message', handleMessage);
 			window.removeEventListener('storage', handleStorage);
+			window.removeEventListener('storage', handleOauthErrorStorage);
 			channel?.removeEventListener('message', handleChannelMessage as any);
 			channel?.close();
 		};

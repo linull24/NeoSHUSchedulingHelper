@@ -6,6 +6,7 @@ import { setGithubToken } from '../../stores/githubAuth';
 
 const SESSION_PREFIX = 'github:oauth:pkce:';
 const CALLBACK_KEY = 'github:oauth:pkce:callback';
+const ERROR_KEY = 'github:oauth:pkce:lastError';
 const CALLBACK_TTL_MS = 2 * 60 * 1000;
 
 const GithubPkceSessionSchema = z.object({
@@ -239,6 +240,28 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	const channelName = 'neoxk:github-oauth';
 	const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(channelName);
 	const notifyError = (payload: { errorKey: string; values?: Record<string, string> }) => {
+		try {
+			localStorage.setItem(
+				ERROR_KEY,
+				JSON.stringify({
+					errorKey: String(payload.errorKey || ''),
+					values: payload.values ?? undefined,
+					createdAt: Date.now()
+				})
+			);
+			setTimeout(() => {
+				try {
+					const raw = localStorage.getItem(ERROR_KEY);
+					if (!raw) return;
+					const parsed = JSON.parse(raw);
+					if (parsed?.errorKey === payload.errorKey) localStorage.removeItem(ERROR_KEY);
+				} catch {
+					// ignore
+				}
+			}, 30_000);
+		} catch {
+			// ignore
+		}
 		try {
 			const outbound = new BroadcastChannel(channelName);
 			outbound.postMessage({ type: 'github-oauth-error', ...payload });
