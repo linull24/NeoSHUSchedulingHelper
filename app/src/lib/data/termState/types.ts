@@ -272,7 +272,7 @@ export type TermAction =
 	| { type: 'SOLVER_RUN_ERR'; error: string }
 	| { type: 'SOLVER_APPLY_RESULT'; resultId: string; mode: 'merge' | 'replace-all' }
 	| { type: 'SOLVER_UNDO_LAST_APPLY' }
-	| { type: 'SYNC_GIST_IMPORT_REPLACE'; token: string; gistId: string }
+	| { type: 'SYNC_GIST_IMPORT_REPLACE'; token: string; gistId?: string }
 	| { type: 'SYNC_GIST_EXPORT'; token: string; gistId?: string; note?: string; public?: boolean }
 	| { type: 'SYNC_GIST_EXPORT_OK'; gistId: string; url: string }
 	| { type: 'SYNC_GIST_EXPORT_ERR'; error: string }
@@ -289,7 +289,7 @@ export type TermEffect =
 	| { type: 'EFF_AUTO_SOLVE_RUN'; mode: 'merge' | 'replace-all'; runId: string }
 	| { type: 'EFF_AUTO_SOLVE_EXIT_EXPORT'; mode: 'merge' | 'replace-all'; runId: string }
 	| { type: 'EFF_DATASET_REFRESH' }
-	| { type: 'EFF_GIST_GET'; token: string; gistId: string }
+	| { type: 'EFF_GIST_GET'; token: string; gistId?: string }
 	| { type: 'EFF_GIST_PUT'; token: string; gistId?: string; note?: string; public?: boolean; payloadBase64: string };
 
 export function assertNever(value: never, message = 'Unexpected value'): never {

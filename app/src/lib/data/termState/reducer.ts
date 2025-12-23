@@ -1909,14 +1909,15 @@ export async function reduceTermState(state: TermState, action: TermAction): Pro
 			};
 		}
 		case 'SYNC_GIST_IMPORT_REPLACE': {
+			const gistId = action.gistId;
 			const next = appendHistory(state, {
 				id: `sync:import:${state.history.entries.length}`,
 				at: nowEpochMs(),
 				type: 'sync',
 				label: '从 Gist 导入覆盖',
-				details: { gistId: action.gistId }
+				details: gistId ? { gistId } : undefined
 			});
-			return { state: next, effects: [{ type: 'EFF_GIST_GET', token: action.token, gistId: action.gistId }] };
+			return { state: next, effects: [{ type: 'EFF_GIST_GET', token: action.token, gistId: gistId ?? undefined }] };
 		}
 		case 'SYNC_GIST_EXPORT_OK': {
 			const next = appendHistory(state, {

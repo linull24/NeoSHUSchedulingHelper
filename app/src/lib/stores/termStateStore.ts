@@ -22,7 +22,7 @@ import {
 } from '../data/jwxt/jwxtApi';
 import { digestToMd5LikeHex } from '../data/termState/digest';
 import { courseCatalogMap, courseDataset } from '../data/catalog/courseCatalog';
-import { getGistFileContent, syncGist } from '../data/github/gistSync';
+import { findLatestGistId, getGistFileContent, syncGist } from '../data/github/gistSync';
 import { assertNever } from '../data/termState/types';
 import { deriveGroupKey } from '../data/termState/groupKey';
 	import { collapseCoursesByName } from './courseDisplaySettings';
@@ -190,6 +190,7 @@ export function clearTermStateAlert() {
 }
 
 const GIST_BUNDLE_FILENAME = 'term-state.json';
+const GIST_BUNDLE_DESCRIPTION = 'NeoSHUSchedulingHelper TermState Bundle';
 const GistBundleSchema = z.object({
 	updatedAt: z.number(),
 	payloadBase64: z.string().min(1)
@@ -1241,11 +1242,21 @@ async function runEffect(effect: TermEffect) {
 			try {
 				const updatedAt = Date.now();
 				const payload = JSON.stringify({ updatedAt, payloadBase64: effect.payloadBase64 } satisfies z.infer<typeof GistBundleSchema>);
+
+				// Auto-discover the existing cloud backup gist (prevents creating many same-name gists).
+				let gistId: string | undefined = effect.gistId ?? undefined;
+				if (!gistId) {
+					gistId = (await findLatestGistId({
+						token: effect.token,
+						filename: GIST_BUNDLE_FILENAME,
+						descriptionIncludes: GIST_BUNDLE_DESCRIPTION
+					})) ?? undefined;
+				}
 				const result = await syncGist({
 					token: effect.token,
-					gistId: effect.gistId,
+					gistId: gistId ?? undefined,
 					public: false,
-					description: 'SHU Course Scheduler TermState Bundle',
+					description: GIST_BUNDLE_DESCRIPTION,
 					files: {
 						[GIST_BUNDLE_FILENAME]: payload
 					}
@@ -1261,9 +1272,19 @@ async function runEffect(effect: TermEffect) {
 		}
 		case 'EFF_GIST_GET': {
 			try {
+				// Auto-discover cloud backup gist if not pinned locally yet.
+				let gistId: string | undefined = effect.gistId ?? undefined;
+				if (!gistId) {
+					gistId = (await findLatestGistId({
+						token: effect.token,
+						filename: GIST_BUNDLE_FILENAME,
+						descriptionIncludes: GIST_BUNDLE_DESCRIPTION
+					})) ?? undefined;
+				}
+				if (!gistId) throw new Error('No cloud backup yet');
 				const file = await getGistFileContent({
 					token: effect.token,
-					gistId: effect.gistId,
+					gistId,
 					filename: GIST_BUNDLE_FILENAME
 				});
 				const raw = JSON.parse(file.content.trim()) as unknown;
@@ -1278,14 +1299,15 @@ async function runEffect(effect: TermEffect) {
 
 				await dispatchTermAction({
 					type: 'SYNC_GIST_IMPORT_OK',
-					gistId: effect.gistId,
+					gistId,
 					state: bundle.termState,
 					generatedAt: bundle.generatedAt
 				});
 			} catch (error) {
+				const fallbackGistId = effect.gistId ?? 'auto';
 				await dispatchTermAction({
 					type: 'SYNC_GIST_IMPORT_ERR',
-					gistId: effect.gistId,
+					gistId: fallbackGistId,
 					error: error instanceof Error ? error.message : String(error)
 				});
 			}

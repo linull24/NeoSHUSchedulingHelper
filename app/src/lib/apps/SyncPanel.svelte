@@ -212,11 +212,7 @@
 	async function handleGistImportConfirm() {
 		const token = requireGithubToken();
 		if (!token) return;
-		const gistId = get(githubGistId);
-		if (!gistId) {
-			gistStatus = t('panels.sync.statuses.gistIdRequired');
-			return;
-		}
+		const gistId = get(githubGistId) ?? undefined;
 
 		try {
 			confirmBusy = true;
@@ -225,7 +221,7 @@
 			const { result, effectsDone } = dispatchTermActionWithEffects({
 				type: 'SYNC_GIST_IMPORT_REPLACE',
 				token,
-				gistId
+				gistId: gistId ?? undefined
 			});
 			const dispatchResult = await result;
 			if (!dispatchResult.ok) {
@@ -242,6 +238,7 @@
 			const details = last?.details as Record<string, unknown> | undefined;
 			if (last?.id.startsWith('sync:import-ok:')) {
 				gistStatus = t('panels.sync.statuses.gistImportSuccess');
+				if (details && typeof details.gistId === 'string') setGithubGistId(details.gistId);
 				confirmOpen = false;
 				return;
 			}
