@@ -42,12 +42,21 @@ jobs:
       - name: Crawl JWXT snapshots (SSG bundled)
         # Cloud-side fallback only: prefer frontend-first runtime.
         # This step updates SSG-bundled snapshots under `app/static/crawler/data/**`.
+        continue-on-error: true
+        timeout-minutes: 15
         run: |
           if [ -z "${JWXT_USERID:-}" ] || [ -z "${JWXT_PASSWORD:-}" ]; then
             echo "JWXT secrets not set; skip crawl"
             exit 0
           fi
+          set +e
           npm run crawl:jwxt
+          code="$?"
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "JWXT crawl failed (code=$code); continue using existing snapshots"
+            exit 0
+          fi
         env:
           JWXT_USERID: ${{ secrets.JWXT_USERID }}
           JWXT_PASSWORD: ${{ secrets.JWXT_PASSWORD }}

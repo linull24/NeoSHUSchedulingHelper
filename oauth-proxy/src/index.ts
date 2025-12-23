@@ -1,5 +1,7 @@
 type Env = {
 	ALLOWED_ORIGINS?: string;
+	GITHUB_CLIENT_ID?: string;
+	GITHUB_CLIENT_SECRET?: string;
 };
 
 function parseAllowedOrigins(raw: string | undefined) {
@@ -59,13 +61,23 @@ async function handleToken(request: Request, env: Env): Promise<Response> {
 		return withCors(request, env, new Response('Missing required fields', { status: 400 }));
 	}
 
+	// Optional hardening: if the worker is configured with a fixed client_id, reject mismatches.
+	const configuredClientId = String(env.GITHUB_CLIENT_ID || '').trim();
+	if (configuredClientId && configuredClientId !== client_id) {
+		return withCors(request, env, new Response('Invalid client_id', { status: 400 }));
+	}
+
+	const params = new URLSearchParams({ client_id, code, redirect_uri, code_verifier });
+	const clientSecret = String(env.GITHUB_CLIENT_SECRET || '').trim();
+	if (clientSecret) params.set('client_secret', clientSecret);
+
 	const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
 		method: 'POST',
 		headers: {
 			Accept: 'application/json',
 			'Content-Type': 'application/x-www-form-urlencoded'
 		},
-		body: new URLSearchParams({ client_id, code, redirect_uri, code_verifier })
+		body: params
 	});
 
 	const bodyText = await tokenResponse.text().catch(() => '');
@@ -83,4 +95,3 @@ export default {
 		return new Response('Not Found', { status: 404 });
 	}
 };
-

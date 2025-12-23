@@ -12,6 +12,7 @@ export interface QueryLayer {
 
 let dbPromise: Promise<QueryLayer> | null = null;
 let currentEngine: QueryLayerConfig['engine'] | null = null;
+let duckdbFallbackWarned = false;
 
 const duckdbWasmMvp = new URL('@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm', import.meta.url).href;
 const duckdbWasmEh = new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url).href;
@@ -96,6 +97,22 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 		// breaking term_state persistence and to keep the app usable.
 		return /^DUCKDB_OPFS_(UNSUPPORTED|LOCKED|OPEN_FAILED)/.test(msg);
 	};
+
+	const warnDuckdbFallback = (error: unknown) => {
+		if (duckdbFallbackWarned) return;
+		duckdbFallbackWarned = true;
+		console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
+	};
+
+	const canUseDuckdbOpfs = () => {
+		if (!isBrowserEnv()) return false;
+		try {
+			// DuckDB OPFS persistence relies on OPFS Sync Access Handles.
+			return typeof (globalThis as any).FileSystemFileHandle?.prototype?.createSyncAccessHandle === 'function';
+		} catch {
+			return false;
+		}
+	};
 	if (currentEngine && config.engine === currentEngine && dbPromise) {
 		return dbPromise;
 	}
@@ -106,10 +123,7 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 				return await initDuckDB();
 			} catch (error) {
 				if (config.strictEngine && !shouldForceFallback(error)) throw error;
-				// OPFS access handles are not available in all browsers/contexts; fall back silently.
-				if (!shouldForceFallback(error)) {
-					console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
-				}
+				warnDuckdbFallback(error);
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
 			}
@@ -117,14 +131,16 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 			currentEngine = 'sqljs';
 			return createFallbackLayer();
 		default:
+			if (!canUseDuckdbOpfs()) {
+				currentEngine = 'sqljs';
+				return createFallbackLayer();
+			}
 			try {
 				currentEngine = 'duckdb';
 				return await initDuckDB();
 			} catch (error) {
 				if (config.strictEngine && !shouldForceFallback(error)) throw error;
-				if (!shouldForceFallback(error)) {
-					console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
-				}
+				warnDuckdbFallback(error);
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
 			}
