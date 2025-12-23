@@ -86,6 +86,7 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}
           PUBLIC_GITHUB_CLIENT_ID: ${{ secrets.NEOXK_GITHUB_CLIENT_ID }}
           PUBLIC_GITHUB_OAUTH_PROXY_URL: ${{ vars.PUBLIC_GITHUB_OAUTH_PROXY_URL }}
+          VITE_GITHUB_REPO: ${{ github.repository }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
