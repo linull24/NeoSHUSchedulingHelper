@@ -1,6 +1,5 @@
 import { base } from '$app/paths';
 import { browser, dev } from '$app/environment';
-import { env as publicEnv } from '$env/dynamic/public';
 import { z } from 'zod';
 
 const SESSION_PREFIX = 'github:oauth:pkce:';
@@ -22,7 +21,7 @@ function isGithubPagesHost() {
 }
 
 function getOauthProxyUrl() {
-	const raw = publicEnv.PUBLIC_GITHUB_OAUTH_PROXY_URL;
+	const raw = import.meta.env.PUBLIC_GITHUB_OAUTH_PROXY_URL;
 	if (!raw) return null;
 	try {
 		return new URL(raw).toString();
@@ -45,7 +44,7 @@ function normalizeRedirectUri(value: string) {
 
 export function getGithubPkceAvailability(): GithubPkceAvailability {
 	if (!browser) return { supported: false, reason: 'unsupportedRuntime' };
-	const clientId = publicEnv.PUBLIC_GITHUB_CLIENT_ID;
+	const clientId = import.meta.env.PUBLIC_GITHUB_CLIENT_ID;
 	if (!clientId) return { supported: false, reason: 'missingClientId' };
 	if (!globalThis.crypto?.subtle) return { supported: false, reason: 'unsupportedRuntime' };
 
@@ -61,7 +60,7 @@ export function getGithubPkceAvailability(): GithubPkceAvailability {
 
 export function getGithubManualTokenAllowed() {
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN);
+	return Boolean(dev) || Boolean(import.meta.env.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN);
 }
 
 export type GithubPkceStartResult =
