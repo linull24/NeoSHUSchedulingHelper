@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": 1766458109804,
+  "generatedAt": 1766464696851,
   "termId": "2025-16--xkkz-458F6379768B4061E063F1000A0AC4CD",
   "termCode": "2025-16",
   "jwxtRound": {
@@ -22,36 +22,36 @@
       "valueCount": 240,
       "min": 0,
       "max": 2,
-      "avg": 0.058,
-      "positiveCount": 12
+      "avg": 0.067,
+      "positiveCount": 14
     },
     "培养方案已选人数": {
       "valueCount": 240,
       "min": 0,
       "max": 43,
-      "avg": 14.383,
+      "avg": 14.404,
       "positiveCount": 185
     },
     "总计": {
       "valueCount": 240,
       "min": 0,
       "max": 104,
-      "avg": 20.146,
+      "avg": 20.196,
       "positiveCount": 234
     },
     "预置已选人数": {
       "valueCount": 240,
       "min": 0,
       "max": 103,
-      "avg": 4.292,
-      "positiveCount": 82
+      "avg": 4.3,
+      "positiveCount": 83
     },
     "高年级已选人数": {
       "valueCount": 240,
       "min": 0,
       "max": 11,
-      "avg": 1.413,
-      "positiveCount": 127
+      "avg": 1.425,
+      "positiveCount": 128
     }
   }
 }
