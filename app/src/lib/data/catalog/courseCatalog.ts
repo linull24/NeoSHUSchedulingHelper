@@ -83,10 +83,6 @@ async function resolveBrowserSnapshotText(termIdOrCode: string): Promise<string>
 		if (text) return text;
 	}
 
-	const directUrl = withBasePath(`/crawler/data/terms/${termIdOrCode}.json`);
-	const directText = await fetchTextOrNull(directUrl);
-	if (directText) return directText;
-
 	const manifestText = await fetchTextOrNull(withBasePath('/crawler/data/current.json'));
 	if (manifestText) {
 		try {
@@ -101,6 +97,10 @@ async function resolveBrowserSnapshotText(termIdOrCode: string): Promise<string>
 			// ignore
 		}
 	}
+
+	const directUrl = withBasePath(`/crawler/data/terms/${termIdOrCode}.json`);
+	const directText = await fetchTextOrNull(directUrl);
+	if (directText) return directText;
 
 	throw new Error(
 		`未找到学期 ${termIdOrCode} 的原始快照文件（尝试：${directUrl} ${withBasePath('/crawler/data/current.json')}）`

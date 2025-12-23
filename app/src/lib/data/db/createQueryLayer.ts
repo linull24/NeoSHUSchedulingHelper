@@ -106,7 +106,10 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 				return await initDuckDB();
 			} catch (error) {
 				if (config.strictEngine && !shouldForceFallback(error)) throw error;
-				console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
+				// OPFS access handles are not available in all browsers/contexts; fall back silently.
+				if (!shouldForceFallback(error)) {
+					console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
+				}
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
 			}
@@ -119,7 +122,9 @@ async function instantiateLayer(config: QueryLayerConfig): Promise<QueryLayer> {
 				return await initDuckDB();
 			} catch (error) {
 				if (config.strictEngine && !shouldForceFallback(error)) throw error;
-				console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
+				if (!shouldForceFallback(error)) {
+					console.warn('[DB] DuckDB-Wasm 初始化失败，回退至 sql.js', toErrorInfo(error));
+				}
 				currentEngine = 'sqljs';
 				return createFallbackLayer();
 			}

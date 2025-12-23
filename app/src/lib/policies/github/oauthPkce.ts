@@ -2,6 +2,7 @@ import { base } from '$app/paths';
 import { browser, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
 import { z } from 'zod';
+import { setGithubToken } from '$lib/stores/githubAuth';
 
 const SESSION_PREFIX = 'github:oauth:pkce:';
 
@@ -272,6 +273,12 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	const deliverToken = (token: string) => {
 		const value = token.trim();
 		if (!value) return;
+		// Persist token in the opener window even if the SyncPanel is not currently mounted.
+		try {
+			setGithubToken(value);
+		} catch {
+			// ignore
+		}
 		try {
 			const outbound = new BroadcastChannel(channelName);
 			outbound.postMessage({ type: 'github-token', token: value });

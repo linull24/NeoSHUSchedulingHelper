@@ -35,6 +35,10 @@ if (typeof window !== 'undefined') {
 
 export const githubToken = tokenStore;
 
+export function setGithubToken(token: string) {
+	githubToken.set(String(token || '').trim() || null);
+}
+
 export function clearGithubToken() {
 	githubToken.set(null);
 }

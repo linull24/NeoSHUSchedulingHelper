@@ -521,6 +521,11 @@ async function main() {
 	const termPath = path.join(termsDir, `${roundTermId}.json`);
 	await writeJsonFile(termPath, snapshotOut);
 
+	// Stable alias for the current term code (used by the frontend as a predictable URL).
+	// This prevents `/crawler/data/terms/<termCode>.json` from 404-ing on GitHub Pages.
+	const termAliasPath = path.join(termsDir, `${termCode}.json`);
+	await writeJsonFile(termAliasPath, snapshotOut);
+
 	// Batchdata (user-agnostic) — generated alongside term snapshots.
 	// This is best-effort; failures should not block the whole crawl job.
 	try {
@@ -572,6 +577,7 @@ async function main() {
 	console.log('[jwxt-crawl] wrote:', {
 		term: roundTermId,
 		termsFile: path.relative(process.cwd(), termPath),
+		termAliasFile: path.relative(process.cwd(), termAliasPath),
 		currentFile: path.relative(process.cwd(), currentPath),
 		courses: Array.isArray((snapshot as any)?.courses) ? (snapshot as any).courses.length : null
 	});

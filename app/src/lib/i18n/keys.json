@@ -3,7 +3,7 @@
     "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/zh-CN.ts",
     "/Users/linull/Documents/gits/SHU-Course-Scheduler/app/src/lib/i18n/locales/en-US.ts"
   ],
-  "count": 1113,
+  "count": 1116,
   "keys": [
     "api.loginSuccess",
     "calendar.description",
@@ -1034,6 +1034,9 @@
     "settings.pwaInstalledYes",
     "settings.pwaOfflineStateDesc",
     "settings.pwaOfflineStateLabel",
+    "settings.pwaResetCacheButton",
+    "settings.pwaResetCacheDesc",
+    "settings.pwaResetCacheLabel",
     "settings.pwaSection",
     "settings.pwaSwControlled",
     "settings.pwaSwDevDisabled",

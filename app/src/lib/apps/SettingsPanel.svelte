@@ -68,6 +68,8 @@
 	let pwaInstallable = false;
 	let pwaInstallPrompt: BeforeInstallPromptEvent | null = null;
 	let pwaInstallStatus: 'idle' | 'prompted' | 'accepted' | 'dismissed' | 'error' = 'idle';
+	let pwaResetBusy = false;
+	let pwaResetError = '';
 
 	let swStatus: ServiceWorkerStatus = { supported: false, registered: false, controlled: false };
 	let resetOpen = false;
@@ -122,6 +124,27 @@
 			pwaInstalled = computeStandalone();
 		} catch {
 			pwaInstallStatus = 'error';
+		}
+	}
+
+	async function resetPwaOfflineCache() {
+		if (!browser) return;
+		if (pwaResetBusy) return;
+		pwaResetBusy = true;
+		pwaResetError = '';
+		try {
+			if ('serviceWorker' in navigator) {
+				const regs = await navigator.serviceWorker.getRegistrations();
+				await Promise.allSettled(regs.map((reg) => reg.unregister()));
+			}
+			if ('caches' in window) {
+				const keys = await caches.keys();
+				await Promise.allSettled(keys.map((key) => caches.delete(key)));
+			}
+			window.location.reload();
+		} catch (e) {
+			pwaResetError = e instanceof Error ? e.message : String(e);
+			pwaResetBusy = false;
 		}
 	}
 
@@ -564,6 +587,17 @@
 							<span class="text-[var(--app-text-xs)] text-[var(--app-color-danger)]">
 								{t('settings.pwaInstallFailed')}
 							</span>
+						{/if}
+					</div>
+				</AppField>
+
+				<AppField label={t('settings.pwaResetCacheLabel')} description={t('settings.pwaResetCacheDesc')}>
+					<div class="flex flex-wrap items-center gap-2">
+						<AppButton variant="secondary" size="sm" on:click={resetPwaOfflineCache} disabled={pwaResetBusy}>
+							{t('settings.pwaResetCacheButton')}
+						</AppButton>
+						{#if pwaResetError}
+							<span class="text-[var(--app-text-xs)] text-[var(--app-color-danger)]">{pwaResetError}</span>
 						{/if}
 					</div>
 				</AppField>
