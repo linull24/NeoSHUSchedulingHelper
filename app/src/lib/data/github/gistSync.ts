@@ -24,12 +24,13 @@ type GistListItem = {
 async function fetchJson<T>(url: string, token: string): Promise<T> {
 	const response = await fetch(url, {
 		headers: {
-			Authorization: `token ${token}`,
+			Authorization: `Bearer ${token}`,
 			Accept: 'application/vnd.github+json'
 		}
 	});
 	if (!response.ok) {
 		const error = await response.text().catch(() => '');
+		if (response.status === 401) throw new Error('GITHUB_BAD_CREDENTIALS');
 		throw new Error(`GitHub API 请求失败: ${response.status} ${response.statusText} - ${error}`);
 	}
 	return (await response.json()) as T;
@@ -78,7 +79,7 @@ export async function syncGist(config: GistSyncConfig) {
 	};
 
 	const headers = {
-		Authorization: `token ${config.token}`,
+		Authorization: `Bearer ${config.token}`,
 		'Content-Type': 'application/json',
 		Accept: 'application/vnd.github+json'
 	};
@@ -93,6 +94,7 @@ export async function syncGist(config: GistSyncConfig) {
 
 	if (!response.ok) {
 		const error = await response.text();
+		if (response.status === 401) throw new Error('GITHUB_BAD_CREDENTIALS');
 		throw new Error(`Gist 同步失败: ${response.status} ${response.statusText} - ${error}`);
 	}
 
@@ -107,11 +109,12 @@ export async function getGistFileContent(config: { gistId: string; token?: strin
 	const headers: Record<string, string> = {
 		Accept: 'application/vnd.github+json'
 	};
-	if (config.token) headers.Authorization = `token ${config.token}`;
+	if (config.token) headers.Authorization = `Bearer ${config.token}`;
 
 	const response = await fetch(`${API_ROOT}/gists/${config.gistId}`, { headers });
 	if (!response.ok) {
 		const error = await response.text();
+		if (response.status === 401) throw new Error('GITHUB_BAD_CREDENTIALS');
 		throw new Error(`Gist 拉取失败: ${response.status} ${response.statusText} - ${error}`);
 	}
 
@@ -131,9 +134,10 @@ export async function getGistFileContent(config: { gistId: string; token?: strin
 	const rawUrl = typeof file.raw_url === 'string' ? file.raw_url : null;
 	if (!rawUrl) throw new Error(`Gist 文件内容被截断且没有 raw_url: ${config.filename}`);
 
-	const rawResp = await fetch(rawUrl, { headers: config.token ? { Authorization: `token ${config.token}` } : undefined });
+	const rawResp = await fetch(rawUrl, { headers: config.token ? { Authorization: `Bearer ${config.token}` } : undefined });
 	if (!rawResp.ok) {
 		const error = await rawResp.text();
+		if (rawResp.status === 401) throw new Error('GITHUB_BAD_CREDENTIALS');
 		throw new Error(`Gist raw 拉取失败: ${rawResp.status} ${rawResp.statusText} - ${error}`);
 	}
 	return { filename: config.filename, content: await rawResp.text() };

@@ -161,6 +161,16 @@
 		return token;
 	}
 
+	function handleGithubAuthFailure() {
+		clearGithubToken();
+		gistStatus = t('panels.sync.statuses.requireLogin');
+	}
+
+	function isGithubBadCredentials(error: unknown) {
+		const msg = error instanceof Error ? error.message : String(error ?? '');
+		return msg.includes('GITHUB_BAD_CREDENTIALS') || msg.includes('Bad credentials') || msg.includes('401');
+	}
+
 	async function handleGistSync() {
 		const token = requireGithubToken();
 		if (!token) return;
@@ -180,6 +190,10 @@
 			});
 			const dispatchResult = await result;
 			if (!dispatchResult.ok) {
+				if (isGithubBadCredentials(dispatchResult.error)) {
+					handleGithubAuthFailure();
+					return;
+				}
 				gistStatus = format('panels.sync.statuses.syncFailed', { error: dispatchResult.error.message });
 				return;
 			}
@@ -196,11 +210,19 @@
 				return;
 			}
 			if (last?.id.startsWith('sync:export-err:') && details && typeof details.error === 'string') {
+				if (isGithubBadCredentials(details.error)) {
+					handleGithubAuthFailure();
+					return;
+				}
 				gistStatus = format('panels.sync.statuses.syncFailed', { error: details.error });
 				return;
 			}
 			gistStatus = t('panels.sync.statuses.syncDone');
 		} catch (error) {
+			if (isGithubBadCredentials(error)) {
+				handleGithubAuthFailure();
+				return;
+			}
 			gistStatus = format('panels.sync.statuses.syncFailed', {
 				error: error instanceof Error ? error.message : String(error)
 			});
@@ -225,6 +247,10 @@
 			});
 			const dispatchResult = await result;
 			if (!dispatchResult.ok) {
+				if (isGithubBadCredentials(dispatchResult.error)) {
+					handleGithubAuthFailure();
+					return;
+				}
 				confirmError = dispatchResult.error.message;
 				gistStatus = format('panels.sync.statuses.importFailed', { error: dispatchResult.error.message });
 				return;
@@ -243,6 +269,10 @@
 				return;
 			}
 			if (last?.id.startsWith('sync:import-err:') && details && typeof details.error === 'string') {
+				if (isGithubBadCredentials(details.error)) {
+					handleGithubAuthFailure();
+					return;
+				}
 				confirmError = details.error;
 				gistStatus = format('panels.sync.statuses.importFailed', { error: details.error });
 				return;
@@ -250,6 +280,10 @@
 			gistStatus = t('panels.sync.statuses.gistImportDone');
 			confirmOpen = false;
 		} catch (error) {
+			if (isGithubBadCredentials(error)) {
+				handleGithubAuthFailure();
+				return;
+			}
 			const msg = error instanceof Error ? error.message : String(error);
 			confirmError = msg;
 			gistStatus = format('panels.sync.statuses.importFailed', { error: msg });
