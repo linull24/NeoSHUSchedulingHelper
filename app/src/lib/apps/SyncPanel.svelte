@@ -46,6 +46,7 @@
 	$: void ensureTermStateLoaded();
 
 	async function startGithubLogin() {
+		gistStatus = t('panels.sync.statuses.githubAuthorizing');
 		const result = await startGithubPkceLoginPopup();
 		if (!result.ok) gistStatus = t(result.errorKey);
 	}

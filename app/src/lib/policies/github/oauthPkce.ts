@@ -271,6 +271,7 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	};
 
 	let done = false;
+	let popupClosedAt: number | null = null;
 	const closePopup = () => {
 		try {
 			popup.close();
@@ -382,8 +383,19 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	const interval = window.setInterval(() => {
 		if (done) return;
 		if (popup.closed) {
-			cleanup();
+			// Popup may close immediately after writing callback payload (COOP can sever opener messaging).
+			// Keep a short grace period to read the storage fallback before giving up.
+			if (popupClosedAt === null) popupClosedAt = Date.now();
+			const payload = readCallbackFromStorage();
+			if (payload) {
+				clearCallbackStorage();
+				void onCallback(payload);
+				return;
+			}
+			if (Date.now() - popupClosedAt > 2500) cleanup();
 			return;
+		} else {
+			popupClosedAt = null;
 		}
 
 		// If the popup navigates back to our origin, try to read its URL and complete the callback here.
