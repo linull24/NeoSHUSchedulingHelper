@@ -43,8 +43,11 @@ function withBasePath(path: string): string {
 	const raw = String(path || '').trim();
 	if (!raw) return raw;
 	if (/^https?:\/\//.test(raw)) return raw;
+	const basePath = String(base || '');
 	const normalized = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
-	return `${base || ''}${normalized}`;
+	// Guard against accidental double-prefixing (e.g. passing `${base}/...` into this helper again).
+	if (basePath && (normalized === basePath || normalized.startsWith(`${basePath}/`))) return normalized;
+	return `${basePath}${normalized}`;
 }
 
 function pickBestTermIdFromManifest(termIdOrCode: string, manifest: CurrentManifestEntry[]): string | null {
