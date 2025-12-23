@@ -45,8 +45,9 @@ export const parser2025Spring: CourseParser = {
 			timezone: 'Asia/Shanghai'
 		};
 		const calendar = extendCalendar(baseCalendar, stats);
-		// 2025-16 is a 16-week term; this value affects upper/lower splitting for clip-path rendering.
-		const weeks = stats.maxWeek > 0 ? stats.maxWeek : 16;
+		// 2025-16 is a 16-week term; do NOT infer the term length from week tokens, as some entries may
+		// contain out-of-band numbers that would break half-term classification (e.g. 9-16 should be 下半学期).
+		const weeks = 16;
 
 		const courses = new Map<string, CourseRecord>();
 		const courseHashMap = new Map<string, string>();
@@ -315,14 +316,16 @@ function projectToMatrix(chunks: ScheduleChunk[], calendar: CalendarConfig, maxW
 
 function buildWeekPattern(descriptor: WeekDescriptor, maxWeeks: number): WeekPattern {
 	const weeks = expandWeeks(descriptor, maxWeeks);
-	const half = Math.ceil(maxWeeks / 2);
+	// SHU half-term convention: the "second half" starts at week floor(maxWeeks/2)+1.
+	// Example (16 weeks): upper = 1-8, lower = 9-16, so "9-16" should be 下半学期.
+	const secondHalfStart = Math.floor(maxWeeks / 2) + 1;
 
 	const span: WeekPattern['span'] =
 		!weeks || weeks.length === 0
 			? '全学期'
-			: weeks.every((week) => week <= half)
+			: weeks.every((week) => week < secondHalfStart)
 				? '上半学期'
-				: weeks.every((week) => week > half)
+				: weeks.every((week) => week >= secondHalfStart)
 					? '下半学期'
 					: '全学期';
 

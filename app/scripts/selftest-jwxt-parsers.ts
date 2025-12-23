@@ -9,6 +9,7 @@ import {
 	parseSelectionRoundTabs,
 	parseEnrollmentBreakdownHtml
 } from '../shared/jwxtCrawler';
+import { resolveParser } from '../src/lib/data/parsers';
 
 async function readFixture(relativePathFromRepoRoot: string): Promise<string> {
 	const __filename = fileURLToPath(import.meta.url);
@@ -47,6 +48,36 @@ async function main() {
 	assert.ok(breakdown.items.length >= 3, 'breakdown should include multiple rows');
 	assert.equal(breakdown.total, 18, 'breakdown total should parse');
 	assert.equal(breakdown.userBatchLabel, '其他已选人数', 'should capture ★ user batch label');
+
+	{
+		const parser = resolveParser('2025-2026 春');
+		assert.ok(parser, 'should resolve 2025Spring parser');
+		const raw = {
+			backendOrigin: 'selftest',
+			termName: '2025-2026 春',
+			updateTimeMs: Date.now(),
+			hash: 'selftest',
+			courses: [
+				{
+					courseId: 'C1',
+					courseName: '编译原理',
+					credit: '1',
+					teacherId: 'T1',
+					teacherName: 'Teacher',
+					classTime: '星期一第1节{第9-16周}',
+					campus: '宝山',
+					position: 'A-101',
+					capacity: '1',
+					number: '0',
+					limitations: [],
+					teachingClassId: 'S1'
+				}
+			]
+		};
+		const data = parser.parse(raw as any);
+		const slot = data.courses[0]!.sections[0]!.classtime[0]![0]!;
+		assert.equal(slot.weekPattern.span, '下半学期', '9-16 weeks should be 下半学期');
+	}
 
 	// eslint-disable-next-line no-console
 	console.log('[selftest] jwxt parsers ok');
