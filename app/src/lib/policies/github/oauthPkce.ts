@@ -1,10 +1,12 @@
 import { base } from '$app/paths';
-import { browser, dev } from '$app/environment';
+import { browser } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
 import { z } from 'zod';
 import { setGithubToken } from '../../stores/githubAuth';
 
 const SESSION_PREFIX = 'github:oauth:pkce:';
+const CALLBACK_KEY = 'github:oauth:pkce:callback';
+const CALLBACK_TTL_MS = 2 * 60 * 1000;
 
 const GithubPkceSessionSchema = z.object({
 	verifier: z.string().min(32),
@@ -61,11 +63,6 @@ export function getGithubPkceAvailability(): GithubPkceAvailability {
 }
 
 export type GithubPkceCodePayload = { code: string; state: string };
-
-export function getGithubManualTokenAllowed() {
-	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	return Boolean(dev) || Boolean(publicEnv.PUBLIC_GITHUB_ALLOW_MANUAL_TOKEN);
-}
 
 export type GithubPkceStartResult =
 	| { ok: true }
@@ -264,6 +261,7 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 		if (done) return;
 		done = true;
 		window.removeEventListener('message', handleMessage);
+		window.removeEventListener('storage', handleStorage);
 		channel?.removeEventListener('message', handleChannelMessage as any);
 		channel?.close();
 		clearInterval(interval);
@@ -309,11 +307,43 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 		cleanup();
 	};
 
+	const readCallbackFromStorage = () => {
+		try {
+			const raw = localStorage.getItem(CALLBACK_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			const code = typeof parsed?.code === 'string' ? parsed.code.trim() : '';
+			const state = typeof parsed?.state === 'string' ? parsed.state.trim() : '';
+			const createdAt = typeof parsed?.createdAt === 'number' ? parsed.createdAt : 0;
+			if (!code || !state) return null;
+			if (!createdAt || Date.now() - createdAt > CALLBACK_TTL_MS) return null;
+			return { code, state };
+		} catch {
+			return null;
+		}
+	};
+
+	const clearCallbackStorage = () => {
+		try {
+			localStorage.removeItem(CALLBACK_KEY);
+		} catch {
+			// ignore
+		}
+	};
+
 	const handleMessage = (event: MessageEvent) => {
 		if (event.origin !== window.location.origin) return;
 		if (event.data?.type === 'github-oauth-code' && event.data.code && event.data.state) {
 			void onCallback({ code: event.data.code, state: event.data.state });
 		}
+	};
+
+	const handleStorage = (event: StorageEvent) => {
+		if (event.key !== CALLBACK_KEY) return;
+		const payload = readCallbackFromStorage();
+		if (!payload) return;
+		clearCallbackStorage();
+		void onCallback(payload);
 	};
 
 	const handleChannelMessage = (event: MessageEvent) => {
@@ -324,6 +354,7 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	};
 
 	window.addEventListener('message', handleMessage);
+	window.addEventListener('storage', handleStorage);
 	channel?.addEventListener('message', handleChannelMessage as any);
 
 	const interval = window.setInterval(() => {
@@ -343,6 +374,12 @@ function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 			if (code && state) void onCallback({ code, state });
 		} catch {
 			// ignore (cross-origin until it returns to our site)
+		}
+
+		const payload = readCallbackFromStorage();
+		if (payload) {
+			clearCallbackStorage();
+			void onCallback(payload);
 		}
 	}, 350);
 

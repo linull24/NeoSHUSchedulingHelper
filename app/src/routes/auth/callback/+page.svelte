@@ -48,6 +48,25 @@
 		if (!code || !state) return;
 
 		try {
+			localStorage.setItem(
+				'github:oauth:pkce:callback',
+				JSON.stringify({ code, state, createdAt: Date.now() })
+			);
+			setTimeout(() => {
+				try {
+					const raw = localStorage.getItem('github:oauth:pkce:callback');
+					if (!raw) return;
+					const parsed = JSON.parse(raw);
+					if (parsed?.code === code && parsed?.state === state) localStorage.removeItem('github:oauth:pkce:callback');
+				} catch {
+					// ignore
+				}
+			}, 10_000);
+		} catch {
+			// ignore
+		}
+
+		try {
 			window.opener?.postMessage({ type: 'github-oauth-code', code, state }, window.location.origin);
 		} catch {
 			// ignore
