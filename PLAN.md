@@ -48,6 +48,10 @@
 
 - GitHub Pages（静态部署）环境下，浏览器端无法对 `https://github.com/login/oauth/access_token` 进行 CORS token exchange（`TypeError: Failed to fetch`）。要继续使用 PKCE（不落 client_secret），需要一个 token-exchange 代理（例如 Cloudflare Worker `oauth-proxy/`），并在构建/部署环境中配置 `PUBLIC_GITHUB_OAUTH_PROXY_URL`。refs: `spec://core-mcp#chunk-01`, `spec://change/GIST-OAUTH-PKCE-1#chunk-01`
 
+## Notes (2025-12-23)
+
+- Gist OAuth（PKCE）回调交付进一步加固：`/auth/callback` 写入临时 localStorage key `github:oauth:pkce:callback`（`{code,state,createdAt}`，TTL 2min），opener 侧通过 `storage` 事件 + polling 兜底读取并清理；同时移除剩余“手动 token”相关入口。refs: `spec://core-mcp#chunk-01`, `spec://change/GIST-OAUTH-PKCE-1#chunk-01`
+
 ## Handoff Notes (2025-12-20)
 
 本分支目前 **可 build**（`npm --prefix app run check` PASS），但有两类用户可感知问题仍未闭环：
