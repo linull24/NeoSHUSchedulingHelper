@@ -65,12 +65,12 @@ async function handleToken(request: Request, env: Env): Promise<Response> {
 		return withCors(request, env, new Response('Missing required fields', { status: 400 }));
 	}
 
-	// Optional hardening: if the worker is configured with a fixed client_id, reject mismatches.
-	if (configuredClientId && payloadClientId && configuredClientId !== payloadClientId) {
-		return withCors(request, env, new Response('Invalid client_id', { status: 400 }));
-	}
+	// Hardening: if a fixed client_id is configured, always use it and ignore any caller-provided client_id.
+	// This prevents stale frontend bundles (or user tampering) from breaking token exchange with "Invalid client_id".
+	// Origin restriction still applies via ALLOWED_ORIGINS, and the GitHub secret remains server-side only.
+	const effectiveClientId = configuredClientId || client_id;
 
-	const params = new URLSearchParams({ client_id, code, redirect_uri, code_verifier });
+	const params = new URLSearchParams({ client_id: effectiveClientId, code, redirect_uri, code_verifier });
 	const clientSecret = String(env.GITHUB_CLIENT_SECRET || '').trim();
 	if (clientSecret) params.set('client_secret', clientSecret);
 
