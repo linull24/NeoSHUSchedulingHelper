@@ -22,6 +22,9 @@ jobs:
     # - Therefore, the follow-up bot commit should NOT trigger another build+deploy cycle.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    # JWXT crawl credentials are stored as environment secrets under `github-pages`.
+    environment:
+      name: github-pages
     defaults:
       run:
         working-directory: app
