@@ -159,11 +159,20 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 		safeRemoveLocalStorage(sessionKey);
 	}
 
-	const availability = getGithubPkceAvailability();
-	if (!availability.supported) return { ok: false, errorKey: 'errors.githubPkceUnsupported' };
-	if (normalizeRedirectUri(availability.redirectUri) !== normalizeRedirectUri(session.redirectUri)) {
+	// State-keyed session storage already provides CSRF protection.
+	// Additional redirect_uri equality checks are brittle on GitHub Pages (base path + caching + 404 fallback).
+	// We only require same-origin to avoid mixing sessions across sites.
+	try {
+		const expectedOrigin = window.location.origin;
+		if (new URL(session.redirectUri).origin !== expectedOrigin) {
+			return { ok: false, errorKey: 'errors.githubStateValidation' };
+		}
+	} catch {
 		return { ok: false, errorKey: 'errors.githubStateValidation' };
 	}
+
+	const availability = getGithubPkceAvailability();
+	if (!availability.supported) return { ok: false, errorKey: 'errors.githubPkceUnsupported' };
 
 	try {
 		const proxyUrl = getOauthProxyUrl();
