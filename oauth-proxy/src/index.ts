@@ -52,18 +52,21 @@ async function handleToken(request: Request, env: Env): Promise<Response> {
 		return withCors(request, env, new Response('Invalid JSON', { status: 400 }));
 	}
 
-	const client_id = typeof payload?.client_id === 'string' ? payload.client_id.trim() : '';
+	const payloadClientId = typeof payload?.client_id === 'string' ? payload.client_id.trim() : '';
 	const code = typeof payload?.code === 'string' ? payload.code.trim() : '';
 	const redirect_uri = typeof payload?.redirect_uri === 'string' ? payload.redirect_uri.trim() : '';
 	const code_verifier = typeof payload?.code_verifier === 'string' ? payload.code_verifier.trim() : '';
+
+	// If the worker is configured with a fixed client_id, prefer it and allow callers to omit client_id entirely.
+	const configuredClientId = String(env.GITHUB_CLIENT_ID || '').trim();
+	const client_id = payloadClientId || configuredClientId;
 
 	if (!client_id || !code || !redirect_uri || !code_verifier) {
 		return withCors(request, env, new Response('Missing required fields', { status: 400 }));
 	}
 
 	// Optional hardening: if the worker is configured with a fixed client_id, reject mismatches.
-	const configuredClientId = String(env.GITHUB_CLIENT_ID || '').trim();
-	if (configuredClientId && configuredClientId !== client_id) {
+	if (configuredClientId && payloadClientId && configuredClientId !== payloadClientId) {
 		return withCors(request, env, new Response('Invalid client_id', { status: 400 }));
 	}
 

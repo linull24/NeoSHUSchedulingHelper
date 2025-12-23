@@ -74,7 +74,7 @@ async function fetchBundledJson<T>(path: string): Promise<T | null> {
 
 async function readBundledCurrentEntries(): Promise<CurrentTermEntry[] | null> {
 	if (!browser) return null;
-	return fetchBundledJson<CurrentTermEntry[]>(withBasePath('/crawler/data/current.json'));
+	return fetchBundledJson<CurrentTermEntry[]>('/crawler/data/current.json');
 }
 
 async function readBundledTermSnapshotText(termId: string): Promise<string | null> {

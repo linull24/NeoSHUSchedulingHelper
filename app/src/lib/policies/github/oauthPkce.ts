@@ -178,7 +178,6 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				client_id: availability.clientId,
 				code,
 				redirect_uri: session.redirectUri,
 				code_verifier: session.verifier
