@@ -52,12 +52,14 @@ export function getGithubPkceAvailability(): GithubPkceAvailability {
 	// GitHub Pages needs an OAuth proxy (GitHub's token endpoint is not CORS-enabled).
 	if (isGithubPagesHost() && !getOauthProxyUrl()) return { supported: false, reason: 'unsupportedRuntime' };
 
-	// IMPORTANT (GitHub Pages):
-	// adapter-static writes `auth/callback/index.html`, which requires a trailing slash when accessed directly.
-	// Without it, GitHub Pages falls back to `404.html`, and the callback runtime won't load reliably.
-	const redirectUri = new URL(`${base}/auth/callback/`, window.location.origin).toString();
+	// Use a stable redirectUri (no trailing slash) to match typical GitHub OAuth app settings.
+	// GitHub Pages will serve `404.html` for `/auth/callback`, and SvelteKit can still route it
+	// as long as asset paths are base-aware (see `app/src/app.html`).
+	const redirectUri = new URL(`${base}/auth/callback`, window.location.origin).toString();
 	return { supported: true, clientId, redirectUri };
 }
+
+export type GithubPkceCodePayload = { code: string; state: string };
 
 export function getGithubManualTokenAllowed() {
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -105,9 +107,10 @@ export async function startGithubPkceLoginPopup(): Promise<GithubPkceStartResult
 	const popup = openCenteredPopup(authorizeUrl.toString(), 'github-login', 520, 640);
 	if (!popup) return { ok: false, errorKey: 'errors.githubPopupBlocked' };
 
-	// Best-effort: close popup from the opener side once the token is delivered.
-	// (Callback page may be unable to close itself depending on browser policies.)
-	attachPopupAutoClose(popup);
+	// Best-effort: complete the OAuth callback from the opener side.
+	// This is more reliable on GitHub Pages because `/auth/callback` may be served via `404.html` fallback,
+	// and GitHub's COOP headers can sever `window.opener` in the popup.
+	attachPopupCallbackCoordinator(popup, availability.redirectUri);
 	return { ok: true };
 }
 
@@ -232,11 +235,20 @@ function openCenteredPopup(url: string, name: string, width: number, height: num
 	return window.open(url, name, `width=${width},height=${height},left=${left},top=${top}`);
 }
 
-function attachPopupAutoClose(popup: Window) {
+function attachPopupCallbackCoordinator(popup: Window, redirectUri: string) {
 	if (!browser) return;
 
 	const channelName = 'neoxk:github-oauth';
 	const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(channelName);
+	const notifyError = (payload: { errorKey: string; values?: Record<string, string> }) => {
+		try {
+			const outbound = new BroadcastChannel(channelName);
+			outbound.postMessage({ type: 'github-oauth-error', ...payload });
+			outbound.close();
+		} catch {
+			// ignore
+		}
+	};
 
 	let done = false;
 	const closePopup = () => {
@@ -251,39 +263,60 @@ function attachPopupAutoClose(popup: Window) {
 		if (done) return;
 		done = true;
 		window.removeEventListener('message', handleMessage);
-		window.removeEventListener('storage', handleStorage);
 		channel?.removeEventListener('message', handleChannelMessage as any);
 		channel?.close();
 		clearInterval(interval);
 		clearTimeout(timeout);
 	};
 
-	const onToken = (token: unknown) => {
-		const value = typeof token === 'string' ? token.trim() : '';
+	const deliverToken = (token: string) => {
+		const value = token.trim();
 		if (!value) return;
+		try {
+			const outbound = new BroadcastChannel(channelName);
+			outbound.postMessage({ type: 'github-token', token: value });
+			outbound.close();
+		} catch {
+			// ignore
+		}
+	};
+
+	const onCallback = async (payload: { code: string; state: string }) => {
+		if (done) return;
+		const code = String(payload.code || '').trim();
+		const state = String(payload.state || '').trim();
+		if (!code || !state) return;
+
+		const callbackUrl = new URL(redirectUri);
+		callbackUrl.searchParams.set('code', code);
+		callbackUrl.searchParams.set('state', state);
+
+		const result = await completeGithubPkceCallback(callbackUrl);
+		if (!result.ok) {
+			notifyError({ errorKey: result.errorKey, values: result.values });
+			return;
+		}
+		deliverToken(result.token);
 		closePopup();
-		// A second close attempt helps on some browsers.
 		setTimeout(closePopup, 100);
 		cleanup();
 	};
 
 	const handleMessage = (event: MessageEvent) => {
 		if (event.origin !== window.location.origin) return;
-		if (event.data?.type === 'github-token' && event.data.token) onToken(event.data.token);
-	};
-
-	const handleStorage = (event: StorageEvent) => {
-		if (event.key !== 'githubToken') return;
-		if (event.newValue) onToken(event.newValue);
+		if (event.data?.type === 'github-oauth-code' && event.data.code && event.data.state) {
+			void onCallback({ code: event.data.code, state: event.data.state });
+		}
 	};
 
 	const handleChannelMessage = (event: MessageEvent) => {
 		const data = (event as MessageEvent).data as any;
-		if (data?.type === 'github-token' && data.token) onToken(data.token);
+		if (data?.type === 'github-oauth-code' && data.code && data.state) {
+			void onCallback({ code: data.code, state: data.state });
+		}
 	};
 
 	window.addEventListener('message', handleMessage);
-	window.addEventListener('storage', handleStorage);
 	channel?.addEventListener('message', handleChannelMessage as any);
 
 	const interval = window.setInterval(() => {
@@ -292,11 +325,17 @@ function attachPopupAutoClose(popup: Window) {
 			cleanup();
 			return;
 		}
+
+		// If the popup navigates back to our origin, try to read its URL and complete the callback here.
 		try {
-			const token = localStorage.getItem('githubToken');
-			if (token) onToken(token);
+			const href = popup.location.href;
+			if (!href) return;
+			const url = new URL(href);
+			const code = url.searchParams.get('code');
+			const state = url.searchParams.get('state');
+			if (code && state) void onCallback({ code, state });
 		} catch {
-			// ignore
+			// ignore (cross-origin until it returns to our site)
 		}
 	}, 350);
 

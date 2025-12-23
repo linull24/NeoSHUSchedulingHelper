@@ -1,6 +1,13 @@
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
+function resolveBasePath() {
+	const explicit = process.env.BASE_PATH;
+	if (explicit != null) return explicit;
+	const repo = process.env.GITHUB_REPOSITORY?.split('/')?.[1];
+	return repo ? `/${repo}` : '';
+}
+
 const config = {
 	preprocess: vitePreprocess(),
 
@@ -13,7 +20,7 @@ const config = {
 			strict: true
 		}),
 		paths: {
-			base: process.env.BASE_PATH ?? '',
+			base: resolveBasePath(),
 			relative: false
 		},
 		prerender: {

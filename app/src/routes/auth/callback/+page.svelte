@@ -18,20 +18,53 @@
 	onMount(async () => {
 		status = t('panels.sync.statuses.githubAuthorizing');
 
-		const result = await completeGithubPkceCallback(new URL(window.location.href));
+		// Prefer delivering the code/state to the opener, and let the opener complete the token exchange.
+		// This avoids relying on `window.opener` (may be severed by COOP) and avoids CORS in the popup.
+		const url = new URL(window.location.href);
+		const code = url.searchParams.get('code');
+		const state = url.searchParams.get('state');
+
+		if (code && state) {
+			deliverCallback({ code, state });
+			status = t('panels.sync.statuses.githubLoginSuccess');
+			setTimeout(() => tryCloseOrFallback(), 350);
+			return;
+		}
+
+		const result = await completeGithubPkceCallback(url);
 		if (!result.ok) {
 			status = t(result.errorKey, result.values);
-			// Even on failure, avoid leaving users stuck in a popup/tab.
 			setTimeout(() => tryCloseOrFallback(), 700);
 			return;
 		}
 
 		token = result.token;
 		status = t('panels.sync.statuses.githubLoginSuccess');
-
 		deliverToken(token);
 		tryCloseOrFallback();
 	});
+
+	function deliverCallback(payload: { code: string; state: string }) {
+		const code = String(payload.code || '').trim();
+		const state = String(payload.state || '').trim();
+		if (!code || !state) return;
+
+		try {
+			window.opener?.postMessage({ type: 'github-oauth-code', code, state }, window.location.origin);
+		} catch {
+			// ignore
+		}
+
+		try {
+			if (typeof BroadcastChannel !== 'undefined') {
+				const channel = new BroadcastChannel('neoxk:github-oauth');
+				channel.postMessage({ type: 'github-oauth-code', code, state });
+				channel.close();
+			}
+		} catch {
+			// ignore
+		}
+	}
 
 	function deliverToken(tokenValue: string) {
 		const trimmed = String(tokenValue || '').trim();

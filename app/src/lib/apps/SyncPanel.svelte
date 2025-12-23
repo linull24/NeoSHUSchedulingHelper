@@ -59,6 +59,14 @@
 					? 'panels.sync.loginUnavailableHint'
 					: 'errors.githubPkceUnsupported';
 
+		const formatMessage = (key: string, values?: Record<string, string>) => {
+			try {
+				return t(key, values);
+			} catch {
+				return t(key);
+			}
+		};
+
 		function applyGithubToken(token: string) {
 			const trimmed = String(token || '').trim();
 			if (!trimmed) return;
@@ -70,6 +78,9 @@
 			if (event.origin !== window.location.origin) return;
 			if (event.data?.type === 'github-token' && event.data.token) {
 				applyGithubToken(event.data.token);
+			}
+			if (event.data?.type === 'github-oauth-error' && event.data.errorKey) {
+				gistStatus = formatMessage(String(event.data.errorKey), event.data.values);
 			}
 		}
 
@@ -87,6 +98,9 @@
 		function handleChannelMessage(event: MessageEvent) {
 			const data = (event as MessageEvent).data as any;
 			if (data?.type === 'github-token' && data.token) applyGithubToken(data.token);
+			if (data?.type === 'github-oauth-error' && data.errorKey) {
+				gistStatus = formatMessage(String(data.errorKey), data.values);
+			}
 		}
 		channel?.addEventListener('message', handleChannelMessage as any);
 

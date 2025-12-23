@@ -23,7 +23,9 @@ export interface DatasetConfig {
 
 const DEFAULT_DATASET_CONFIG: DatasetConfig = {
 	termId: '2025-16',
-	snapshotPath: '/crawler/data/terms/2025-16.json',
+	// Leave empty by default; runtime resolver will pick the latest matching term from
+	// `static/crawler/data/current.json` (bundled into SSG builds).
+	snapshotPath: '',
 	parserId: '2025Spring',
 	seedSelectionIds: []
 };

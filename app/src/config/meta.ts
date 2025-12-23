@@ -1,3 +1,5 @@
+import { base } from '$app/paths';
+
 export interface MetaLink {
 	id: string;
 	labelKey: string;
@@ -33,7 +35,7 @@ const DEFAULT_META_CONFIG: AppMetaConfig = {
 	productBylineKey: 'meta.productByline',
 	homepage: 'https://xk.shuosc.com',
 	branding: {
-		iconSrc: '/icons/shuosc.png',
+		iconSrc: `${base || ''}/icons/shuosc.png`,
 		iconAltKey: 'meta.productIconAlt'
 	},
 	about: {
