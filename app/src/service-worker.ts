@@ -55,10 +55,28 @@ self.addEventListener('activate', (event) => {
 	);
 });
 
+self.addEventListener('message', (event) => {
+	if (!event.data || typeof event.data !== 'object') return;
+	if ((event.data as any).type === 'SKIP_WAITING') {
+		self.skipWaiting();
+	}
+});
+
 self.addEventListener('fetch', (event) => {
 	if (event.request.method !== 'GET') return;
 	const url = new URL(event.request.url);
 	if (url.origin !== self.location.origin) return;
+
+	// Always fetch env from network to avoid stale config (clientId/proxy URL) after deployments.
+	if (url.pathname.endsWith('/_app/env.js')) {
+		event.respondWith(
+			(async () => {
+				const response = await fetch(event.request, { cache: 'no-store' });
+				return withIsolationHeaders(response);
+			})()
+		);
+		return;
+	}
 
 	event.respondWith(
 		(async () => {
