@@ -171,6 +171,9 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 			return { ok: false, errorKey: 'errors.githubPkceUnsupported' };
 		}
 
+		const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+		const timeout = setTimeout(() => controller?.abort(), 12_000);
+
 		const tokenResponse = await fetch(proxyUrl, {
 			method: 'POST',
 			headers: {
@@ -181,8 +184,10 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 				code,
 				redirect_uri: session.redirectUri,
 				code_verifier: session.verifier
-			})
+			}),
+			signal: controller?.signal
 		});
+		clearTimeout(timeout);
 
 		if (!tokenResponse.ok) {
 			const text = await tokenResponse.text().catch(() => '');

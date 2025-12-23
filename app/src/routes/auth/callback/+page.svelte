@@ -13,26 +13,39 @@
 
 	let status = '';
 	let closeBlocked = false;
+	const ERROR_KEY = 'github:oauth:pkce:lastError';
 
 	onMount(async () => {
 		status = t('panels.sync.statuses.githubAuthorizing');
 
-		// Prefer delivering the code/state to the opener, and let the opener complete the token exchange.
-		// This avoids relying on `window.opener` (may be severed by COOP) and avoids CORS in the popup.
 		const url = new URL(window.location.href);
 		const code = url.searchParams.get('code');
 		const state = url.searchParams.get('state');
 
+		// Always deliver callback info (code/state) immediately.
+		// Then attempt token exchange in the background. This prevents the popup from hanging on slow/broken exchanges
+		// while still allowing the opener to complete the flow.
 		if (code && state) {
 			deliverCallback({ code, state });
-			status = t('panels.sync.statuses.githubLoginSuccess');
 			setTimeout(() => tryCloseOrFallback(), 350);
+
+			void (async () => {
+				const result = await completeGithubPkceCallback(url);
+				if (!result.ok) {
+					status = t(result.errorKey, result.values);
+					notifyOauthError(result.errorKey, result.values);
+					return;
+				}
+				status = t('panels.sync.statuses.githubLoginSuccess');
+				deliverToken(result.token);
+			})();
 			return;
 		}
 
 		const result = await completeGithubPkceCallback(url);
 		if (!result.ok) {
 			status = t(result.errorKey, result.values);
+			notifyOauthError(result.errorKey, result.values);
 			setTimeout(() => tryCloseOrFallback(), 700);
 			return;
 		}
@@ -76,6 +89,37 @@
 			if (typeof BroadcastChannel !== 'undefined') {
 				const channel = new BroadcastChannel('neoxk:github-oauth');
 				channel.postMessage({ type: 'github-oauth-code', code, state });
+				channel.close();
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	function notifyOauthError(errorKey: string, values?: Record<string, string>) {
+		try {
+			localStorage.setItem(
+				ERROR_KEY,
+				JSON.stringify({
+					errorKey: String(errorKey || ''),
+					values: values ?? undefined,
+					createdAt: Date.now()
+				})
+			);
+		} catch {
+			// ignore
+		}
+
+		try {
+			window.opener?.postMessage({ type: 'github-oauth-error', errorKey, values }, window.location.origin);
+		} catch {
+			// ignore
+		}
+
+		try {
+			if (typeof BroadcastChannel !== 'undefined') {
+				const channel = new BroadcastChannel('neoxk:github-oauth');
+				channel.postMessage({ type: 'github-oauth-error', errorKey, values });
 				channel.close();
 			}
 		} catch {
