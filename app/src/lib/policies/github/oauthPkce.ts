@@ -2,7 +2,7 @@ import { base } from '$app/paths';
 import { browser, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
 import { z } from 'zod';
-import { setGithubToken } from '$lib/stores/githubAuth';
+import { setGithubToken } from '../../stores/githubAuth';
 
 const SESSION_PREFIX = 'github:oauth:pkce:';
 
