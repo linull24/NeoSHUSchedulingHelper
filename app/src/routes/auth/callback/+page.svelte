@@ -12,7 +12,6 @@
 	$: t = $translator;
 
 	let status = '';
-	let token: string | null = null;
 	let closeBlocked = false;
 
 	onMount(async () => {
@@ -38,9 +37,8 @@
 			return;
 		}
 
-		token = result.token;
 		status = t('panels.sync.statuses.githubLoginSuccess');
-		deliverToken(token);
+		deliverToken(result.token);
 		tryCloseOrFallback();
 	});
 
@@ -119,15 +117,6 @@
 		}, 400);
 	}
 
-	async function copyToken() {
-		if (!token) return;
-		try {
-			await navigator.clipboard.writeText(token);
-			status = t('panels.sync.statuses.copySuccess');
-		} catch {
-			status = token;
-		}
-	}
 </script>
 
 <main class="min-h-dvh flex items-center justify-center bg-[var(--app-color-bg)] p-6">
@@ -135,19 +124,11 @@
 		<h1 class="m-0 text-[var(--app-text-lg)] font-semibold text-[var(--app-color-fg)]">{t('panels.sync.gistTitle')}</h1>
 		<p class="mt-2 text-[var(--app-text-sm)] text-[var(--app-color-fg-muted)]">{status}</p>
 
-		{#if token}
+		{#if closeBlocked}
 			<div class="mt-4 flex flex-wrap items-center gap-2">
-				<AppButton type="button" variant="primary" size="sm" on:click={copyToken}>
-					{t('panels.sync.copyButton')}
+				<AppButton type="button" variant="secondary" size="sm" on:click={tryCloseOrFallback}>
+					{t('panels.sync.closeWindow')}
 				</AppButton>
-				{#if closeBlocked}
-					<AppButton type="button" variant="secondary" size="sm" on:click={tryCloseOrFallback}>
-						{t('panels.sync.closeWindow')}
-					</AppButton>
-				{/if}
-				<span class="text-[var(--app-text-xs)] text-[var(--app-color-fg-muted)]">
-					{t('panels.sync.tokenHint')}
-				</span>
 			</div>
 		{/if}
 	</section>

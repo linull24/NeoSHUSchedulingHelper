@@ -117,7 +117,7 @@
 	function requireGithubToken() {
 		const token = get(githubToken);
 		if (!token) {
-			gistStatus = t('panels.sync.statuses.tokenRequired');
+			gistStatus = t('panels.sync.statuses.requireLogin');
 		}
 		return token;
 	}
