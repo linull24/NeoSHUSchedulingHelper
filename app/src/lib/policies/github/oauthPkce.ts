@@ -31,6 +31,18 @@ function getOauthProxyUrl() {
 	}
 }
 
+function normalizeRedirectUri(value: string) {
+	try {
+		const url = new URL(value);
+		url.hash = '';
+		url.search = '';
+		const pathname = url.pathname.replace(/\/+$/, '');
+		return `${url.origin}${pathname}`;
+	} catch {
+		return String(value || '').replace(/\/+$/, '');
+	}
+}
+
 export function getGithubPkceAvailability(): GithubPkceAvailability {
 	if (!browser) return { supported: false, reason: 'unsupportedRuntime' };
 	const clientId = publicEnv.PUBLIC_GITHUB_CLIENT_ID;
@@ -147,7 +159,7 @@ export async function completeGithubPkceCallback(url: URL): Promise<GithubPkceCa
 
 	const availability = getGithubPkceAvailability();
 	if (!availability.supported) return { ok: false, errorKey: 'errors.githubPkceUnsupported' };
-	if (availability.redirectUri !== session.redirectUri) {
+	if (normalizeRedirectUri(availability.redirectUri) !== normalizeRedirectUri(session.redirectUri)) {
 		return { ok: false, errorKey: 'errors.githubStateValidation' };
 	}
 

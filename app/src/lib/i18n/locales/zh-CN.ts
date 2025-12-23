@@ -47,7 +47,7 @@ export const zhCN = {
     weekendDesc: '默认隐藏周六日，如有周末课程或需展示可开启。',
     weekendOn: '显示周末',
     weekendOff: '隐藏周末',
-    languageLabel: '界面语言',
+    languageLabel: '语言',
     languageDesc: '切换 UI 语言，立刻生效。',
     languageOptions: {
       auto: '自动（跟随系统/插件）',
@@ -926,7 +926,7 @@ export const zhCN = {
       currentTerm: '当前学期：{term}',
       storageTitle: '当前设置快照',
       storageDescription: '以下是当前浏览器存储的偏好设置，供参考或调试。',
-      storageLanguage: '界面语言：{locale}',
+      storageLanguage: '语言：{locale}',
       storageTheme: '主题：{theme}',
       storagePagination: '分页：{mode}，每页 {size} 条，邻近 {neighbors} 页',
       storageSelectionMode: '选课模式：{mode}',
@@ -1186,7 +1186,7 @@ export const zhCN = {
     progress: '步骤 {current}/{total}',
     termLabel: '学期：{term}',
     language: {
-      body: '请选择界面语言。',
+      body: '请选择语言。',
       hint: '选择“自动”会跟随系统语言。你也可以在设置中随时修改。',
       options: {
         auto: '自动',
